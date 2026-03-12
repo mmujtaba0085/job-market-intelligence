@@ -1,0 +1,39 @@
+# HTTP + parsing
+requests>=2.31
+lxml>=5.1
+beautifulsoup4>=4.12
+
+# Date handling
+python-dateutil>=2.9
+
+# Retry logic for flaky API calls
+tenacity>=8.2
+
+# Data processing + templating
+pandas>=2.2
+jinja2>=3.1
+
+# Environment variables
+python-dotenv>=1.0
+
+# Progress display (dev convenience)
+tqdm>=4.66
+
+# Charting / image exports (optional, for future Substack images)
+matplotlib>=3.8
+
+# Testing
+pytest>=8.0
+
+# Local scheduling
+schedule>=1.2
+
+# Web viewer
+flask>=3.0
+
+# Geocoding for country detection
+geopy>=2.4
+
+# Google Sheets API
+google-auth>=2.35
+google-api-python-client>=2.149

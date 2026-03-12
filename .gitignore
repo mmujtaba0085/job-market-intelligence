@@ -1,0 +1,53 @@
+# ----------------------------
+# Secrets / credentials
+# ----------------------------
+.env
+.env.*
+!.env.example
+!.env.tracker.example
+
+# Google service account keys and similar credentials
+config/job-market-intelligence-*.json
+config/*service-account*.json
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ----------------------------
+# Python virtual env + caches
+# ----------------------------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ----------------------------
+# Local data / generated files
+# ----------------------------
+data/*.sqlite
+data/*.sqlite-*
+data/*.db
+data/cache/
+data/backups/
+data/findwork_crawler_state.json
+logs/
+outputs/
+
+# ----------------------------
+# OS / editor
+# ----------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ----------------------------
+# Optional local artifacts
+# ----------------------------
+*.log

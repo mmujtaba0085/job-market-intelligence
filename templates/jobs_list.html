@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+
+{% block title %}Jobs - Job Market Intelligence{% endblock %}
+
+{% block extra_styles %}
+<style>
+    /* Make table responsive with controlled column widths */
+    table {
+        table-layout: fixed;
+        width: 100%;
+    }
+    
+    /* Apply text wrapping and overflow handling to all cells */
+    th, td {
+        overflow: hidden;
+        word-wrap: break-word;
+        word-break: break-word;
+    }
+    
+    /* Specific column width allocations (8 columns total) */
+    th:nth-child(1), td:nth-child(1) { /* Title */
+        width: 30%;
+        min-width: 200px;
+    }
+    th:nth-child(2), td:nth-child(2) { /* Company */
+        width: 15%;
+        min-width: 120px;
+    }
+    th:nth-child(3), td:nth-child(3) { /* Location */
+        width: 12%;
+        min-width: 100px;
+    }
+    th:nth-child(4), td:nth-child(4) { /* Country */
+        width: 10%;
+        min-width: 80px;
+    }
+    th:nth-child(5), td:nth-child(5) { /* Type */
+        width: 10%;
+        min-width: 80px;
+    }
+    th:nth-child(6), td:nth-child(6) { /* Posted */
+        width: 10%;
+        min-width: 80px;
+    }
+    th:nth-child(7), td:nth-child(7) { /* Source */
+        width: 8%;
+        min-width: 70px;
+    }
+    th:nth-child(8), td:nth-child(8) { /* Action */
+        width: 10%;
+        min-width: 100px;
+    }
+    
+    /* Optional: Add ellipsis for extremely long text that doesn't wrap well */
+    .job-title {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+</style>
+{% endblock %}
+
+{% block filter_sidebar %}
+<!-- Filter Toggle Button -->
+<button id="filterToggle" class="filter-toggle">
+    🔍 Filters
+</button>
+
+<!-- Filter Overlay -->
+<div id="filterOverlay" class="filter-overlay"></div>
+
+<!-- Filter Sidebar -->
+<div id="filterSidebar" class="filter-sidebar">
+    <div class="filter-header">
+        <h3>Filter Jobs</h3>
+        <button id="filterClose" class="filter-close">&times;</button>
+    </div>
+    
+    <form id="filterForm" method="get" action="/jobs">
+        <!-- Search -->
+        <div class="filter-section">
+            <label>Search Keywords</label>
+            <input type="text" name="search" placeholder="Title or company..." value="{{ search_query or '' }}">
+        </div>
+        
+        <!-- Market -->
+        <div class="filter-section">
+            <label>Market</label>
+            <select name="market">
+                <option value="">All Markets</option>
+                {% for market in markets %}
+                <option value="{{ market }}" {% if market == current_market %}selected{% endif %}>
+                    {{ market }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <!-- Remote Type -->
+        <div class="filter-section">
+            <label>Remote Type</label>
+            <select name="remote_type">
+                <option value="">All Types</option>
+                {% for rtype in remote_types %}
+                <option value="{{ rtype }}" {% if rtype == current_remote %}selected{% endif %}>
+                    {{ rtype.title() }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <!-- Country -->
+        <div class="filter-section">
+            <label>Country</label>
+            <select name="country">
+                <option value="">All Countries</option>
+                {% for country in countries %}
+                <option value="{{ country }}" {% if country == current_country %}selected{% endif %}>
+                    {{ country }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <!-- Source -->
+        <div class="filter-section">
+            <label>Data Source</label>
+            <select name="source">
+                <option value="">All Sources</option>
+                {% for source in sources %}
+                <option value="{{ source }}" {% if source == current_source %}selected{% endif %}>
+                    {{ source }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <!-- Company -->
+        <div class="filter-section">
+            <label>Company</label>
+            <input type="text" name="company" placeholder="Company name..." value="{{ current_company or '' }}">
+        </div>
+        
+        <!-- Date Range -->
+        <div class="filter-section">
+            <label>Posted Date Range</label>
+            <div class="date-range">
+                <div>
+                    <label>From</label>
+                    <input type="date" name="date_from" value="{{ date_from or '' }}">
+                </div>
+                <div>
+                    <label>To</label>
+                    <input type="date" name="date_to" value="{{ date_to or '' }}">
+                </div>
+            </div>
+        </div>
+        
+        <!-- Skills (Multi-select) -->
+        <div class="filter-section">
+            <label>Required Skills (AND logic)</label>
+            <div class="filter-search">
+                <input id="skillSearch" type="text" placeholder="Search skills...">
+            </div>
+            <div id="skillsList" class="skill-list">
+                <p style="color: #999; font-size: 13px;">Loading skills...</p>
+            </div>
+        </div>
+        
+        <!-- Action Buttons -->
+        <div class="filter-actions">
+            <button type="button" id="applyFilters" class="btn-apply-filters">Apply Filters</button>
+            <button type="button" id="clearFilters" class="btn-clear-filters">Clear</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 1.5rem; color: #1f2937;">All Jobs ({{ jobs|length }})</h2>
+<div style="margin-top: -0.75rem; margin-bottom: 1rem;">
+    <a href="/jobs/quality" class="btn" style="padding: 0.4rem 0.9rem; font-size: 0.85rem;">🛠️ Open Data Quality Review</a>
+</div>
+
+<!-- Active Filters Display -->
+{% if search_query or current_market or current_remote or current_country or current_source or current_company or skills_filter or date_from or date_to %}
+<div class="active-filters">
+    <strong>Active Filters:</strong>
+    {% if search_query %}
+    <span class="filter-badge">Search: {{ search_query }}</span>
+    {% endif %}
+    {% if current_market %}
+    <span class="filter-badge">Market: {{ current_market }}</span>
+    {% endif %}
+    {% if current_remote %}
+    <span class="filter-badge">Type: {{ current_remote }}</span>
+    {% endif %}
+    {% if current_country %}
+    <span class="filter-badge">Country: {{ current_country }}</span>
+    {% endif %}
+    {% if current_source %}
+    <span class="filter-badge">Source: {{ current_source }}</span>
+    {% endif %}
+    {% if current_company %}
+    <span class="filter-badge">Company: {{ current_company }}</span>
+    {% endif %}
+    {% if skills_filter %}
+    {% for skill in skills_filter %}
+    <span class="filter-badge">Skill: {{ skill }}</span>
+    {% endfor %}
+    {% endif %}
+    {% if date_from or date_to %}
+    <span class="filter-badge">Date: {{ date_from or '...' }} to {{ date_to or '...' }}</span>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+    {% if jobs %}
+    <table>
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Company</th>
+                <th>Location</th>
+                <th>Country</th>
+                <th>Type</th>
+                <th>Posted</th>
+                <th>Source</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for job in jobs %}
+            <tr>
+                <td><div class="job-title"><strong>{{ job.title }}</strong></div></td>
+                <td>{{ job.company }}</td>
+                <td>
+                    {% if job.location_count and job.location_count > 1 %}
+                    <span style="color: #667eea; font-weight: 500;">📍 {{ job.location_count }} locations</span>
+                    {% else %}
+                    {{ job.location }}
+                    {% endif %}
+                </td>
+                <td>{{ job.country }}</td>
+                <td>
+                    {% if job.remote_type == 'remote' or job.remote_type == 'Remote' %}
+                    <span class="badge badge-remote">Remote</span>
+                    {% elif job.remote_type == 'hybrid' or job.remote_type == 'Hybrid' %}
+                    <span class="badge badge-hybrid">Hybrid</span>
+                    {% else %}
+                    <span class="badge badge-onsite">{{ job.remote_type }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ job.posted_date or 'N/A' }}</td>
+                <td>{{ job.source_name }}</td>
+                <td>
+                    <a href="/jobs/{{ job.job_id }}" class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">View</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <p>No jobs found matching your filters.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/filters.js') }}"></script>
+{% endblock %}

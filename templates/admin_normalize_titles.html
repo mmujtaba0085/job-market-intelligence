@@ -1,0 +1,850 @@
+{% extends "base.html" %}
+
+{% block title %}Title Normalization - Admin{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .section-card {
+        background: white;
+        border-radius: 8px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    
+    .section-header h2 {
+        color: #1f2937;
+        font-size: 1.5rem;
+    }
+    
+    .section-info {
+        color: #6b7280;
+        font-size: 0.875rem;
+    }
+    
+    .mapping-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+    }
+    
+    .mapping-table thead {
+        background: #f9fafb;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+    
+    .mapping-table th {
+        padding: 0.75rem;
+        text-align: left;
+        font-weight: 600;
+        color: #374151;
+        border-bottom: 2px solid #e5e7eb;
+    }
+    
+    .mapping-table td {
+        padding: 0.75rem;
+        border-bottom: 1px solid #e5e7eb;
+    }
+    
+    .mapping-table tr:hover {
+        background: #f9fafb;
+    }
+    
+    .current-value {
+        font-weight: 500;
+        color: #1f2937;
+    }
+    
+    .job-count {
+        color: #667eea;
+        font-weight: 600;
+    }
+    
+    .mapping-input {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        font-size: 0.875rem;
+    }
+    
+    .mapping-input:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 1rem;
+        margin-top: 2rem;
+    }
+    
+    .btn-primary {
+        background: #667eea;
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background 0.3s;
+    }
+    
+    .btn-primary:hover {
+        background: #5568d3;
+    }
+    
+    .btn-secondary {
+        background: #6b7280;
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-weight: 500;
+        transition: background 0.3s;
+    }
+    
+    .btn-secondary:hover {
+        background: #4b5563;
+    }
+    
+    .btn-sample {
+        background: transparent;
+        color: #667eea;
+        padding: 0.25rem 0.5rem;
+        border: 1px solid #667eea;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.75rem;
+    }
+    
+    .btn-sample:hover {
+        background: #f0f4ff;
+    }
+    
+    .confidence-badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+    
+    .confidence-high {
+        background: #d1fae5;
+        color: #065f46;
+    }
+    
+    .confidence-medium {
+        background: #fef3c7;
+        color: #92400e;
+    }
+    
+    .confidence-low {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+    
+    .confidence-none {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+    
+    .alert {
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+    }
+    
+    .alert-info {
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1e40af;
+    }
+    
+    .alert-success {
+        background: #f0fdf4;
+        border: 1px solid #bbf7d0;
+        color: #166534;
+    }
+    
+    .alert-warning {
+        background: #fef3c7;
+        border: 1px solid #fde68a;
+        color: #92400e;
+    }
+    
+    .preview-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        overflow-y: auto;
+    }
+    
+    .preview-content {
+        background: white;
+        margin: 2rem auto;
+        padding: 2rem;
+        max-width: 800px;
+        border-radius: 8px;
+    }
+    
+    .preview-close {
+        float: right;
+        font-size: 1.5rem;
+        cursor: pointer;
+        color: #6b7280;
+    }
+    
+    .preview-close:hover {
+        color: #1f2937;
+    }
+    
+    .sample-modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 1000;
+        overflow-y: auto;
+    }
+    
+    .sample-content {
+        background: white;
+        margin: 2rem auto;
+        padding: 2rem;
+        max-width: 900px;
+        border-radius: 8px;
+    }
+    
+    .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid rgba(102, 126, 234, 0.3);
+        border-radius: 50%;
+        border-top-color: #667eea;
+        animation: spin 1s ease-in-out infinite;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+        .filter-controls {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding: 1rem;
+        background: #f9fafb;
+        border-radius: 4px;
+    }
+    
+    .filter-controls label {
+        font-weight: 600;
+        color: #374151;
+        margin-right: 0.5rem;
+    }
+    
+    .filter-controls select {
+        padding: 0.5rem;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        background: white;
+        font-size: 0.875rem;
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    
+    .status-manual {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+    
+    .status-auto {
+        background: #f3f4f6;
+        color: #6b7280;
+    }
+    
+    .btn-revert {
+        background: #fef3c7;
+        color: #92400e;
+        border: 1px solid #fcd34d;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.65rem;
+        cursor: pointer;
+        margin-left: 0.25rem;
+    }
+    
+    .btn-revert:hover {
+        background: #fde68a;
+    }
+    
+    .stat-box {
+        background: #f9fafb;
+        padding: 1rem;
+        border-radius: 4px;
+        text-align: center;
+    }
+    
+    .stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #667eea;
+    }
+    
+    .stat-label {
+        color: #6b7280;
+        font-size: 0.875rem;
+        margin-top: 0.25rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 1.5rem; color: #1f2937;">📋 Title Normalization</h2>
+
+<div class="alert alert-info">
+    <strong>ℹ️ How it works:</strong> Review job titles below and normalize variants to canonical forms.
+    <br><br>
+    <strong>For title variants</strong> (e.g., "Software Engineering Intern" vs "SWE Intern"): Enter the canonical normalized form in the "Map To" field, then use Preview/Apply buttons.
+    <br><br>
+    <strong>Confidence Scores:</strong>
+    <span class="confidence-badge confidence-high">≥90% High</span>
+    <span class="confidence-badge confidence-medium">60-89% Medium</span>
+    <span class="confidence-badge confidence-low"><60% Low</span>
+    <span class="confidence-badge confidence-none">0% None</span>
+    <br><br>
+    <strong>💡 Tip:</strong> Focus on high-frequency titles (top rows) for maximum impact. Click "👁️ View" to see sample jobs for each title.
+</div>
+
+<div id="alertContainer"></div>
+
+<!-- STATISTICS -->
+<div class="section-card">
+    <div class="stats-grid">
+        <div class="stat-box">
+            <div class="stat-value">{{ "{:,}".format(total_titles) }}</div>
+            <div class="stat-label">Total Unique Titles</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value">{{ "{:,}".format(titles_with_multiple) }}</div>
+            <div class="stat-label">Titles ≥2 Jobs</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value">{{ "{:,}".format(manual_count) }}</div>
+            <div class="stat-label">Manually Normalized</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value">{{ "{:,}".format(unique_normalized) }}</div>
+            <div class="stat-label">Unique Forms</div>
+        </div>
+    </div>
+</div>
+
+<!-- TITLES TABLE -->
+<div class="section-card">
+    <div class="section-header">
+        <div>
+            <h2>📝 Job Titles</h2>
+            <p class="section-info">
+                Showing {{ "{:,}".format(titles|length) }} of {{ "{:,}".format(titles_with_multiple) }} titles with ≥2 jobs
+                {% if current_filter != 'all' %} (filtered){% endif %}
+            </p>
+        </div>
+    </div>
+    
+    <!-- Filter Controls -->
+    <div class="filter-controls">
+        <div>
+            <label for="filterType">Filter:</label>
+            <select id="filterType" onchange="applyFilter()">
+                <option value="all" {% if current_filter == 'all' %}selected{% endif %}>All Titles</option>
+                <option value="manual" {% if current_filter == 'manual' %}selected{% endif %}>Manually Normalized</option>
+                <option value="low_conf" {% if current_filter == 'low_conf' %}selected{% endif %}>Low Confidence</option>
+                <option value="high_freq" {% if current_filter == 'high_freq' %}selected{% endif %}>High Frequency (≥10 jobs)</option>
+            </select>
+        </div>
+        <div>
+            <label for="limitSelect">Show:</label>
+            <select id="limitSelect" onchange="changeLimit()">
+                <option value="200" {% if current_limit == 200 %}selected{% endif %}>200 entries</option>
+                <option value="500" {% if current_limit == 500 %}selected{% endif %}>500 entries</option>
+                <option value="1000" {% if current_limit == 1000 %}selected{% endif %}>1000 entries</option>
+                <option value="5000" {% if current_limit == 5000 %}selected{% endif %}>5000 entries</option>
+            </select>
+        </div>
+    </div>
+    
+    <div style="overflow-x: auto; max-height: 600px; overflow-y: auto;">
+        <table class="mapping-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Current Title</th>
+                    <th style="width: 20%;">Current Normalized Form</th>
+                    <th style="width: 8%;">Job Count</th>
+                    <th style="width: 8%;">Confidence</th>
+                    <th style="width: 10%;">Status</th>
+                    <th style="width: 20%;">Map To (optional)</th>
+                    <th style="width: 9%;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="titleTableBody">
+                {% for title in titles %}
+                <tr {% if title.avg_conf > 0 and title.avg_conf < 60 %}style="background: #fef3c7;"{% endif %}>
+                    <td class="current-value">
+                        {{ title.title }}
+                        {% if title.avg_conf > 0 and title.avg_conf < 60 %}
+                        <span style="color: #d97706; font-size: 0.75rem;">⚠️ Low Confidence</span>
+                        {% endif %}
+                    </td>
+                    <td style="color: #6b7280; font-size: 0.875rem;">
+                        {% if title.normalized_title != title.title %}
+                            {{ title.normalized_title }}
+                        {% else %}
+                            <em style="color: #9ca3af;">—</em>
+                        {% endif %}
+                    </td>
+                    <td class="job-count">{{ "{:,}".format(title.count) }}</td>
+                    <td>
+                        {% if title.avg_conf >= 90 %}
+                            <span class="confidence-badge confidence-high">{{ title.avg_conf }}%</span>
+                        {% elif title.avg_conf >= 60 %}
+                            <span class="confidence-badge confidence-medium">{{ title.avg_conf }}%</span>
+                        {% elif title.avg_conf > 0 %}
+                            <span class="confidence-badge confidence-low">{{ title.avg_conf }}%</span>
+                        {% else %}
+                            <span class="confidence-badge confidence-none">0%</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if title.is_manual == 1 %}
+                            <span class="status-badge status-manual">🔧 Manual</span>
+                        {% else %}
+                            <span class="status-badge status-auto">🤖 Auto</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <input 
+                            type="text" 
+                            class="mapping-input title-mapping" 
+                            data-old-title="{{ title.title }}"
+                            id="title-input-{{ loop.index }}"
+                            placeholder="Enter normalized form..."
+                            {% if title.normalized_title != title.title %}
+                                value="{{ title.normalized_title }}"
+                            {% endif %}
+                        >
+                    </td>
+                    <td style="white-space: nowrap;">
+                        <button 
+                            class="btn-sample" 
+                            data-action="view-sample"
+                            data-title="{{ title.title }}"
+                            title="View sample jobs"
+                        >
+                            👁️ View
+                        </button>
+                        <button 
+                            class="btn-sample" 
+                            data-action="find-similar"
+                            data-title="{{ title.title }}"
+                            data-input-id="title-input-{{ loop.index }}"
+                            title="Find similar titles"
+                            style="font-size: 0.65rem;"
+                        >
+                            🔍 Similar
+                        </button>
+                        {% if title.is_manual == 1 %}
+                        <button 
+                            class="btn-revert" 
+                            data-action="revert-title"
+                            data-title="{{ title.title }}"
+                            title="Revert to automatic normalization"
+                        >
+                            ↩️ Revert
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ACTION BUTTONS -->
+<div class="action-buttons">
+    <button class="btn-primary" onclick="previewChanges()">
+        🔍 Preview Changes
+    </button>
+    <button class="btn-primary" onclick="applyNormalization()">
+        ✅ Apply Normalization
+    </button>
+    <button class="btn-secondary" onclick="clearMappings()">
+        🗑️ Clear All Mappings
+    </button>
+    <a href="/api/admin/normalize-titles/export" class="btn-secondary" style="display: inline-block; text-decoration: none; line-height: 1.5;">
+        💾 Export CSV
+    </a>
+</div>
+
+<!-- PREVIEW MODAL -->
+<div id="previewModal" class="preview-modal">
+    <div class="preview-content">
+        <span class="preview-close" onclick="closePreview()">&times;</span>
+        <h2 style="margin-bottom: 1.5rem;">Preview Changes</h2>
+        <div id="previewContent"></div>
+        <div style="margin-top: 2rem; text-align: right;">
+            <button class="btn-secondary" onclick="closePreview()">Close</button>
+            <button class="btn-primary" onclick="closePreview(); applyNormalization();">Apply These Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- SAMPLE MODAL -->
+<div id="sampleModal" class="sample-modal">
+    <div class="sample-content">
+        <span class="preview-close" onclick="closeSample()">&times;</span>
+        <h2 style="margin-bottom: 1.5rem;">Sample Jobs</h2>
+        <div id="sampleContent"></div>
+        <div style="margin-top: 2rem; text-align: right;">
+            <button class="btn-secondary" onclick="closeSample()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+function getMappings() {
+    const titleMappings = {};
+    
+    // Collect title mappings
+    document.querySelectorAll('.title-mapping').forEach(input => {
+        const oldTitle = input.dataset.oldTitle;
+        const newValue = input.value.trim();
+        if (newValue && newValue !== oldTitle) {
+            titleMappings[oldTitle] = newValue;
+        }
+    });
+    
+    return { title_mappings: titleMappings };
+}
+
+function previewChanges() {
+    const mappings = getMappings();
+    
+    if (Object.keys(mappings.title_mappings).length === 0) {
+        showAlert('warning', 'No mappings defined. Please enter at least one normalized title to preview.');
+        return;
+    }
+    
+    fetch('/api/admin/titles/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mappings)
+    })
+    .then(response => response.json())
+    .then(data => {
+        let html = '';
+        
+        if (data.changes && data.changes.length > 0) {
+            html += '<h3>Title Changes</h3><ul>';
+            data.changes.forEach(change => {
+                html += `<li><strong>${escapeHtml(change.old)}</strong> → <strong>${escapeHtml(change.new)}</strong> (${change.count.toLocaleString()} jobs)</li>`;
+            });
+            html += '</ul>';
+        } else {
+            html = '<p>No changes to apply (all mappings are same as current values).</p>';
+        }
+        
+        document.getElementById('previewContent').innerHTML = html;
+        document.getElementById('previewModal').style.display = 'block';
+    })
+    .catch(error => {
+        showAlert('warning', 'Error previewing changes: ' + error);
+    });
+}
+
+function applyNormalization() {
+    const mappings = getMappings();
+    
+    if (Object.keys(mappings.title_mappings).length === 0) {
+        showAlert('warning', 'No mappings defined. Please enter at least one normalized title to apply.');
+        return;
+    }
+    
+    if (!confirm('Are you sure you want to apply these normalizations? This will update the database.')) {
+        return;
+    }
+    
+    fetch('/api/admin/titles/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mappings)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = `Successfully updated ${data.updated} job records.`;
+            if (data.changes && data.changes.length > 0) {
+                message += '<br><br><strong>Changes applied:</strong><ul>';
+                data.changes.forEach(change => {
+                    message += `<li>${escapeHtml(change)}</li>`;
+                });
+                message += '</ul>';
+            }
+            showAlert('success', message);
+            
+            // Reload page after 3 seconds
+            setTimeout(() => {
+                location.reload();
+            }, 3000);
+        } else {
+            showAlert('warning', 'Error applying normalization: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        showAlert('warning', 'Error applying normalization: ' + error);
+    });
+}
+
+function showSample(title) {
+    document.getElementById('sampleContent').innerHTML = '<div class="loading"></div> Loading samples...';
+    document.getElementById('sampleModal').style.display = 'block';
+    
+    fetch('/api/admin/titles/sample', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title })
+    })
+    .then(response => response.json())
+    .then(data => {
+        let html = `<h3>Sample jobs for title: "${escapeHtml(title)}"</h3>`;
+        
+        if (data.samples && data.samples.length > 0) {
+            html += '<table class="mapping-table"><thead><tr>';
+            html += '<th>Title</th><th>Normalized</th><th>Company</th><th>Location</th><th>Type</th>';
+            html += '</tr></thead><tbody>';
+            
+            data.samples.forEach(job => {
+                html += '<tr>';
+                html += `<td><strong>${escapeHtml(job.title || 'N/A')}</strong></td>`;
+                html += `<td style="color: #667eea;">${escapeHtml(job.normalized_title || 'N/A')}</td>`;
+                html += `<td>${escapeHtml(job.company || 'N/A')}</td>`;
+                html += `<td>${escapeHtml(job.location || 'N/A')}</td>`;
+                html += `<td>${escapeHtml(job.remote_type || 'N/A')}</td>`;
+                html += '</tr>';
+            });
+            
+            html += '</tbody></table>';
+        } else {
+            html += '<p>No samples found.</p>';
+        }
+        
+        document.getElementById('sampleContent').innerHTML = html;
+    })
+    .catch(error => {
+        document.getElementById('sampleContent').innerHTML = '<p style="color: red;">Error loading samples: ' + error + '</p>';
+    });
+}
+
+function findSimilar(title, inputId) {
+    const inputField = document.getElementById(inputId);
+    const originalValue = inputField.value;
+    
+    // Show loading state
+    inputField.value = 'Searching...';
+    inputField.disabled = true;
+    
+    fetch('/api/admin/titles/suggest-similar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title })
+    })
+    .then(response => response.json())
+    .then(data => {
+        inputField.disabled = false;
+        inputField.value = originalValue;
+        
+        if (data.similar && data.similar.length > 0) {
+            let message = `<strong>Found ${data.count} similar title(s):</strong><br><br>`;
+            message += '<table style="width: 100%; border-collapse: collapse;"><thead><tr>';
+            message += '<th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Similar Title</th>';
+            message += '<th style="text-align: right; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Jobs</th>';
+            message += '<th style="text-align: right; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Similarity</th>';
+            message += '<th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">Current Normalized</th>';
+            message += '</tr></thead><tbody>';
+            
+            data.similar.forEach(item => {
+                message += '<tr>';
+                message += `<td style="padding: 0.5rem; border-bottom: 1px solid #e5e7eb;">${escapeHtml(item.title)}</td>`;
+                message += `<td style="padding: 0.5rem; border-bottom: 1px solid #e5e7eb; text-align: right;">${item.count}</td>`;
+                message += `<td style="padding: 0.5rem; border-bottom: 1px solid #e5e7eb; text-align: right;">${item.similarity}%</td>`;
+                message += `<td style="padding: 0.5rem; border-bottom: 1px solid #e5e7eb; color: #667eea;">${escapeHtml(item.normalized_title)}</td>`;
+                message += '</tr>';
+            });
+            
+            message += '</tbody></table>';
+            message += '<br><strong>💡 Tip:</strong> If these should be consolidated, enter the same normalized form for all variants.';
+            
+            showAlert('info', message);
+        } else {
+            showAlert('info', 'No similar titles found (>80% similarity).');
+        }
+    })
+    .catch(error => {
+        inputField.disabled = false;
+        inputField.value = originalValue;
+        showAlert('warning', 'Error finding similar titles: ' + error);
+    });
+}
+
+function clearMappings() {
+    if (confirm('Are you sure you want to clear all mapping inputs?')) {
+        document.querySelectorAll('.mapping-input').forEach(input => {
+            input.value = '';
+        });
+        showAlert('info', 'All mappings cleared.');
+    }
+}
+
+function closePreview() {
+    document.getElementById('previewModal').style.display = 'none';
+}
+
+function closeSample() {
+    document.getElementById('sampleModal').style.display = 'none';
+}
+
+function showAlert(type, message) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type}`;
+    alertDiv.innerHTML = message;
+    
+    const container = document.getElementById('alertContainer');
+    container.appendChild(alertDiv);
+    
+    setTimeout(() => {
+        alertDiv.remove();
+    }, 10000);  // 10 seconds for longer messages
+    
+    // Scroll to top to see alert
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Close modals when clicking outside
+window.onclick = function(event) {
+    if (event.target.id === 'previewModal') {
+        closePreview();
+    }
+    if (event.target.id === 'sampleModal') {
+        closeSample();
+    }
+}
+
+// Add event listeners for action buttons
+document.addEventListener('DOMContentLoaded', function() {
+    // Handle view sample buttons
+    document.querySelectorAll('[data-action="view-sample"]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const title = this.dataset.title;
+            showSample(title);
+        });
+    });
+    
+    // Handle find similar buttons
+    document.querySelectorAll('[data-action="find-similar"]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const title = this.dataset.title;
+            const inputId = this.dataset.inputId;
+            findSimilar(title, inputId);
+        });
+    });
+    
+    // Handle revert buttons
+    document.querySelectorAll('[data-action="revert-title"]').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const title = this.dataset.title;
+            revertTitle(title);
+        });
+    });
+});
+
+function applyFilter() {
+    const filterType = document.getElementById('filterType').value;
+    const currentLimit = {{ current_limit }};
+    window.location.href = `?filter=${filterType}&limit=${currentLimit}`;
+}
+
+function changeLimit() {
+    const limitValue = document.getElementById('limitSelect').value;
+    const currentFilter = '{{ current_filter }}';
+    window.location.href = `?filter=${currentFilter}&limit=${limitValue}`;
+}
+
+function revertTitle(title) {
+    if (!confirm(`Revert "${title}" to automatic normalization?\n\nThis will re-run the automatic normalizer on all jobs with this title.`)) {
+        return;
+    }
+    
+    fetch('/api/admin/titles/revert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titles: [title] })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showAlert('success', `<strong>✓ Reverted!</strong><br>${data.changes.join('<br>')}`);
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showAlert('error', '<strong>❌ Error:</strong> ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        console.error('Revert error:', err);
+        showAlert('error', '<strong>❌ Error:</strong> Failed to revert title');
+    });
+}
+</script>
+{% endblock %}

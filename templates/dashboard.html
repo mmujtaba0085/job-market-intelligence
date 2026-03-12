@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+
+{% block title %}BI Dashboard - Job Market Intelligence{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .dashboard-grid {
+        display: grid;
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+    
+    .widget {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    
+    .widget-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 2px solid #f0f0f0;
+    }
+    
+    .widget-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: #1f2937;
+        margin: 0;
+    }
+    
+    .widget-subtitle {
+        font-size: 0.875rem;
+        color: #6b7280;
+    }
+    
+    .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+    
+    .kpi-card {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        text-align: center;
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    
+    .kpi-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+    }
+    
+    .kpi-value {
+        font-size: 2.5rem;
+        font-weight: bold;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 0.5rem;
+    }
+    
+    .kpi-label {
+        color: #6b7280;
+        font-size: 0.875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-weight: 600;
+    }
+    
+    .kpi-trend {
+        font-size: 1.5rem;
+        margin-left: 0.5rem;
+    }
+    
+    .chart-container {
+        position: relative;
+        height: 300px;
+        margin-top: 1rem;
+    }
+    
+    .data-table {
+        width: 100%;
+        margin-top: 1rem;
+    }
+    
+    .data-table th {
+        background: #f9fafb;
+        color: #1f2937;
+        padding: 0.75rem;
+        text-align: left;
+        font-weight: 600;
+        font-size: 0.875rem;
+    }
+    
+    .data-table td {
+        padding: 0.75rem;
+        border-bottom: 1px solid #e5e7eb;
+        font-size: 0.875rem;
+    }
+    
+    .data-table tr:hover {
+        background: #f9fafb;
+    }
+    
+    .badge-emerging {
+        background: #10b981;
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    
+    .badge-declining {
+        background: #ef4444;
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+    
+    .loading {
+        text-align: center;
+        padding: 2rem;
+        color: #6b7280;
+    }
+    
+    .loading-spinner {
+        display: inline-block;
+        width: 40px;
+        height: 40px;
+        border: 4px solid #f3f4f6;
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+    
+    .refresh-btn {
+        background: #667eea;
+        color: white;
+        border: none;
+        padding: 0.5rem 1rem;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 0.875rem;
+        font-weight: 600;
+        transition: background 0.3s;
+    }
+    
+    .refresh-btn:hover {
+        background: #5568d3;
+    }
+    
+    .last-updated {
+        font-size: 0.75rem;
+        color: #9ca3af;
+        margin-top: 0.5rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+    <h2 style="color: #1f2937; margin: 0;">📊 Business Intelligence Dashboard</h2>
+    <div>
+        <button id="refreshBtn" class="refresh-btn" style="margin-right: 10px;">🔄 Refresh</button>
+        <a href="/export/jobs" class="refresh-btn" style="text-decoration: none; background: #10b981;">📥 Export Jobs</a>
+    </div>
+</div>
+
+<!-- KPI Cards -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-value" id="kpiJobs">
+            <div class="loading-spinner"></div>
+        </div>
+        <div class="kpi-label">Total Jobs <span id="kpiJobsTrend" class="kpi-trend"></span></div>
+    </div>
+    
+    <div class="kpi-card">
+        <div class="kpi-value" id="kpiSkills">
+            <div class="loading-spinner"></div>
+        </div>
+        <div class="kpi-label">Skills Tracked <span id="kpiSkillsTrend" class="kpi-trend"></span></div>
+    </div>
+    
+    <div class="kpi-card">
+        <div class="kpi-value" id="kpiSources">
+            <div class="loading-spinner"></div>
+        </div>
+        <div class="kpi-label">Active Sources</div>
+    </div>
+    
+    <div class="kpi-card">
+        <div class="kpi-value" id="kpiRemote">
+            <div class="loading-spinner"></div>
+        </div>
+        <div class="kpi-label">Remote Jobs</div>
+    </div>
+</div>
+
+<!-- Main Dashboard Grid -->
+<div class="dashboard-grid">
+    <!-- Job Posting Trends -->
+    <div class="widget" style="grid-column: span 2;">
+        <div class="widget-header">
+            <h3 class="widget-title">📈 Job Posting Trends</h3>
+            <span class="widget-subtitle">Last 8 weeks</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="trendsChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Top Skills -->
+    <div class="widget">
+        <div class="widget-header">
+            <h3 class="widget-title">🔥 Top 10 Skills</h3>
+            <span class="widget-subtitle">Current period</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="skillsChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Geographic Distribution -->
+    <div class="widget">
+        <div class="widget-header">
+            <h3 class="widget-title">🌍 Geographic Distribution</h3>
+            <span class="widget-subtitle">Top 10 countries</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="geoChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Source Performance -->
+    <div class="widget">
+        <div class="widget-header">
+            <h3 class="widget-title">📡 Source Performance</h3>
+            <span class="widget-subtitle">Jobs by data source</span>
+        </div>
+        <div class="chart-container">
+            <canvas id="sourcesChart"></canvas>
+        </div>
+    </div>
+    
+    <!-- Emerging Skills -->
+    <div class="widget">
+        <div class="widget-header">
+            <h3 class="widget-title">⭐ Emerging Skills</h3>
+            <span class="widget-subtitle">Top 10 trending up</span>
+        </div>
+        <div id="emergingList" class="loading">
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+    
+    <!-- Declining Skills -->
+    <div class="widget">
+        <div class="widget-header">
+            <h3 class="widget-title">📉 Declining Skills</h3>
+            <span class="widget-subtitle">Top 10 trending down</span>
+        </div>
+        <div id="decliningList" class="loading">
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+    
+    <!-- Top Companies -->
+    <div class="widget" style="grid-column: span 2;">
+        <div class="widget-header">
+            <h3 class="widget-title">🏢 Top Hiring Companies</h3>
+            <span class="widget-subtitle">Job count by company</span>
+        </div>
+        <table id="companiesTable" class="data-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Company</th>
+                    <th>Job Count</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td colspan="4" class="loading">
+                        <div class="loading-spinner"></div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Location Diversity -->
+    <div class="widget" style="grid-column: span 2;">
+        <div class="widget-header">
+            <h3 class="widget-title">🗺️ Multi-Location Jobs</h3>
+            <span class="widget-subtitle">Companies hiring across most locations</span>
+        </div>
+        <table id="locationDiversityTable" class="data-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Company</th>
+                    <th>Max Locations</th>
+                    <th>Job Postings</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td colspan="4" class="loading">
+                        <div class="loading-spinner"></div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="last-updated" id="lastUpdated">
+    Last updated: <span id="updateTime">Loading...</span>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

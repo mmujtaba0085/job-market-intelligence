@@ -1,0 +1,965 @@
+================================================================================
+     JOB MARKET INTELLIGENCE ENGINE — FULL PROJECT OVERVIEW
+     Written: March 12, 2026
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+1.  What This Project Is
+2.  Architecture Overview
+3.  Tech Stack & Dependencies
+4.  Data Sources
+5.  Data Pipeline (End-to-End Flow)
+6.  Storage — SQLite Database Schema
+7.  Configuration System
+8.  Web Application (Flask / web_viewer.py)
+9.  AI / LLM Integration
+10. Google Sheets Integration
+11. Click Tracking System
+12. Analytics Engine
+13. Reports & Exports
+14. File & Folder Structure
+15. Environment Variables (.env)
+16. Running the Project
+17. Hosting Considerations
+
+
+================================================================================
+1. WHAT THIS PROJECT IS
+================================================================================
+
+Job Market Intelligence is a self-hosted Python application that:
+
+  - Collects public job postings from multiple free/paid APIs (no scraping).
+  - Normalizes, deduplicates, and stores all postings in a local SQLite database.
+  - Extracts skill signals from job descriptions (regex + taxonomy, no ML model
+    required).
+  - Computes weekly analytics: top skills, fastest-growing skills, emerging
+    signals, co-occurrence pairs, remote trends, company breakdowns.
+  - Generates weekly Substack-ready Markdown + HTML reports.
+  - Exports curated job rows to Google Sheets (one spreadsheet per country).
+  - Hosts a local BI dashboard (Flask) with filtering, charts, and data exports.
+  - Tracks how many times each job posting is clicked via a Google Apps Script
+    web app and records those clicks back to a central Tracker spreadsheet.
+  - Uses AI (Groq / xAI Grok) for two tasks:
+      a) Classifying staged jobs as "IT" or "Non-IT" before Sheets upload.
+      b) AI-enhanced quality review of job records (title/location/remote fixes).
+
+The project is designed to run locally on Windows (with a Python venv) and uses
+only an SQLite file as its primary database — no Postgres, no Redis, no server
+infrastructure is required to run the core pipeline.
+
+
+================================================================================
+2. ARCHITECTURE OVERVIEW
+================================================================================
+
+  [Job APIs]  ──────────────────────────────────────────────────────────────────
+  Remotive, Arbeitnow, Adzuna, Jooble, Himalayas,         │
+  Jobicy, The Muse, GraphQL Jobs, HireWeb3, USAJobs,       │
+  GitHub repos (Simplify, Vansh, SpeedyApply, etc.)        │
+                                                            ▼
+  src/collectors/          Fetch raw JSON/HTML, enforce rate-limiting,
+  (BaseCollector subclasses) robots.txt, retry via tenacity.
+
+  src/normalizer.py        JobRaw → JobNormalized
+                           - Hashes (url_hash, canonical_hash, description_hash)
+                           - Title normalization + confidence score
+                           - Remote type inference
+                           - Country / location cleaning
+
+  src/deduplicator.py      Two-layer dedupe:
+                           Layer 1 — url_hash (exact URL)
+                           Layer 2 — canonical_hash (title+company+desc[:200])
+                           Multi-location tracking (same job, multiple offices)
+
+  src/storage/db.py        SQLite CRUD layer.
+                           data/jobs.sqlite — the single source of truth.
+
+  src/skill_extractor.py   Regex + taxonomy matching against SKILL_TAXONOMY.
+                           Produces SkillSignal records per job.
+
+  src/analytics/           Compute weekly metrics, growth rates, co-occurrence,
+                           temporal trends, title analytics, category analytics.
+
+  src/reports/             Generate Markdown, HTML, CSV, PNG charts per market.
+                           Export to Google Sheets (google_sheets_export.py).
+                           Export Directory + Docs tabs to Tracker spreadsheet.
+
+  src/ai/grok_staging.py   Groq multi-key parallel AI worker: classifies jobs
+                           as IT / Non-IT before Google Sheets upload.
+
+  web_viewer.py            Flask app. Local BI dashboard + admin panel.
+                           Quality editing, normalization tools, CSV exports,
+                           click redirect endpoint.
+
+  src/sheets_routes.py     Flask blueprint: all /admin/sheets_* routes
+                           (staging review, Sheets targets management).
+
+  Google Sheets            Country job boards (Canada, UK, US, Germany, etc.)
+  (external)               + central Tracker spreadsheet with click counters.
+
+  Google Apps Script       Deployed web app: receives job-click redirects,
+  (external)               increments counter in Tracker->Directory, then
+                           forwards user to the actual job URL.
+
+
+================================================================================
+3. TECH STACK & DEPENDENCIES
+================================================================================
+
+Language:       Python 3.12
+Web framework:  Flask 3.x
+Database:       SQLite (built-in sqlite3, WAL mode, foreign keys ON)
+ORM:            None — raw SQL via sqlite3.Connection
+Templating:     Jinja2 (report templates) + Flask (web UI)
+HTTP client:    requests (with tenacity retry)
+Parsing:        lxml, BeautifulSoup4 (for HTML sources)
+Data:           pandas (CSV exports, analytics frames)
+Date handling:  python-dateutil
+Geocoding:      geopy (country detection fallback)
+Charts:         matplotlib (PNG chart generation)
+Scheduling:     schedule (built-in cron-like loop)
+Config:         python-dotenv (.env loading)
+Progress:       tqdm (CLI progress bars)
+Testing:        pytest
+
+Google APIs:
+  google-auth, google-api-python-client
+  → Sheets API v4 (read/write spreadsheets via service account)
+
+AI APIs (external, optional but active):
+  Groq API (llama-3.3-70b-versatile) — free tier, multi-key pool
+  xAI Grok API (grok-2-latest) — alternative if GROK_API_KEY set
+
+
+================================================================================
+4. DATA SOURCES
+================================================================================
+
+All sources are registered in config/sources.py with rate limits, ToS notes,
+and an enabled flag. Only enabled sources are instantiated in the orchestrator.
+
+Currently active (enabled=True):
+  - Remotive          Free REST API.  No auth. Remote jobs.
+  - Arbeitnow         Free REST API.  No auth. EU-focused.
+  - GitHub repos      No auth.  Parsed: Simplify 2026, Vansh 2026,
+                      SpeedyApply 2026, Jobright 2026, NUFT Quant 2026,
+                      OffSeason Internships.
+  - Himalayas         Free REST API + RSS feed. No auth.
+  - Jobicy            Free REST API.  No auth.
+  - HireWeb3          Free REST API.  No auth. Web3/crypto.
+  - Adzuna            REST API. App ID + App Key required.
+  - Findwork          REST API. API key required.
+  - Jooble            REST API. API key required.
+  - GraphQL Jobs      Free GraphQL API. No auth.
+  - The Muse          Free REST API.  No auth (key optional).
+
+Configured but disabled (enabled=False):
+  - JSearch (RapidAPI) — requires JSEARCH_API_KEY
+  - USAJobs            — requires USAJOBS_API_KEY + User-Agent
+
+Rate limiting is enforced in BaseCollector._wait() using time.sleep().
+No CAPTCHA bypass, no login-gated sources, no headless browsers.
+
+Current target market: "ai_ml_global" (AI & Machine Learning, Global)
+  Keywords include: machine learning, deep learning, data scientist, nlp,
+  computer vision, llm, mlops, ai engineer, pytorch, tensorflow, etc.
+  Countries: United States, United Kingdom, Germany, Canada.
+  Max 500 jobs per source per run.
+
+
+================================================================================
+5. DATA PIPELINE (END-TO-END FLOW)
+================================================================================
+
+STEP 1 — COLLECTION (src/collectors/)
+  Each enabled collector runs collect(market) → list[JobRaw].
+  JobRaw contains: source_id, url, fetched_at, raw_json or parsed_fields.
+
+STEP 2 — NORMALIZATION (src/normalizer.py)
+  normalize(job_raw) → JobNormalized or None (if critical fields missing).
+  Computes four hashes, infers remote_type, parses dates, cleans strings.
+  Calls title_normalizer.normalize_title() for canonical title.
+
+STEP 3 — DEDUPLICATION + STORAGE (src/deduplicator.py + storage/db.py)
+  Layer 1: url_hash match → update last_seen_at, skip insert (url_dup).
+  Layer 2: canonical_hash match with new location → add location (location_added).
+  Layer 2: canonical_hash match, same location → skip (canonical_dup).
+  Otherwise: INSERT new job row (inserted).
+
+STEP 4 — SKILL EXTRACTION (src/skill_extractor.py)
+  For each newly inserted job, scan description_text against all terms in
+  SKILL_TAXONOMY + SKILL_SYNONYMS (config/taxonomy.py).
+  Pre-compiled regex patterns, word-boundary aware, longest-first matching.
+  Each detected skill → SkillSignal → inserted into skills table.
+
+STEP 5 — ANALYTICS (src/analytics/)
+  compute_weekly_metrics()     — skill frequency + WoW growth + mover score
+  assign_flags()               — emerging / declining flags
+  compute_co_occurrence()      — skill pairs that appear together
+  compute_temporal_trends()    — multi-week trends per skill
+  compute_title_stats()        — job title distribution
+  compute_category_stats()     — skill category breakdown
+  compute_coverage_stats()     — remote%, sources breakdown, geo distribution
+
+STEP 6 — REPORTS (src/reports/)
+  generate_markdown_report()   — Jinja2 → outputs/{market}/{week}/report.md
+  convert_to_html()            — report.md → report.html (Substack-paste-ready)
+  export_top_skills CSV        — outputs/{market}/{week}/top_skills.csv
+  export_growth_skills CSV     — + many other CSV exports
+  generate_all_charts()        — matplotlib PNGs (remote split, skill trends)
+  run.finish()                 — outputs/{market}/{week}/run_summary.json
+
+STEP 7 — GOOGLE SHEETS UPLOAD (src/reports/google_sheets_export.py)
+  Reads sheets_staging rows (status = 'staged' or 'pending').
+  Groups by country → writes to each country's Google Spreadsheet.
+  Auto-creates tabs per normalized_title if they don't exist.
+  Each job row gets a tracking URL: Apps Script endpoint + encoded params.
+  After upload, calls export_directory() to sync Tracker spreadsheet.
+
+STEP 8 — AI STAGING CLASSIFICATION (src/ai/grok_staging.py)
+  Reads pending rows from sheets_staging.
+  Sends chunks of 25 rows to Groq API (llama-3.3-70b).
+  Classifies each row as tab_bucket: "IT" or "Non-IT".
+  Falls back to IT_KEYWORDS local matching if AI is unavailable.
+  Multiple API keys rotated with per-key rate-limit tracking.
+
+PIPELINES are coordinated by src/orchestrator.py:
+  --mode weekly       = Steps 1-6 + optional Sheets push
+  --mode ingest-only  = Steps 1-4 only
+  --mode report-only  = Steps 5-6 only
+  --mode crawl        = Continuous Findwork full-catalogue crawl
+  --backfill          = Steps 5-6 for a date range from existing DB data
+
+
+================================================================================
+6. STORAGE — SQLITE DATABASE SCHEMA
+================================================================================
+
+FILE: data/jobs.sqlite (single file, ~grows with data)
+MODE: WAL (Write-Ahead Logging) for concurrent read performance
+
+TABLES:
+
+jobs
+  job_id          INTEGER PK AUTOINCREMENT
+  market_id       TEXT (e.g. "ai_ml_global")
+  source_name     TEXT
+  url             TEXT
+  url_hash        TEXT UNIQUE (sha256 of source_id+url)
+  canonical_hash  TEXT (sha256 of title+company+desc[:200])
+  description_hash TEXT
+  title           TEXT
+  company         TEXT
+  country         TEXT
+  location        TEXT
+  remote_type     TEXT ("remote" | "hybrid" | "on-site" | "unknown")
+  posted_date     TEXT (ISO date, nullable)
+  salary_min      REAL (nullable)
+  salary_max      REAL (nullable)
+  currency        TEXT (nullable)
+  raw_description TEXT
+  normalized_title TEXT (added via migration)
+  all_locations   TEXT (JSON array, for multi-location jobs)
+  first_seen_at   TEXT (ISO datetime)
+  last_seen_at    TEXT (ISO datetime)
+  ingested_at     TEXT (ISO datetime)
+
+skills
+  id              INTEGER PK
+  job_id          INTEGER FK → jobs
+  market_id       TEXT
+  raw_detected_skill TEXT
+  normalized_skill   TEXT
+  category           TEXT
+  confidence_score   REAL (nullable)
+  method             TEXT (default "regex_taxonomy")
+
+weekly_metrics
+  id              INTEGER PK
+  market_id       TEXT
+  week_start_date TEXT (ISO date, Monday)
+  week_number     INTEGER
+  skill_name      TEXT
+  category        TEXT
+  frequency       INTEGER
+  growth_percentage REAL
+  absolute_delta  INTEGER (this_week - prior_week count)
+  mover_score     REAL (delta × log1p(frequency))
+  emerging_flag   INTEGER (0/1)
+  declining_flag  INTEGER (0/1)
+  UNIQUE(market_id, week_start_date, skill_name)
+
+sheets_staging
+  id              INTEGER PK
+  job_id          INTEGER FK → jobs
+  override_title, override_normalized_title, ... (editable overrides)
+  assigned_tab    TEXT (normalized_title / IT bucket)
+  assigned_sheet  TEXT (country name)
+  assigned_target_id INTEGER FK → sheets_targets
+  status          TEXT ("pending" | "staged" | "uploaded" | "approved" | "excluded")
+  exclude_from_upload INTEGER (0/1)
+  uploaded_at     TEXT (ISO datetime)
+  upload_batch_id TEXT
+  created_at, updated_at TEXT
+  UNIQUE(job_id, assigned_sheet, assigned_tab)
+
+sheets_targets
+  id              INTEGER PK
+  name            TEXT (e.g. "Canada Jobs", "UK Jobs")
+  private_spreadsheet_id   TEXT (Google Sheets edit ID)
+  private_spreadsheet_url  TEXT
+  published_spreadsheet_id TEXT
+  published_spreadsheet_url TEXT
+  is_active       INTEGER (0/1)
+
+sheets_target_countries
+  id              INTEGER PK
+  target_id       INTEGER FK → sheets_targets
+  country         TEXT
+  doc_key         TEXT (short key: "ca", "uk", "us", "germany", etc.)
+  is_primary      INTEGER (0/1)
+
+sheets_click_tracking
+  id              INTEGER PK
+  country         TEXT
+  tab_name        TEXT
+  spreadsheet_id  TEXT
+  job_id          INTEGER FK → jobs (nullable, for job-level clicks)
+  click_type      TEXT ("tab_navigation" | "job_posting")
+  user_identifier TEXT (session/IP hash)
+  user_agent      TEXT
+  clicked_at      TEXT (ISO datetime)
+  referrer        TEXT
+  week_id         TEXT
+
+INDEXES: on market_id, canonical_hash, posted_date, status, job_id, click_type,
+         country+tab_name, skills normalized/market, metrics market+week.
+
+MIGRATIONS: Applied idempotently at startup via run_migrations().
+  001_init.sql                — base schema
+  002_add_growth_columns.sql  — absolute_delta, mover_score on weekly_metrics
+  003_multi_location_support.sql — all_locations column on jobs
+  005_sheets_staging.sql      — sheets_staging + click_tracking tables
+  006_job_click_tracking.sql  — job_id + click_type columns on click_tracking
+
+
+================================================================================
+7. CONFIGURATION SYSTEM
+================================================================================
+
+config/settings.py     — All global settings, loaded from .env via python-dotenv.
+                         Paths (DB_PATH, OUTPUTS_DIR, LOGS_DIR).
+                         Analytics thresholds (MIN_FREQ, GROWTH_THRESHOLD, etc.).
+                         API keys (JSEARCH, GROQ, GROK, ADZUNA, etc.).
+                         Google Sheets settings (SHEETS_ENABLED, spreadsheet IDs).
+                         Flask secret key, web viewer URL.
+
+config/markets.py      — TARGET_MARKETS list of dicts.
+                         Each market defines: market_id, display_name, keywords,
+                         crawl_keywords, countries, remote_filter,
+                         experience_levels, max_jobs_per_source.
+                         Currently one market: "ai_ml_global".
+
+config/sources.py      — ALLOWED_SOURCES list of dicts.
+                         Each source: source_id, base_url, rate_limit_per_minute,
+                         robots_txt_allowed, requires_auth, tos_note, enabled.
+                         BaseCollector validates against this allowlist on init.
+
+config/taxonomy.py     — SKILL_TAXONOMY: dict of {category: [skill_terms]}
+                         e.g. {"languages": ["python","java","rust",...], ...}
+                         SKILL_SYNONYMS: dict mapping aliases to canonical names.
+
+The orchestrator and all modules import from config/ — no hardcoded values
+in the pipeline code itself.
+
+
+================================================================================
+8. WEB APPLICATION (Flask / web_viewer.py)
+================================================================================
+
+Launched with: python web_viewer.py
+Runs on:       http://localhost:5000 (development server)
+
+The app reads directly from data/jobs.sqlite using sqlite3 (not SQLAlchemy).
+All DB connections use timeout=30, busy_timeout=30000, WAL mode.
+
+PAGES (HTML views):
+
+  /                       — Home / job browser landing page
+  /dashboard              — BI Dashboard (KPIs, charts, trends)
+  /jobs                   — Paginated, filterable job listing
+  /jobs/<id>              — Single job detail page
+  /jobs/quality           — AI quality review admin page
+  /skills                 — Skills overview page
+  /skills/intelligence    — Deep skill intelligence: co-occurrence, trends
+  /companies/intelligence — Company deep-dive: tech stack, locations
+  /titles/analytics       — Job title distribution analytics
+  /metrics                — Weekly metrics explorer
+  /admin                  — Admin home
+  /admin/normalize        — Country/location/remote normalization admin
+  /admin/normalize-titles — Job title normalization admin
+
+API ENDPOINTS (JSON):
+
+  Dashboard:
+    GET  /api/dashboard/kpis            — headline numbers
+    GET  /api/dashboard/trends          — week-over-week trends
+    GET  /api/dashboard/top-skills      — top N skills
+    GET  /api/dashboard/geo             — geographic distribution
+    GET  /api/dashboard/sources         — source breakdown
+    GET  /api/dashboard/emerging        — emerging skill signals
+    GET  /api/dashboard/declining       — declining skills
+    GET  /api/dashboard/companies       — top hiring companies
+    GET  /api/dashboard/location-diversity — remote/hybrid/on-site split
+
+  Skills Intelligence:
+    GET  /api/skills/search             — keyword search across skills
+    GET  /api/skills/<name>/details     — skill deep-dive
+    GET  /api/skills/<name>/trends      — multi-week trend data
+    GET  /api/skills/<name>/co-occurring — skills that appear together
+    GET  /api/skills/<name>/companies   — companies hiring for this skill
+    GET  /api/skills/<name>/locations   — geographic spread
+    GET  /api/skills/combinations       — top skill pairs
+
+  Companies:
+    GET  /api/companies/list            — paginated company list
+    GET  /api/companies/<name>/details  — company overview
+    GET  /api/companies/<name>/tech-stack — skills used by company
+    GET  /api/companies/<name>/locations — office locations
+
+  Titles:
+    GET  /api/titles/top                — most common job titles
+    GET  /api/titles/<title>/skills     — skills associated with a title
+
+  Filters:
+    GET  /api/filters/skills, /countries, /sources, /companies, /categories
+
+  Jobs:
+    POST /api/jobs/quality/analyze      — trigger AI quality enhancement
+    POST /api/jobs/quality/apply        — apply AI suggestions to DB
+    GET  /api/jobs/<id>/locations       — multi-location data for a job
+
+  Admin — Normalization:
+    POST /admin/normalize/preview       — preview normalization changes
+    POST /admin/normalize/apply         — apply normalization changes
+    POST /admin/normalize/sample        — sample random jobs for review
+    POST /admin/normalize/suggest-country — AI-powered country suggestion
+    POST /admin/normalize/auto-fix-unknown — auto-fix unknown countries
+    POST /api/admin/titles/preview      — preview title normalizations
+    POST /api/admin/titles/apply        — apply title normalizations
+    POST /api/admin/titles/revert       — revert title changes
+    POST /api/admin/titles/sample       — sample titles for review
+    POST /api/admin/titles/suggest-similar — find similar title variants
+    GET  /api/admin/normalize-titles/export — export title map CSV
+
+  CSV Exports:
+    GET  /export/jobs                   — filtered jobs as CSV download
+    GET  /export/skills                 — skill signals as CSV download
+    GET  /export/companies              — company data as CSV download
+
+Google Sheets (registered via src/sheets_routes.py):
+    GET  /admin/sheets_staging          — review/edit staging queue
+    GET  /admin/sheets_targets          — manage target spreadsheets
+    POST /admin/sheets_targets/upsert   — add/update a target
+    POST /admin/sheets_targets/delete   — remove a target
+    POST /admin/sheets/upload           — trigger Sheets upload
+    POST /admin/sheets/stage            — populate staging table
+    GET  /admin/sheets/export-directory — sync Tracker Directory tab
+    GET  /tracker/redirect              — job click redirect (used by Apps Script)
+    POST /tracker/click                 — record tab navigation click
+
+
+================================================================================
+9. AI / LLM INTEGRATION
+================================================================================
+
+Two AI use cases, both using the Groq API (or xAI Grok as alternative).
+
+--- A. Staging Classification (src/ai/grok_staging.py) ---
+
+When: Called before Google Sheets upload to classify jobs as IT or Non-IT.
+
+How:
+  - Reads pending rows from sheets_staging.
+  - Batches into chunks of 25 rows.
+  - Each row includes: staging_id, title, company, location, country,
+    remote_type, normalized_title, current assigned_tab.
+  - Sends prompt to Groq asking for IT / Non-IT / Software Engineering /
+    Data Science / etc. classification.
+  - Multi-key pool: rotates through GROQ_API_KEYS, tracks per-key cooldown.
+  - On success: updates assigned_tab in sheets_staging.
+  - On failure / unclear: local fallback using IT_KEYWORDS set (regex match
+    on title + normalized_title).
+
+IT_KEYWORDS: engineer, developer, software, data, machine learning, ml, ai,
+             devops, cloud, analyst, architect, backend, frontend, full stack,
+             security, sre, python, java, sql.
+
+Model: llama-3.3-70b-versatile (via api.groq.com/openai/v1)
+Rate limiting: per-key cooldown tracking, max(12, len(key_pool)*8) total attempts.
+
+--- B. Quality Enhancement (web_viewer.py — _ai_enhance_quality_rows) ---
+
+When: Triggered via POST /api/jobs/quality/analyze from the admin UI.
+
+How:
+  - Reads low-quality job rows (weak country, bad title, etc.) from jobs table.
+  - Batches into chunks of 8 rows.
+  - Each chunk is sent to Groq to improve: title, normalized_title, country,
+    location, remote_type.
+  - Multi-worker parallel processing: up to min(len(api_keys), 6) threads.
+  - Retry logic (deferred_retries_per_chunk=3, max_retries=4):
+    * On 429: parses Retry-After header, sleeps, requeues chunk.
+    * On other error: requeues with exponential backoff.
+    * Works in both single-worker (serial) and multi-worker (parallel) modes.
+  - Suggested fixes stored in memory; user reviews and applies via
+    POST /api/jobs/quality/apply.
+
+Model: same as above (GROQ_API_KEY pool).
+Max description chars per job: 1400 (truncated to fit token limits).
+
+
+================================================================================
+10. GOOGLE SHEETS INTEGRATION
+================================================================================
+
+Enabled by SHEETS_ENABLED=true in .env.
+Auth: Google Service Account JSON key file (path = GOOGLE_SA_JSON_PATH).
+Scope: https://www.googleapis.com/auth/spreadsheets (read/write).
+
+--- Country Spreadsheets ---
+
+Each active "target" in sheets_targets has one Google Spreadsheet.
+Tabs within each spreadsheet are created dynamically per job type (normalized_title).
+Each tab has these columns:
+  link_id, title, company, location, country, remote_type, posted_date, url
+
+The "url" column contains a tracking URL pointing to the Apps Script web app,
+NOT the original job URL. Format:
+  {TRACKER_DEPLOYMENT_BASE_URL}?token={TRACKER_TOKEN}&id={staging_id}&
+    country={country}&tab={tab}&sheet={sheet_id}&url={encoded_original_url}
+
+--- Tracker Spreadsheet (TRACKER_SPREADSHEET_ID) ---
+
+Central spreadsheet with these tabs:
+
+  Directory   — All uploaded jobs across all countries. Columns:
+                doc_key, country, tab_name, link_id, title, company, location,
+                apply_url, tracking_url, clicks.
+                "clicks" is updated by Google Apps Script on each job click.
+
+  Docs        — Spreadsheet registry. Columns:
+                doc_key, spreadsheet_id, country_name.
+                Synced automatically on every export run.
+                Source of truth for the Apps Script (to look up spreadsheets).
+
+  Clicks      — Tab navigation click log (from /tracker/click endpoint).
+
+  CountryTotals — Aggregated click counts per country.
+
+--- Tracker sync flow ---
+
+Export run (src/reports/tracker_directory_export.py export_directory()):
+  1. Reads sheets_staging WHERE status IN ('staged', 'uploaded').
+  2. JOINs to jobs for title/company/location.
+  3. Calls load_country_doc_configs(conn) — dynamic DB-driven doc_key lookup.
+     Falls back to COUNTRY_DOC_KEYS dict, then _slug_doc_key(country).
+  4. Writes/clears Docs tab first (all active targets).
+  5. Writes/clears Directory tab with all staged/uploaded jobs.
+
+--- Dynamic country/spreadsheet mapping ---
+
+Managed via sheets_targets + sheets_target_countries tables.
+  - Admin UI at /admin/sheets_targets allows adding new targets.
+  - Each target can have multiple countries mapped to it.
+  - doc_key (e.g. "ca", "uk", "germany") is stored per country in DB.
+  - Exporter and uploader both use load_country_doc_configs() for consistent
+    doc_key resolution — no hardcoded country lists in the code.
+
+--- Click Tracking (Apps Script side) ---
+
+The Apps Script web app (deployed at TRACKER_DEPLOYMENT_BASE_URL):
+  - Receives GET requests with token, id, country, tab, sheet, url params.
+  - Validates the token matches TRACKER_TOKEN.
+  - Increments the "clicks" column in Tracker→Directory for the matching row.
+  - Redirects the user to the original job URL.
+
+The Flask app also has a /tracker/redirect route that handles the same
+click redirect server-side (records click in sheets_click_tracking).
+
+
+================================================================================
+11. CLICK TRACKING SYSTEM
+================================================================================
+
+Two click types are tracked:
+
+1. tab_navigation  — User clicks a country link in the Tracker's Overview tab.
+   Producer: Apps Script web app → Tracker Director tab "clicks" column.
+   Also recorded in sheets_click_tracking (click_type='tab_navigation').
+
+2. job_posting     — User clicks the "Apply" tracking URL for a specific job.
+   Producer: /tracker/redirect in Flask OR Apps Script intercept.
+   Recorded in sheets_click_tracking with job_id populated.
+   The Tracker→Directory "clicks" column is incremented by Apps Script.
+
+The sheets_click_tracking table records:
+  country, tab_name, spreadsheet_id, job_id, click_type,
+  user_identifier (session/IP hash), user_agent, clicked_at, referrer, week_id.
+
+Click data is NOT currently synced back from Google Sheets to the local DB
+(the "clicks" counter in Tracker→Directory is the live source of truth in Sheets).
+
+
+================================================================================
+12. ANALYTICS ENGINE
+================================================================================
+
+All analytics modules live in src/analytics/ and read from the SQLite DB.
+
+weekly_metrics.py
+  - Determines ISO week boundaries (Monday start, ISO 8601).
+  - Queries skills+jobs for current week and N weeks prior.
+  - Computes frequency (count of jobs mentioning each skill).
+  - growth_percentage = (current - prior) / prior × 100.
+  - absolute_delta = current - prior.
+  - mover_score = absolute_delta × log1p(frequency) — penalizes low-base spikes.
+  - Calls emerging_detector.assign_flags() to mark each skill.
+  - Writes WeeklyMetric rows to weekly_metrics table.
+
+emerging_detector.py
+  - emerging_flag: growth ≥ GROWTH_THRESHOLD (default 20%) AND freq ≥ MIN_FREQ.
+  - declining_flag: growth ≤ DECLINING_THRESHOLD (default -15%).
+
+co_occurrence.py
+  - Computes which skill pairs appear together in the same job description.
+  - Used by /api/skills/<name>/co-occurring endpoint.
+
+temporal_trends.py
+  - Multi-week rolling trends per skill.
+
+title_analytics.py
+  - Job title distribution, normalized title frequencies.
+
+category_analytics.py
+  - Skill category breakdown (languages, frameworks, cloud, etc.).
+
+coverage_metrics.py
+  - Overall stats: total jobs, remote %, source breakdown, geo distribution.
+
+Analytics are computed once per pipeline run and cached in weekly_metrics table.
+The dashboard and API endpoints read pre-computed metrics from the DB directly.
+
+
+================================================================================
+13. REPORTS & EXPORTS
+================================================================================
+
+Generated per market per ISO week in: outputs/{market_id}/{YYYY-WW}/
+
+Files produced:
+  report.md           — Substack-ready Markdown post
+  report.html         — HTML version for Substack HTML editor (optional, --html flag)
+  run_summary.json    — Pipeline run stats (jobs, skills, sources, errors)
+  top_skills.csv      — Top skills by frequency
+  growth_skills.csv   — Fastest growing skills
+  skill_trends.csv    — Multi-week trend data per skill
+  skill_pairs.csv     — Co-occurring skill pairs
+  categories.csv      — Skill category breakdown
+  companies.csv       — Top hiring companies
+  locations.csv       — Geographic distribution
+  job_titles.csv      — Job title distribution
+  title_trends.csv    — Title trends over time
+  movers_by_delta.csv — Skills with highest absolute week-over-week change
+  movers_by_score.csv — Skills with highest mover score
+  sources.csv         — Jobs per data source
+  remote_split.png    — Pie chart: remote/hybrid/on-site split
+  skills_trend.png    — Line chart: top skill trends
+  (other PNGs)        — Other matplotlib charts
+
+Manual export (publisher/manual_export.py):
+  Opens the report.md in the default system application for manual copy-paste
+  to Substack. No automated posting is implemented.
+
+Google Sheets export (reports/google_sheets_export.py):
+  Uploads curated staged jobs to country-specific Google spreadsheets.
+  Triggered manually or after a weekly pipeline run (if SHEETS_ENABLED=true).
+
+
+================================================================================
+14. FILE & FOLDER STRUCTURE
+================================================================================
+
+Root:
+  web_viewer.py           — Flask app entry point
+  requirements.txt        — Python dependencies
+  .env                    — Environment variables (secrets, paths, toggles)
+  .env.example            — Template for .env (no secrets)
+  README.md               — Quick start guide
+  project_overview.txt    — THIS FILE
+
+config/
+  __init__.py
+  settings.py             — Global configuration + .env loading
+  markets.py              — TARGET_MARKETS definition
+  sources.py              — ALLOWED_SOURCES definition
+  taxonomy.py             — SKILL_TAXONOMY + SKILL_SYNONYMS
+
+src/
+  __init__.py
+  orchestrator.py         — Pipeline runner + CLI
+  run_manager.py          — RunContext (UUID, counters, run_summary.json)
+  normalizer.py           — JobRaw → JobNormalized
+  deduplicator.py         — Two-layer dedupe + storage
+  skill_extractor.py      — Regex taxonomy skill detection
+  taxonomy_mapper.py      — Raw skill → normalized + category
+  title_normalizer.py     — Job title → normalized_title
+  country_detector.py     — Country inference from location strings
+  deduplicator.py
+  monetization.py         — Free vs premium report generation
+  sheets_routes.py        — Flask blueprint for Sheets admin routes
+
+  collectors/
+    base_collector.py     — Abstract base: rate limiting, robots.txt, retry
+    remotive_collector.py
+    jsearch_collector.py
+    arbeitnow_collector.py
+    usajobs_collector.py
+    themuse_collector.py
+    graphqljobs_collector.py
+    himalayas_collector.py
+    himalayas_rss_collector.py
+    jobicy_collector.py
+    hireweb3_collector.py
+    adzuna_collector.py
+    findwork_collector.py
+    findwork_crawler.py   — Continuous full-catalogue crawl mode
+    jooble_collector.py
+    github_repo_collector.py — Multiple GitHub repo collectors
+
+  storage/
+    db.py                 — SQLite connection + CRUD + migrations runner
+    models.py             — Dataclasses: JobRaw, JobNormalized, SkillSignal, WeeklyMetric
+    sheet_targets.py      — CRUD for sheets_targets + sheets_target_countries
+    migrations/
+      001_init.sql
+      002_add_growth_columns.sql
+      003_multi_location_support.sql
+      005_sheets_staging.sql
+      006_job_click_tracking.sql
+
+  analytics/
+    weekly_metrics.py
+    emerging_detector.py
+    co_occurrence.py
+    temporal_trends.py
+    title_analytics.py
+    category_analytics.py
+    coverage_metrics.py
+
+  reports/
+    markdown_report.py    — Jinja2 Markdown report generator
+    html_converter.py     — Markdown → HTML
+    csv_export.py         — All CSV exporters
+    chart_generator.py    — Matplotlib chart PNGs
+    charts_export.py      — Chart export orchestrator
+    google_sheets_export.py — Upload to Google Sheets
+    tracker_directory_export.py — Sync Tracker Directory + Docs tabs
+
+  publisher/
+    manual_export.py      — Open report in OS default viewer
+    substack_publisher.py — Placeholder (not implemented)
+
+  ai/
+    grok_staging.py       — Groq AI staging classifier (IT/Non-IT)
+
+data/
+  jobs.sqlite             — THE DATABASE (do not delete)
+
+outputs/
+  ai_ml_global/
+    {YYYY-WW}/            — Weekly report files (MD, HTML, CSV, PNG, JSON)
+
+logs/
+  {YYYY-WW}/
+    {market_id}_{run_id}.log — Per-run log file
+
+tests/
+  test_analytics.py
+  test_normalizer.py
+  test_skill_extractor.py
+
+config/
+  job-market-intelligence-489015-57c9087db0cf.json  — Google Service Account key
+                                                       (PRIVATE — do not commit)
+
+
+================================================================================
+15. ENVIRONMENT VARIABLES (.env)
+================================================================================
+
+API KEYS:
+  JSEARCH_API_KEY         RapidAPI key for JSearch (optional)
+  ADZUNA_APP_ID           Adzuna application ID
+  ADZUNA_APP_KEY          Adzuna application key
+  FINDWORK_API_KEY        Findwork API key
+  JOOBLE_API_KEY          Jooble API key
+  Groq_API_Key            Groq API key(s), comma-separated for multi-key pool
+  GROQ_API_KEYS           Alternative env var for Groq keys (CSV)
+  GROK_API_KEY            xAI Grok API key (overrides Groq if set)
+  GROK_MODEL              AI model name (default: llama-3.3-70b-versatile)
+  GROK_BASE_URL           AI API base URL (default: https://api.groq.com/openai/v1)
+
+PIPELINE:
+  DRY_RUN                 "true" = no publishing. Default: true.
+  DB_PATH                 Path to SQLite file. Default: data/jobs.sqlite
+  OUTPUTS_DIR             Output directory. Default: outputs
+  LOGS_DIR                Log directory. Default: logs
+  MIN_FREQ                Minimum skill frequency for reporting. Default: 5
+  GROWTH_THRESHOLD        Growth % to flag as emerging. Default: 20.0
+  DECLINING_THRESHOLD     Growth % to flag as declining. Default: -15.0
+  EMERGING_LOOKBACK_WEEKS Weeks back for comparison. Default: 4
+
+GOOGLE SHEETS:
+  SHEETS_ENABLED          "true" to enable Sheets integration. Default: false
+  GOOGLE_SA_JSON_PATH     Path to service account JSON key file
+  TRACKER_SPREADSHEET_ID  Google Sheets ID of central Tracker spreadsheet
+  TRACKER_DEPLOYMENT_BASE_URL Apps Script web app URL (for click tracking)
+  TRACKER_TOKEN           Secret token to validate Apps Script requests
+  SHEETS_CANADA_ID        (Legacy) Canada spreadsheet private ID
+  SHEETS_UK_ID            (Legacy) UK spreadsheet private ID
+  SHEETS_US_ID            (Legacy) US spreadsheet private ID
+
+FLASK:
+  FLASK_SECRET_KEY        Secret key for Flask sessions. Default: dev-only-change-me
+  WEB_VIEWER_URL          Public URL of the Flask app. Default: http://localhost:5000
+
+
+================================================================================
+16. RUNNING THE PROJECT
+================================================================================
+
+Prerequisites:
+  - Python 3.12
+  - Virtual environment: python -m venv .venv
+  - Activate: .venv\Scripts\activate  (Windows)
+  - Install: pip install -r requirements.txt
+  - Copy .env.example to .env and fill in your values
+
+Run the full weekly pipeline:
+  python -m src.orchestrator --mode weekly
+
+Run only data ingestion (no reports):
+  python -m src.orchestrator --mode ingest-only
+
+Regenerate reports from existing data:
+  python -m src.orchestrator --mode report-only
+
+Run the web dashboard:
+  python web_viewer.py
+  → Open http://localhost:5000
+
+Sync Tracker Google Sheets Directory:
+  python -m src.reports.tracker_directory_export
+
+Upload staged jobs to Google Sheets:
+  python -m src.reports.google_sheets_export
+
+Run tests:
+  pytest tests/ -v
+
+Scheduled runs (Windows Task Scheduler):
+  Weekly: python -m src.orchestrator --mode weekly  (Monday 06:00)
+  Daily:  python -m src.orchestrator --mode ingest-only  (07:00)
+
+
+================================================================================
+17. HOSTING CONSIDERATIONS
+================================================================================
+
+CURRENT STATE: Runs entirely on a local Windows machine.
+
+KEY CONSTRAINTS FOR HOSTING:
+
+1. DATABASE
+   The database is a single SQLite file (data/jobs.sqlite). SQLite works well
+   for single-process read/write but is NOT suitable for multi-process or
+   high-concurrency web hosting (e.g., multiple Gunicorn workers writing
+   simultaneously will cause locking issues).
+
+   HOSTING OPTIONS:
+   a) Single-process deployment (1 worker): SQLite works fine.
+      Good for: VPS, Railway, Render (single instance), fly.io.
+   b) Multi-process: Migrate to PostgreSQL or MySQL.
+      The schema uses standard SQL; migration is feasible but requires
+      adapting db.py (replace sqlite3 with psycopg2/SQLAlchemy).
+
+2. FILE SYSTEM PERSISTENCE
+   The project writes to:
+     data/jobs.sqlite          — database
+     outputs/{market}/{week}/  — reports, CSVs, PNGs
+     logs/{week}/              — log files
+   Cloud platforms with ephemeral file systems (Heroku, Render free tier)
+   will lose these on restart. Use a persistent volume or external storage.
+
+3. ENVIRONMENT SECRETS
+   The .env file contains API keys and the Google Service Account JSON path.
+   On a hosted platform, set these as environment variables in the host's
+   dashboard (never commit .env or the service account JSON to git).
+
+4. GOOGLE SERVICE ACCOUNT JSON
+   The file config/job-market-intelligence-489015-57c9087db0cf.json is a
+   private credential file. For hosting:
+   - Store its contents as an environment variable (base64-encoded) or
+     mount it as a secret file via the hosting platform's secrets management.
+   - Update GOOGLE_SA_JSON_PATH to point to the mounted path.
+
+5. FLASK FOR PRODUCTION
+   The current setup uses Flask's built-in development server (debug=False
+   but still single-threaded). For production hosting:
+   - Use Gunicorn: gunicorn -w 1 -b 0.0.0.0:5000 web_viewer:app
+     (1 worker = SQLite safe)
+   - Or uWSGI with 1 process.
+   - Add a reverse proxy (nginx / Caddy) in front for TLS, caching, etc.
+
+6. PIPELINE SCHEDULING
+   Currently uses Windows Task Scheduler. On a Linux server/cloud:
+   - Use cron for periodic pipeline runs.
+   - Or a process manager like supervisor to keep web_viewer.py alive.
+   - The schedule library is also built in (src/run_manager.py) for
+     in-process scheduling, but a separate cron job is cleaner.
+
+7. RECOMMENDED MINIMAL HOSTING SETUP (LOW COST)
+   Platform: fly.io, Railway, or a $5/month VPS (DigitalOcean, Hetzner).
+   Setup:
+     a) Deploy Flask app as a single-process Gunicorn container (1 worker).
+     b) Mount a 1–5 GB persistent volume at /data/ for jobs.sqlite.
+     c) Set all .env values as platform environment variables.
+     d) Mount service account JSON as a secret file + set GOOGLE_SA_JSON_PATH.
+     e) Add a cron job (fly cron / Railway cron / system cron) to run:
+          python -m src.orchestrator --mode weekly
+        once per week (Monday morning).
+     f) The web dashboard becomes publicly accessible at your deployed URL.
+        Set WEB_VIEWER_URL to that URL.
+        Update TRACKER_DEPLOYMENT_BASE_URL to reflect the new host so
+        job click tracking URLs remain valid.
+
+8. WHAT DOES NOT NEED HOSTING
+   - Google Sheets (external — already hosted by Google).
+   - Google Apps Script click tracker (external — already deployed).
+   - API data sources (all external).
+   Only the Flask web app + SQLite DB + scheduled pipeline need a server.
+
+9. DATA SIZE ESTIMATE
+   Each job row ~3–5 KB (with description text).
+   At 500 jobs/day ingested: ~1.5 MB/day raw.
+   With deduplication (~40–60% reduction): ~0.6–0.9 MB/day net growth.
+   After 1 year: ~200–300 MB database.
+   Skills table: ~10–20x job count rows (small).
+   Outputs directory: small (text files + PNGs, <10 MB/week).
+
+================================================================================
+END OF DOCUMENT
+================================================================================

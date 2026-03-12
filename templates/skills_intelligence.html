@@ -1,0 +1,542 @@
+{% extends "base.html" %}
+
+{% block title %}Skills Intelligence - Job Market Intelligence{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .skills-intel-container {
+        display: grid;
+        grid-template-columns: 350px 1fr;
+        gap: 2rem;
+        margin-bottom: 2rem;
+    }
+    
+    .skills-search-panel {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        height: fit-content;
+        position: sticky;
+        top: 20px;
+    }
+    
+    .search-box {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 14px;
+        transition: border-color 0.3s;
+        margin-bottom: 1rem;
+    }
+    
+    .search-box:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    
+    .search-results {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .skill-result-item {
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 8px;
+        cursor: pointer;
+        transition: background 0.2s;
+        border: 1px solid #e5e7eb;
+    }
+    
+    .skill-result-item:hover {
+        background: #f9fafb;
+        border-color: #667eea;
+    }
+    
+    .skill-result-name {
+        font-weight: 600;
+        color: #1f2937;
+        margin-bottom: 4px;
+    }
+    
+    .skill-result-meta {
+        font-size: 12px;
+        color: #6b7280;
+    }
+    
+    .skill-detail-panel {
+        background: white;
+        border-radius: 8px;
+        padding: 2rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        min-height: 400px;
+    }
+    
+    .skill-header {
+        border-bottom: 3px solid #667eea;
+        padding-bottom: 1rem;
+        margin-bottom: 2rem;
+    }
+    
+    .skill-name {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #1f2937;
+        margin-bottom: 0.5rem;
+    }
+    
+    .skill-category-badge {
+        display: inline-block;
+        background: #667eea;
+        color: white;
+        padding: 6px 14px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    
+    .skill-stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1.5rem;
+        margin-bottom: 2rem;
+    }
+    
+    .stat-box {
+        text-align: center;
+        padding: 1.5rem;
+        background: linear-gradient(135deg, #f5f7fa 0%, #fafbfc 100%);
+        border-radius: 8px;
+        border: 1px solid #e5e7eb;
+    }
+    
+    .stat-box-value {
+        font-size: 2rem;
+        font-weight: bold;
+        color: #667eea;
+        margin-bottom: 0.5rem;
+    }
+    
+    .stat-box-label {
+        font-size: 0.875rem;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    
+    .section-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #1f2937;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 2px solid #f0f0f0;
+    }
+    
+    .chart-box {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 8px;
+        margin-bottom: 2rem;
+        border: 1px solid #e5e7eb;
+    }
+    
+    .skill-list {
+        list-style: none;
+        padding: 0;
+    }
+    
+    .skill-list-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px;
+        border-bottom: 1px solid #e5e7eb;
+        transition: background 0.2s;
+    }
+    
+    .skill-list-item:hover {
+        background: #f9fafb;
+    }
+    
+    .skill-list-item:last-child {
+        border-bottom: none;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: #6b7280;
+    }
+    
+    .empty-state-icon {
+        font-size: 4rem;
+        margin-bottom: 1rem;
+        opacity: 0.3;
+    }
+    
+    .trending-badge {
+        background: #10b981;
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-left: 10px;
+    }
+    
+    .declining-badge {
+        background: #ef4444;
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        margin-left: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 2rem; color: #1f2937;">🧠 Skills Intelligence Center</h2>
+
+<div class="skills-intel-container">
+    <!-- Left Panel: Search -->
+    <div class="skills-search-panel">
+        <h3 style="margin-bottom: 1rem; color: #1f2937;">🔍 Search Skills</h3>
+        <input type="text" id="skillSearchBox" class="search-box" placeholder="Type to search skills...">
+        
+        <div id="searchResults" class="search-results">
+            <div class="empty-state">
+                <div class="empty-state-icon">💡</div>
+                <p>Start typing to search skills</p>
+            </div>
+        </div>
+        
+        <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e5e7eb;">
+            <a href="#combinations" style="color: #667eea; font-weight: 600; text-decoration: none; font-size: 14px;">
+                📊 View Skill Combinations →
+            </a>
+        </div>
+    </div>
+    
+    <!-- Right Panel: Skill Details -->
+    <div class="skill-detail-panel" id="skillDetailPanel">
+        <div class="empty-state">
+            <div class="empty-state-icon">📈</div>
+            <h3 style="color: #1f2937; margin-bottom: 1rem;">Select a skill to view analytics</h3>
+            <p>Search for a skill on the left to see detailed insights, trends, and related data.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Skill Combinations Section -->
+<div id="combinations" class="card" style="margin-top: 3rem;">
+    <h3 class="section-title">🔗 Top Skill Combinations</h3>
+    <p style="color: #6b7280; margin-bottom: 1.5rem;">Most frequently co-occurring skill pairs in job postings</p>
+    <div id="combinationsList">
+        <div class="loading" style="text-align: center; padding: 2rem;">
+            <div class="loading-spinner"></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+let searchTimeout;
+let currentSkill = null;
+let trendChart = null;
+let coOccurChart = null;
+
+document.addEventListener('DOMContentLoaded', function() {
+    const searchBox = document.getElementById('skillSearchBox');
+    
+    searchBox.addEventListener('input', function(e) {
+        clearTimeout(searchTimeout);
+        const query = e.target.value.trim();
+        
+        if (query.length < 2) {
+            document.getElementById('searchResults').innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">💡</div>
+                    <p>Start typing to search skills</p>
+                </div>
+            `;
+            return;
+        }
+        
+        searchTimeout = setTimeout(() => {
+            searchSkills(query);
+        }, 300);
+    });
+    
+    // Load skill combinations
+    loadSkillCombinations();
+});
+
+function searchSkills(query) {
+    fetch(`/api/skills/search?q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(skills => {
+            const resultsDiv = document.getElementById('searchResults');
+            
+            if (skills.length === 0) {
+                resultsDiv.innerHTML = `
+                    <div class="empty-state">
+                        <p>No skills found matching "${query}"</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            resultsDiv.innerHTML = skills.map(skill => `
+                <div class="skill-result-item" onclick="loadSkillDetails('${skill.skill}')">
+                    <div class="skill-result-name">${skill.skill}</div>
+                    <div class="skill-result-meta">
+                        ${skill.category || 'Uncategorized'} • ${skill.count} mentions
+                    </div>
+                </div>
+            `).join('');
+        })
+        .catch(error => {
+            console.error('Error searching skills:', error);
+        });
+}
+
+function loadSkillDetails(skillName) {
+    currentSkill = skillName;
+    const panel = document.getElementById('skillDetailPanel');
+    
+    panel.innerHTML = `
+        <div class="loading" style="text-align: center; padding: 3rem;">
+            <div class="loading-spinner"></div>
+            <p style="color: #6b7280; margin-top: 1rem;">Loading ${skillName} analytics...</p>
+        </div>
+    `;
+    
+    Promise.all([
+        fetch(`/api/skills/${encodeURIComponent(skillName)}/details`).then(r => r.json()),
+        fetch(`/api/skills/${encodeURIComponent(skillName)}/trends`).then(r => r.json()),
+        fetch(`/api/skills/${encodeURIComponent(skillName)}/co-occurring`).then(r => r.json()),
+        fetch(`/api/skills/${encodeURIComponent(skillName)}/companies`).then(r => r.json()),
+        fetch(`/api/skills/${encodeURIComponent(skillName)}/locations`).then(r => r.json())
+    ])
+    .then(([details, trends, coOccurring, companies, locations]) => {
+        renderSkillDetails(details, trends, coOccurring, companies, locations);
+    })
+    .catch(error => {
+        console.error('Error loading skill details:', error);
+        panel.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">❌</div>
+                <h3 style="color: #ef4444;">Error loading skill data</h3>
+                <p>Please try again later.</p>
+            </div>
+        `;
+    });
+}
+
+function renderSkillDetails(details, trends, coOccurring, companies, locations) {
+    const panel = document.getElementById('skillDetailPanel');
+    
+    panel.innerHTML = `
+        <div class="skill-header">
+            <h2 class="skill-name">
+                ${details.skill}
+                ${details.is_emerging ? '<span class="trending-badge">📈 TRENDING</span>' : ''}
+                ${details.is_declining ? '<span class="declining-badge">📉 DECLINING</span>' : ''}
+            </h2>
+            <span class="skill-category-badge">${details.category || 'Uncategorized'}</span>
+        </div>
+        
+        <div class="skill-stats-grid">
+            <div class="stat-box">
+                <div class="stat-box-value">${details.job_count}</div>
+                <div class="stat-box-label">Jobs Requiring</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-box-value">${details.current_frequency}</div>
+                <div class="stat-box-label">Current Mentions</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-box-value">${details.growth_percentage > 0 ? '+' : ''}${details.growth_percentage}%</div>
+                <div class="stat-box-label">Growth Rate</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-box-value">${details.avg_per_job}</div>
+                <div class="stat-box-label">Avg/Job</div>
+            </div>
+        </div>
+        
+        <div class="chart-box">
+            <h3 class="section-title">📊 8-Week Trend</h3>
+            <canvas id="trendChart" style="max-height: 250px;"></canvas>
+        </div>
+        
+        <div class="chart-box">
+            <h3 class="section-title">🔗 Related Skills (Top 10)</h3>
+            <canvas id="coOccurChart" style="max-height: 300px;"></canvas>
+        </div>
+        
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+            <div class="chart-box">
+                <h3 class="section-title">🏢 Top Companies</h3>
+                <ul class="skill-list">
+                    ${companies.length > 0 ? companies.map((c, i) => `
+                        <li class="skill-list-item">
+                            <span><strong>#${i+1}</strong> ${c.company}</span>
+                            <span style="color: #667eea; font-weight: 600;">${c.count} jobs</span>
+                        </li>
+                    `).join('') : '<li class="skill-list-item">No data available</li>'}
+                </ul>
+            </div>
+            
+            <div class="chart-box">
+                <h3 class="section-title">🌍 Top Locations</h3>
+                <ul class="skill-list">
+                    ${locations.length > 0 ? locations.map((l, i) => `
+                        <li class="skill-list-item">
+                            <span><strong>#${i+1}</strong> ${l.country}</span>
+                            <span style="color: #667eea; font-weight: 600;">${l.count} jobs</span>
+                        </li>
+                    `).join('') : '<li class="skill-list-item">No data available</li>'}
+                </ul>
+            </div>
+        </div>
+        
+        <div style="text-align: center; margin-top: 2rem;">
+            <a href="/jobs?skills=${encodeURIComponent(details.skill)}" class="btn" style="padding: 12px 24px; background: #667eea; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;">
+                View Jobs Requiring ${details.skill} →
+            </a>
+        </div>
+    `;
+    
+    // Render trend chart
+    if (trends.length > 0) {
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        if (trendChart) trendChart.destroy();
+        
+        trendChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: trends.map(t => t.week || 'Week'),
+                datasets: [{
+                    label: 'Job Mentions',
+                    data: trends.map(t => t.frequency),
+                    borderColor: '#667eea',
+                    backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    }
+    
+    // Render co-occurring skills chart
+    if (coOccurring.length > 0) {
+        const ctx = document.getElementById('coOccurChart').getContext('2d');
+        if (coOccurChart) coOccurChart.destroy();
+        
+        const top10 = coOccurring.slice(0, 10);
+        
+        coOccurChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: top10.map(s => s.skill),
+                datasets: [{
+                    label: 'Co-occurrences',
+                    data: top10.map(s => s.count),
+                    backgroundColor: '#764ba2',
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { beginAtZero: true }
+                }
+            }
+        });
+    }
+}
+
+function loadSkillCombinations() {
+    fetch('/api/skills/combinations')
+        .then(response => response.json())
+        .then(combinations => {
+            const container = document.getElementById('combinationsList');
+            
+            if (combinations.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #6b7280;">No skill combination data available</p>';
+                return;
+            }
+            
+            const html = `
+                <table class="data-table" style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th>Rank</th>
+                            <th>Skill A</th>
+                            <th>+</th>
+                            <th>Skill B</th>
+                            <th>Co-occurrences</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${combinations.slice(0, 20).map((combo, i) => `
+                            <tr>
+                                <td><strong>#${i+1}</strong></td>
+                                <td>${combo.skill_a}</td>
+                                <td style="text-align: center; color: #667eea;">+</td>
+                                <td>${combo.skill_b}</td>
+                                <td><strong>${combo.count}</strong> jobs</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = html;
+        })
+        .catch(error => {
+            console.error('Error loading combinations:', error);
+        });
+}
+</script>
+
+<style>
+    .loading-spinner {
+        display: inline-block;
+        width: 40px;
+        height: 40px;
+        border: 4px solid #f3f4f6;
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+</style>
+{% endblock %}

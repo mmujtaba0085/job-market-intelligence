@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block title %}Metrics - Job Market Intelligence{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 1.5rem; color: #1f2937;">Weekly Metrics & Trends</h2>
+
+<div class="card">
+    <h3 style="margin-bottom: 1rem; color: #1f2937;">Tracked Weeks</h3>
+    
+    {% if weeks %}
+    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+        {% for week in weeks %}
+        <div style="background: #f3f4f6; padding: 0.75rem 1.25rem; border-radius: 6px;">
+            <strong>{{ week.week_start_date }}</strong> - {{ week.market_id }}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No weekly metrics computed yet.</p>
+    </div>
+    {% endif %}
+</div>
+
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+    <div class="card">
+        <h3 style="margin-bottom: 1rem; color: #10b981;">📈 Emerging Skills</h3>
+        
+        {% if emerging %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Skill</th>
+                    <th>Category</th>
+                    <th>Growth</th>
+                    <th>Frequency</th>
+                    <th>Week</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for skill in emerging %}
+                <tr>
+                    <td><strong>{{ skill.skill_name }}</strong></td>
+                    <td>
+                        <span class="badge" style="background: #d1fae5; color: #065f46;">
+                            {{ skill.category }}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="color: #10b981; font-weight: bold;">
+                            +{{ '{:.1f}'.format(skill.growth_percentage) }}%
+                        </span>
+                    </td>
+                    <td>{{ skill.frequency }}</td>
+                    <td style="font-size: 0.875rem; color: #6b7280;">{{ skill.week_start_date }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No emerging skills detected yet.</p>
+        </div>
+        {% endif %}
+    </div>
+    
+    <div class="card">
+        <h3 style="margin-bottom: 1rem; color: #ef4444;">📉 Declining Skills</h3>
+        
+        {% if declining %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Skill</th>
+                    <th>Category</th>
+                    <th>Change</th>
+                    <th>Frequency</th>
+                    <th>Week</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for skill in declining %}
+                <tr>
+                    <td><strong>{{ skill.skill_name }}</strong></td>
+                    <td>
+                        <span class="badge" style="background: #fee2e2; color: #991b1b;">
+                            {{ skill.category }}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="color: #ef4444; font-weight: bold;">
+                            {{ '{:.1f}'.format(skill.growth_percentage) }}%
+                        </span>
+                    </td>
+                    <td>{{ skill.frequency }}</td>
+                    <td style="font-size: 0.875rem; color: #6b7280;">{{ skill.week_start_date }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No declining skills detected yet.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

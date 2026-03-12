@@ -1,0 +1,323 @@
+{% extends "base.html" %}
+
+{% block title %}Jobs Data Quality Review{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div style="margin-bottom: 1rem;">
+        <a href="/jobs" style="color: #667eea; text-decoration: none; font-size: 0.875rem;">← Back to Jobs</a>
+    </div>
+
+    <h1>🛠️ Jobs Data Quality Review</h1>
+    <p class="subtitle">Analyze missing fields, normalize country/remote data, and detect multi-job entries from descriptions.</p>
+
+    <div class="card" style="margin-top: 1rem;">
+        <form method="GET" action="/jobs/quality" style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 1rem; align-items: end;">
+            <div>
+                <label>Country</label>
+                <select name="country">
+                    <option value="">All Countries</option>
+                    {% for country in countries %}
+                    <option value="{{ country }}" {% if country == current_country %}selected{% endif %}>{{ country }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label>Max Rows</label>
+                <input type="number" min="10" max="3000" step="10" name="limit" value="{{ current_limit }}" />
+            </div>
+            <div>
+                <button class="btn btn-primary" type="submit">Apply Filters</button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card" style="margin-top: 1rem;">
+        <h2>⚡ Actions</h2>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.75rem;">
+            <button class="btn btn-info" onclick="analyzeSelected()">🔍 Analyze Selected</button>
+            <button class="btn btn-success" onclick="applySelectedFixes()">✅ Apply Selected Suggestions</button>
+            <label style="display: flex; align-items: center; gap: 0.4rem; font-weight: 500;">
+                <input type="checkbox" id="useAi" checked>
+                Use Groq AI enhancement
+            </label>
+        </div>
+        <p style="margin-top: 0.75rem; color: #6b7280; font-size: 0.85rem;">
+            Analysis includes description-aware checks and split candidates where one entry may contain multiple jobs.
+        </p>
+    </div>
+
+    <div class="card" style="margin-top: 1rem; overflow-x: auto;">
+        <h2>📋 Candidate Jobs ({{ rows|length }})</h2>
+        <table class="data-table" style="margin-top: 0.75rem; width: 100%;">
+            <thead>
+                <tr>
+                    <th><input type="checkbox" id="selectAll" onclick="toggleAll()"></th>
+                    <th>Job ID</th>
+                    <th>Title</th>
+                    <th>Company</th>
+                    <th>Location</th>
+                    <th>Country</th>
+                    <th>Remote</th>
+                    <th>Description</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td><input class="job-checkbox" type="checkbox" value="{{ row.job_id }}"></td>
+                    <td>{{ row.job_id }}</td>
+                    <td>{{ row.title }}</td>
+                    <td>{{ row.company }}</td>
+                    <td>{{ row.location }}</td>
+                    <td>{{ row.country }}</td>
+                    <td>{{ row.remote_type }}</td>
+                    <td style="max-width: 420px; white-space: normal; font-size: 0.82rem; color: #374151;">
+                        {{ (row.raw_description or '')[:320] }}{% if row.raw_description and row.raw_description|length > 320 %}...{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card" style="margin-top: 1rem;">
+        <h2>🧠 Analysis Output</h2>
+        <div id="analysisStatus" style="margin-top: 0.75rem; padding: 0.75rem; border-radius: 6px; background: #f8fafc; border: 1px solid #d1d5db; color: #1f2937; font-size: 0.9rem;">
+            Status: idle
+        </div>
+        <div id="analysisSummary" style="margin-top: 0.75rem; display: none; padding: 0.75rem; border-radius: 6px; background: #ecfeff; border: 1px solid #67e8f9; color: #155e75; font-size: 0.88rem;"></div>
+        <div id="analysisPreview" style="margin-top: 0.75rem; display: none; max-height: 220px; overflow: auto; border: 1px solid #e5e7eb; border-radius: 6px; padding: 0.5rem; background: #ffffff;"></div>
+        <div id="analysisOutput" style="margin-top: 0.75rem; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.82rem; max-height: 560px; overflow: auto; background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 8px;">Run analysis to view improved data.</div>
+    </div>
+</div>
+
+<script>
+let lastResults = [];
+let lastChangedJobIds = [];
+
+function setStatus(message, isError = false) {
+    const el = document.getElementById('analysisStatus');
+    el.textContent = `Status: ${message}`;
+    if (isError) {
+        el.style.background = '#fef2f2';
+        el.style.borderColor = '#fca5a5';
+        el.style.color = '#991b1b';
+    } else {
+        el.style.background = '#f8fafc';
+        el.style.borderColor = '#d1d5db';
+        el.style.color = '#1f2937';
+    }
+}
+
+function hasSuggestionChanges(item) {
+    const cur = item.current || {};
+    const sug = item.suggested || {};
+    return (
+        (cur.title || '') !== (sug.title || '') ||
+        (cur.company || '') !== (sug.company || '') ||
+        (cur.location || '') !== (sug.location || '') ||
+        (cur.country || '') !== (sug.country || '') ||
+        (cur.remote_type || '') !== (sug.remote_type || '') ||
+        ((item.split_candidates || []).length > 0)
+    );
+}
+
+function renderSummary(data) {
+    const results = data.results || [];
+    const changed = results.filter(hasSuggestionChanges);
+    lastChangedJobIds = changed.map(item => item.job_id);
+    const splitCount = results.filter(r => (r.split_candidates || []).length > 0).length;
+
+    const summaryEl = document.getElementById('analysisSummary');
+    summaryEl.style.display = 'block';
+    summaryEl.innerHTML =
+        `Rows analyzed: <strong>${results.length}</strong> | ` +
+        `Rows with suggested changes: <strong>${changed.length}</strong> | ` +
+        `Rows with split candidates: <strong>${splitCount}</strong> | ` +
+        `AI used: <strong>${data.ai_used ? 'yes' : 'no'}</strong>`;
+
+    const previewEl = document.getElementById('analysisPreview');
+    if (!changed.length) {
+        previewEl.style.display = 'none';
+        previewEl.innerHTML = '';
+        return;
+    }
+
+    const rows = changed.slice(0, 25).map(item => {
+        const cur = item.current || {};
+        const sug = item.suggested || {};
+        return `<tr>
+            <td>${item.job_id}</td>
+            <td>${(cur.title || '').slice(0, 60)}</td>
+            <td>${(sug.title || '').slice(0, 60)}</td>
+            <td>${cur.country || ''}</td>
+            <td>${sug.country || ''}</td>
+            <td>${cur.remote_type || ''}</td>
+            <td>${sug.remote_type || ''}</td>
+            <td>${(item.split_candidates || []).length}</td>
+        </tr>`;
+    }).join('');
+
+    previewEl.style.display = 'block';
+    previewEl.innerHTML = `<table style="width: 100%; font-size: 0.8rem; border-collapse: collapse;">
+        <thead>
+            <tr>
+                <th>Job</th><th>Title (Current)</th><th>Title (Suggested)</th>
+                <th>Country (Current)</th><th>Country (Suggested)</th>
+                <th>Remote (Current)</th><th>Remote (Suggested)</th><th>Splits</th>
+            </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function highlightChangedRows() {
+    const changedSet = new Set(lastChangedJobIds);
+    document.querySelectorAll('tbody tr').forEach(tr => {
+        const checkbox = tr.querySelector('.job-checkbox');
+        if (!checkbox) return;
+        const jobId = parseInt(checkbox.value);
+        if (changedSet.has(jobId)) {
+            tr.style.background = '#ecfeff';
+            tr.style.outline = '1px solid #67e8f9';
+            checkbox.checked = true;
+        } else {
+            tr.style.background = '';
+            tr.style.outline = '';
+        }
+    });
+}
+
+function getSelectedJobIds() {
+    return Array.from(document.querySelectorAll('.job-checkbox:checked')).map(cb => parseInt(cb.value));
+}
+
+function toggleAll() {
+    const checked = document.getElementById('selectAll').checked;
+    document.querySelectorAll('.job-checkbox').forEach(cb => cb.checked = checked);
+}
+
+function analyzeSelected() {
+    const jobIds = getSelectedJobIds();
+    const useAi = document.getElementById('useAi').checked;
+    const analyzeBtn = document.querySelector('button[onclick="analyzeSelected()"]');
+    if (!jobIds.length) {
+        alert('Select at least one row.');
+        return;
+    }
+
+    analyzeBtn.disabled = true;
+    analyzeBtn.textContent = '⏳ Analyzing...';
+    setStatus(`sending ${jobIds.length} row(s) for analysis...`);
+    console.log('[quality] analyze request', {count: jobIds.length, useAi});
+
+    fetch('/api/jobs/quality/analyze', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ job_ids: jobIds, use_ai: useAi })
+    })
+    .then(async r => {
+        const json = await r.json();
+        if (!r.ok) {
+            throw new Error(json.error || `HTTP ${r.status}`);
+        }
+        return json;
+    })
+    .then(data => {
+        if (!data.success) {
+            setStatus(`analysis failed: ${data.error}`, true);
+            alert(`Analysis failed: ${data.error}`);
+            return;
+        }
+        lastResults = data.results || [];
+        let header = `AI used: ${data.ai_used ? 'yes' : 'no'}\n`;
+        if (data.ai_stats) {
+            header += `AI workers: ${data.ai_stats.workers}, chunks: ${data.ai_stats.chunks_succeeded}/${data.ai_stats.chunks_total}, failed chunks: ${data.ai_stats.chunks_failed}\n`;
+        }
+        if (data.ai_error) {
+            header += `AI error: ${data.ai_error}\n`;
+            if (String(data.ai_error).includes('429')) {
+                header += `Hint: Groq rate limit hit. Analyze fewer rows (e.g. 50-100) or wait 1-2 minutes and retry.\n`;
+            }
+        }
+        setStatus(`completed at ${new Date().toLocaleTimeString()}`);
+        renderSummary(data);
+        highlightChangedRows();
+        console.log('[quality] analyze response', data);
+        document.getElementById('analysisOutput').textContent = header + '\n' + JSON.stringify(lastResults, null, 2);
+
+        const changedCount = lastChangedJobIds.length;
+        const splitCount = (lastResults || []).filter(r => (r.split_candidates || []).length > 0).length;
+        alert(
+            `Analyze completed.\n\n` +
+            `Rows analyzed: ${lastResults.length}\n` +
+            `Rows with suggested changes: ${changedCount}\n` +
+            `Rows with split candidates: ${splitCount}\n\n` +
+            `Changed rows are highlighted and auto-selected in the table.\n` +
+            `Now click 'Apply Selected Suggestions' to save.`
+        );
+
+        const summary = document.getElementById('analysisSummary');
+        if (summary) {
+            summary.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    })
+    .catch(err => {
+        setStatus(`analysis error: ${err}`, true);
+        console.error('[quality] analyze error', err);
+        alert(`Analysis error: ${err}`);
+    })
+    .finally(() => {
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = '🔍 Analyze Selected';
+    });
+}
+
+function applySelectedFixes() {
+    if (!lastResults.length) {
+        alert('Run analysis first.');
+        return;
+    }
+
+    const selected = getSelectedJobIds();
+    const updates = lastResults
+        .filter(item => selected.includes(item.job_id))
+        .map(item => ({
+            job_id: item.job_id,
+            title: item.suggested?.title || item.current?.title || '',
+            company: item.suggested?.company || item.current?.company || '',
+            location: item.suggested?.location || item.current?.location || '',
+            country: item.suggested?.country || item.current?.country || '',
+            remote_type: item.suggested?.remote_type || item.current?.remote_type || 'unknown',
+            split_candidates: Array.isArray(item.split_candidates) ? item.split_candidates : []
+        }));
+
+    if (!updates.length) {
+        alert('No analyzed selected rows to apply.');
+        return;
+    }
+
+    if (!confirm(`Apply fixes to ${updates.length} jobs?`)) {
+        return;
+    }
+
+    fetch('/api/jobs/quality/apply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ updates })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (!data.success) {
+            alert(`Apply failed: ${data.error}`);
+            return;
+        }
+        const created = data.created_splits || 0;
+        alert(`Updated ${data.updated} jobs.${created ? `\nCreated ${created} split jobs.` : ''}`);
+        location.reload();
+    })
+    .catch(err => alert(`Apply error: ${err}`));
+}
+</script>
+{% endblock %}

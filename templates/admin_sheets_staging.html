@@ -1,0 +1,1153 @@
+{% extends "base.html" %}
+
+{% block title %}Google Sheets Staging - Admin{% endblock %}
+
+{% block content %}
+<style>
+    /* Override container width for this page */
+    .container {
+        max-width: 95% !important;
+    }
+    
+    /* Collapsible section */
+    .collapsible {
+        background-color: #667eea;
+        color: white;
+        cursor: pointer;
+        padding: 1rem;
+        width: 100%;
+        border: none;
+        text-align: left;
+        outline: none;
+        font-size: 1rem;
+        font-weight: 600;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
+        transition: background-color 0.3s;
+    }
+    
+    .collapsible:hover {
+        background-color: #5568d3;
+    }
+    
+    .collapsible:after {
+        content: '▼';
+        color: white;
+        font-weight: bold;
+        float: right;
+        margin-left: 5px;
+    }
+    
+    .collapsible.collapsed:after {
+        content: '▶';
+    }
+    
+    .collapsible-content {
+        max-height: 1000px;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+        background-color: white;
+        border-radius: 0 0 8px 8px;
+    }
+    
+    .collapsible-content.collapsed {
+        max-height: 0;
+    }
+    
+    /* Table optimizations */
+    .data-table {
+        width: 100%;
+        font-size: 0.9rem;
+    }
+    
+    .data-table th,
+    .data-table td {
+        padding: 0.5rem;
+        white-space: nowrap;
+    }
+    
+    /* Make title and location columns wrap */
+    .data-table td[data-field="title"],
+    .data-table td[data-field="location"] {
+        white-space: normal;
+        max-width: 250px;
+    }
+</style>
+<div class="container">
+    <!-- Breadcrumb -->
+    <div style="margin-bottom: 1rem;">
+        <a href="/admin" style="color: #667eea; text-decoration: none; font-size: 0.875rem;">← Back to Admin Dashboard</a>
+    </div>
+    
+    <h1>📊 Google Sheets Staging</h1>
+    <p class="subtitle">Review and edit jobs before uploading to Google Sheets</p>
+    
+    <!-- Stats Overview -->
+    <div class="stats-grid" style="margin-top: 2rem;">
+        {% set total_jobs = stats|sum(attribute='count') %}
+        {% set total_pending = stats|sum(attribute='pending_count') %}
+        {% set total_staged = stats|sum(attribute='staged_count') %}
+        {% set total_excluded = stats|sum(attribute='excluded_count') %}
+        
+        <div class="stat-card">
+            <div class="stat-value">{{ total_jobs|number_format }}</div>
+            <div class="stat-label">Total Jobs This Week</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ total_pending|number_format }}</div>
+            <div class="stat-label">Pending Upload</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ total_staged|number_format }}</div>
+            <div class="stat-label">Staged (Uploaded)</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ total_excluded|number_format }}</div>
+            <div class="stat-label">Excluded</div>
+        </div>
+    </div>
+    
+    <!-- Tabs per Country (Collapsible) -->
+    <button class="collapsible collapsed" onclick="toggleCollapsible(this)">
+        📑 {% if current_country != 'all' %}Tabs in {{ current_country }}{% else %}Jobs per Country & Tab Overview{% endif %} (Click to expand)
+    </button>
+    <div class="collapsible-content collapsed">
+        <div class="card" style="margin-bottom: 0;">
+            <table class="data-table" style="margin-top: 0;">
+                <thead>
+                    <tr>
+                        <th>Country</th>
+                        <th>Tab Name</th>
+                        <th>Total Jobs</th>
+                        <th>Pending</th>
+                        <th>Staged</th>
+                        <th>Excluded</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for stat in stats %}
+                    <tr>
+                        <td><strong>{{ stat.assigned_sheet }}</strong></td>
+                        <td>{{ stat.assigned_tab }}</td>
+                        <td>{{ stat.count|number_format }}</td>
+                        <td>{{ stat.pending_count|number_format }}</td>
+                        <td>{{ stat.staged_count|number_format }}</td>
+                        <td>{{ stat.excluded_count|number_format }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- Filters -->
+    <div class="card">
+        <h2>🔍 Filter Jobs</h2>
+        <form method="GET" style="margin-top: 1rem;">
+            <input type="hidden" name="page" value="1">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                <div>
+                    <label for="country">Country:</label>
+                    <select name="country" id="country" onchange="this.form.submit()">
+                        <option value="all" {% if current_country == 'all' %}selected{% endif %}>All Countries</option>
+                        {% for c in countries %}
+                        <option value="{{ c.assigned_sheet }}" {% if current_country == c.assigned_sheet %}selected{% endif %}>
+                            {{ c.assigned_sheet }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div>
+                    <label for="tab">Job Type (Tab):</label>
+                    <select name="tab" id="tab" onchange="this.form.submit()">
+                        <option value="all" {% if current_tab == 'all' %}selected{% endif %}>All Tabs</option>
+                        {% for t in tabs %}
+                        <option value="{{ t.assigned_tab }}" {% if current_tab == t.assigned_tab %}selected{% endif %}>
+                            {{ t.assigned_tab }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div>
+                    <label for="status">Status:</label>
+                    <select name="status" id="status" onchange="this.form.submit()">
+                        <option value="all" {% if current_status == 'all' %}selected{% endif %}>All</option>
+                        <option value="pending" {% if current_status == 'pending' %}selected{% endif %}>Pending</option>
+                        <option value="staged" {% if current_status == 'staged' %}selected{% endif %}>Staged (Uploaded)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label for="per_page">Rows per page:</label>
+                    <select name="per_page" id="per_page" onchange="this.form.submit()">
+                        <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                        <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
+                        <option value="500" {% if per_page == 500 %}selected{% endif %}>500</option>
+                        <option value="1000" {% if per_page == 1000 %}selected{% endif %}>1000</option>
+                    </select>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Spreadsheet Targets -->
+    <div class="card">
+        <h2>🗺️ Spreadsheet Targets</h2>
+        <p style="color: #6b7280; margin-top: 0.5rem;">
+            Define where each country routes on upload. A target can contain one or many countries.
+        </p>
+
+        <div style="overflow-x: auto; margin-top: 1rem;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Countries</th>
+                        <th>Private Sheet ID</th>
+                        <th>Published ID</th>
+                        <th>Active</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for target in targets %}
+                    <tr>
+                        <td>{{ target.name }}</td>
+                        <td>{{ target.countries|join(', ') if target.countries else '—' }}</td>
+                        <td style="font-family: monospace; font-size: 0.8rem;">{{ target.private_spreadsheet_id }}</td>
+                        <td style="font-family: monospace; font-size: 0.8rem;">{{ target.published_spreadsheet_id or '—' }}</td>
+                        <td>{{ '✅' if target.is_active else '❌' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; align-items: end;">
+            <div>
+                <label for="targetName">Target Name</label>
+                <input id="targetName" placeholder="Example: North America" />
+            </div>
+            <div>
+                <label for="targetCountries">Countries (comma separated)</label>
+                <input id="targetCountries" placeholder="Canada, United States" />
+            </div>
+            <div>
+                <label for="targetPrivateSheet">Private Sheet URL or ID</label>
+                <input id="targetPrivateSheet" placeholder="https://docs.google.com/..." />
+            </div>
+            <div>
+                <label for="targetPublishedSheet">Published Sheet URL or ID (optional)</label>
+                <input id="targetPublishedSheet" placeholder="2PACX-... or URL" />
+            </div>
+            <div>
+                <label><input type="checkbox" id="targetIsActive" checked> Active</label>
+            </div>
+            <div>
+                <button onclick="saveTargetConfig()" class="btn btn-primary">💾 Save Target</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Bulk Actions -->
+    <div class="card">
+        <h2>⚡ Bulk Actions</h2>
+        <div style="margin-top: 0.75rem; padding: 0.75rem; border: 1px solid #e5e7eb; border-radius: 6px; background: #f8fafc;">
+            <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                <button onclick="runGrokPass()" class="btn btn-info" {% if not grok_configured %}disabled{% endif %}>🤖 Run Groq AI on Pending</button>
+                <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 500; margin: 0;">
+                    Batch size
+                    <input type="number" id="grokMaxRows" min="0" max="100000" step="1" value="0" style="width: 100px; padding: 0.35rem;" title="0 means process all pending rows">
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: 500; margin: 0;">
+                    <input type="checkbox" id="grokRequireReview" checked>
+                    Require review after AI pass
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: 500; margin: 0;">
+                    <input type="checkbox" id="grokAutoUpload">
+                    Auto-upload after AI pass
+                </label>
+                {% if not grok_configured %}
+                <span style="color: #b45309; font-size: 0.85rem;">Set GROQ_API_KEY (or GROK_API_KEY) in .env to enable</span>
+                {% endif %}
+            </div>
+        </div>
+        <div style="display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+            <button onclick="findSimilar()" class="btn btn-info">🔍 Find Similar Titles</button>
+            <button onclick="moveToTab()" class="btn btn-primary">➡️ Move to Tab</button>
+            <button onclick="createNewTab()" class="btn btn-primary">📁 Create New Tab</button>
+            <button onclick="bulkExclude()" class="btn btn-warning">❌ Exclude Selected</button>
+            <button onclick="bulkInclude()" class="btn btn-success">✅ Include Selected</button>
+            <button onclick="reevaluateJobs()" class="btn btn-info">🔄 Reevaluate Selected</button>
+            <button onclick="submitFinalReview()" class="btn btn-primary">🧾 Submit Final Review</button>
+            <button onclick="bulkDelete()" class="btn btn-danger">🗑️ Delete Selected</button>
+            <button onclick="uploadToSheets()" class="btn btn-success" style="margin-left: auto;">
+                ☁️ Upload {% if current_country != 'all' %}{{ current_country }} {% endif %}Pending to Sheets
+            </button>
+        </div>
+        <div style="margin-top: 1rem;">
+            <label>Upload countries together (optional multi-select):</label>
+            <div style="display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem;">
+                {% for c in countries %}
+                <label style="display: flex; align-items: center; gap: 0.35rem; font-weight: 400;">
+                    <input type="checkbox" class="upload-country" value="{{ c.assigned_sheet }}">
+                    {{ c.assigned_sheet }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        <p style="margin-top: 1rem; color: #6b7280; font-size: 0.875rem;">
+            💡 Tip: Upload respects your country AND tab filters. 
+            {% if current_country != 'all' and current_tab != 'all' %}
+                <strong>Only {{ current_country }} → {{ current_tab }} jobs</strong> will be uploaded.
+            {% elif current_country != 'all' %}
+                <strong>Only {{ current_country }} jobs</strong> will be uploaded.
+            {% elif current_tab != 'all' %}
+                <strong>Only {{ current_tab }} jobs</strong> will be uploaded.
+            {% else %}
+                <strong>All countries and tabs</strong> will be uploaded.
+            {% endif %} 
+            Staged jobs have already been uploaded but can still be removed if needed.
+        </p>
+        <p style="margin-top: 0.5rem; padding: 0.75rem; background: #e0f2fe; border-left: 4px solid #0ea5e9; font-size: 0.875rem;">
+            🔄 <strong>Reevaluate:</strong> If jobs are assigned to the wrong country (e.g., Canada jobs in USA tab), select them and click "Reevaluate" to refresh assignments from the jobs table.
+        </p>
+        {% set tab_count = stats | length %}
+        {% if tab_count > 100 %}
+        <p style="margin-top: 0.5rem; padding: 0.75rem; background: #fff3cd; border-left: 4px solid #ffc107; font-size: 0.875rem;">
+            ⚠️ <strong>Warning:</strong> You have {{ tab_count }} unique tabs. Upload will take approximately {{ (tab_count / 40) | round(0, 'ceil') | int }}-{{ (tab_count / 20) | round(0, 'ceil') | int }} minutes. 
+            Consider consolidating similar job titles in the <a href="/admin/title_normalization" style="color: #667eea;">Title Normalization Admin</a> to reduce tabs and speed up uploads.
+        </p>
+        {% endif %}
+    </div>
+    
+    <!-- Jobs Table -->
+    <div class="card">
+        <h2>📋 Jobs ({{ jobs|length }} shown / {{ total_rows|number_format }} total)</h2>
+        <div style="overflow-x: auto; margin-top: 1rem;">
+            <table class="data-table editable-table">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="selectAll" onclick="toggleSelectAll()"></th>
+                        <th>ID</th>
+                        <th>Country</th>
+                        <th>Target</th>
+                        <th>Tab</th>
+                        <th>Title</th>
+                        <th>Normalized Title</th>
+                        <th>Company</th>
+                        <th>Location</th>
+                        <th>Remote</th>
+                        <th>Posted</th>
+                        <th>Status</th>
+                        <th>Excluded</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for job in jobs %}
+                    <tr data-id="{{ job.id }}">
+                        <td><input type="checkbox" class="job-checkbox" value="{{ job.id }}"></td>
+                        <td>{{ job.job_id }}</td>
+                        <td contenteditable="true" data-field="country">{{ job.country or 'N/A' }}</td>
+                        <td>
+                            <select class="target-select" data-id="{{ job.id }}">
+                                <option value="">Auto by country</option>
+                                {% for target in targets %}
+                                <option value="{{ target.id }}" {% if job.target_id and job.target_id == target.id %}selected{% endif %}>
+                                    {{ target.name }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </td>
+                        <td contenteditable="true" data-field="assigned_tab">{{ job.assigned_tab }}</td>
+                        <td contenteditable="true" data-field="title">{{ job.title }}</td>
+                        <td contenteditable="true" data-field="normalized_title">{{ job.normalized_title or 'N/A' }}</td>
+                        <td contenteditable="true" data-field="company">{{ job.company }}</td>
+                        <td contenteditable="true" data-field="location">{{ job.location }}</td>
+                        <td contenteditable="true" data-field="remote_type">{{ job.remote_type or 'N/A' }}</td>
+                        <td>{{ job.posted_date|format_date }}</td>
+                        <td>
+                            <span class="badge {% if job.status == 'pending' %}badge-warning{% elif job.status == 'staged' %}badge-success{% endif %}">
+                                {{ job.status }}
+                            </span>
+                        </td>
+                        <td>{{ '✅' if job.exclude_from_upload else '❌' }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if total_pages > 1 %}
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+            <div style="font-size: 0.9rem; color: #6b7280;">
+                Page {{ page }} of {{ total_pages }}
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                {% if page > 1 %}
+                <a class="btn btn-secondary" href="{{ url_for('admin_sheets_staging', country=current_country, tab=current_tab, status=current_status, per_page=per_page, page=page-1) }}">← Prev</a>
+                {% endif %}
+
+                {% if page > 2 %}
+                <a class="btn btn-secondary" href="{{ url_for('admin_sheets_staging', country=current_country, tab=current_tab, status=current_status, per_page=per_page, page=1) }}">1</a>
+                {% endif %}
+
+                {% if page > 1 %}
+                <a class="btn btn-secondary" href="{{ url_for('admin_sheets_staging', country=current_country, tab=current_tab, status=current_status, per_page=per_page, page=page-1) }}">{{ page - 1 }}</a>
+                {% endif %}
+
+                <span class="btn btn-primary" style="cursor: default;">{{ page }}</span>
+
+                {% if page < total_pages %}
+                <a class="btn btn-secondary" href="{{ url_for('admin_sheets_staging', country=current_country, tab=current_tab, status=current_status, per_page=per_page, page=page+1) }}">{{ page + 1 }}</a>
+                {% endif %}
+
+                {% if page < total_pages - 1 %}
+                <a class="btn btn-secondary" href="{{ url_for('admin_sheets_staging', country=current_country, tab=current_tab, status=current_status, per_page=per_page, page=total_pages) }}">{{ total_pages }}</a>
+                {% endif %}
+
+                {% if page < total_pages %}
+                <a class="btn btn-secondary" href="{{ url_for('admin_sheets_staging', country=current_country, tab=current_tab, status=current_status, per_page=per_page, page=page+1) }}">Next →</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Similar Jobs Modal -->
+<div id="similarModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; overflow-y: auto;">
+    <div style="background: white; max-width: 900px; margin: 50px auto; border-radius: 8px; padding: 2rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h2>🔍 Similar Jobs Found</h2>
+            <button onclick="closeSimilarModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+        </div>
+        
+        <div id="similarResults" style="margin-bottom: 1.5rem;">
+            <!-- Results will be populated here -->
+        </div>
+        
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 1.5rem;">
+            <h3 style="margin-bottom: 1rem;">Actions</h3>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                <button onclick="selectAllSimilar()" class="btn btn-info">✓ Select All Similar</button>
+                <button onclick="createTabFromSimilar()" class="btn btn-primary">📁 Create Tab & Assign</button>
+                <button onclick="moveSelectedSimilar()" class="btn btn-success">➡️ Move to Existing Tab</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Move to Tab Modal -->
+<div id="moveTabModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+    <div style="background: white; max-width: 500px; margin: 100px auto; border-radius: 8px; padding: 2rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+            <h2>➡️ Move Jobs to Tab</h2>
+            <button onclick="closeMoveTabModal()" style="border: none; background: none; font-size: 1.5rem; cursor: pointer;">&times;</button>
+        </div>
+        
+        <div style="margin-bottom: 1.5rem;">
+            <p style="color: #6b7280; margin-bottom: 1rem;"><span id="moveJobCount">0</span> job(s) selected</p>
+            
+            <label for="targetTabSelect">Move to:</label>
+            <select id="targetTabSelect" style="margin-bottom: 1rem;">
+                <option value="">-- Select existing tab --</option>
+                {% for t in tabs %}
+                <option value="{{ t.assigned_tab }}">{{ t.assigned_tab }}</option>
+                {% endfor %}
+            </select>
+            
+            <label for="newTabName">Or create new tab:</label>
+            <input type="text" id="newTabName" placeholder="Enter new tab name">
+        </div>
+        
+        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+            <button onclick="closeMoveTabModal()" class="btn btn-secondary">Cancel</button>
+            <button onclick="executeMoveToTab()" class="btn btn-success">Move Jobs</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .editable-table td[contenteditable="true"] {
+        cursor: text;
+        background: #fff;
+        transition: background 0.2s;
+    }
+    
+    .editable-table td[contenteditable="true"]:hover {
+        background: #f0f8ff;
+    }
+    
+    .editable-table td[contenteditable="true"]:focus {
+        outline: 2px solid #667eea;
+        background: #f0f8ff;
+    }
+    
+    .btn {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+    
+    .btn-primary {
+        background: #667eea;
+        color: white;
+    }
+    
+    .btn-info {
+        background: #17a2b8;
+        color: white;
+    }
+    
+    .btn-success {
+        background: #28a745;
+        color: white;
+    }
+    
+    .btn-warning {
+        background: #ffc107;
+        color: black;
+    }
+    
+    .btn-danger {
+        background: #dc3545;
+        color: white;
+    }
+    
+    .btn-secondary {
+        background: #6b7280;
+        color: white;
+    }
+    
+    .btn:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+    }
+    
+    .badge {
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+    
+    .badge-warning {
+        background: #ffc107;
+        color: black;
+    }
+    
+    .badge-success {
+        background: #28a745;
+        color: white;
+    }
+    
+    select, input {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 1rem;
+    }
+    
+    label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+    }
+</style>
+
+<script>
+    // Auto-save on cell edit (delegated to avoid attaching thousands of listeners)
+    document.addEventListener('focusout', function(event) {
+        const cell = event.target;
+        if (!cell.matches('td[contenteditable="true"]')) return;
+
+        const row = cell.closest('tr');
+        if (!row || !row.dataset.id) return;
+
+        const id = row.dataset.id;
+        const field = cell.dataset.field;
+        const value = cell.textContent.trim();
+
+        fetch('/api/admin/sheets_staging/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id: parseInt(id), field: field, value: value})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                cell.style.background = '#d4edda';
+                setTimeout(() => cell.style.background = '', 1000);
+            }
+        });
+    });
+
+    document.addEventListener('change', function(event) {
+        const select = event.target;
+        if (!select.matches('.target-select')) return;
+
+        const stagingId = parseInt(select.dataset.id);
+        const value = select.value;
+
+        fetch('/api/admin/sheets_staging/update', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({id: stagingId, field: 'target_id', value: value})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                alert(`Failed to update target: ${data.error || 'Unknown error'}`);
+            }
+        });
+    });
+
+    function saveTargetConfig() {
+        const name = document.getElementById('targetName').value.trim();
+        const countriesText = document.getElementById('targetCountries').value.trim();
+        const privateSheet = document.getElementById('targetPrivateSheet').value.trim();
+        const publishedSheet = document.getElementById('targetPublishedSheet').value.trim();
+        const isActive = document.getElementById('targetIsActive').checked;
+
+        if (!name) return alert('Target name is required');
+        if (!privateSheet) return alert('Private spreadsheet ID or URL is required');
+        if (!countriesText) return alert('At least one country is required');
+
+        const countries = countriesText
+            .split(',')
+            .map(c => c.trim())
+            .filter(Boolean);
+
+        fetch('/api/admin/sheets_targets/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                name,
+                countries,
+                private_sheet: privateSheet,
+                published_sheet: publishedSheet,
+                is_active: isActive
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Target saved');
+                location.reload();
+            } else {
+                alert(`Failed to save target: ${data.error}`);
+            }
+        });
+    }
+    
+    function toggleSelectAll() {
+        const checkboxes = document.querySelectorAll('.job-checkbox');
+        const selectAll = document.getElementById('selectAll').checked;
+        checkboxes.forEach(cb => cb.checked = selectAll);
+    }
+    
+    function getSelectedIds() {
+        return Array.from(document.querySelectorAll('.job-checkbox:checked')).map(cb => parseInt(cb.value));
+    }
+    
+    function bulkExclude() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) return alert('No jobs selected');
+        
+        if (!confirm(`Exclude ${ids.length} job(s) from upload?`)) return;
+        
+        fetch('/api/admin/sheets_staging/exclude', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids, exclude: true})
+        })
+        .then(r => r.json())
+        .then(data => {
+            alert(`${data.affected} jobs excluded`);
+            location.reload();
+        });
+    }
+    
+    function bulkInclude() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) return alert('No jobs selected');
+        
+        fetch('/api/admin/sheets_staging/exclude', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids, exclude: false})
+        })
+        .then(r => r.json())
+        .then(data => {
+            alert(`${data.affected} jobs included`);
+            location.reload();
+        });
+    }
+    
+    function reevaluateJobs() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) return alert('No jobs selected');
+        
+        const message = `Reevaluate ${ids.length} job(s)?\n\n` +
+            `This will:\n` +
+            `✓ Use your edited values (country, title, etc.) if you made changes\n` +
+            `✓ Use original job data for fields you didn't edit\n` +
+            `✓ Reassign country/tab based on current values\n\n` +
+            `This is useful to apply your manual country/title changes.`;
+        
+        if (!confirm(message)) return;
+        
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '🔄 Reevaluating...';
+        
+        fetch('/api/admin/sheets_staging/reevaluate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                let message = `✓ Reevaluated ${data.updated} job(s)`;
+                if (data.skipped > 0) {
+                    message += `\n⚠️ Skipped ${data.skipped} job(s) (unsupported country)`;
+                }
+                alert(message);
+                location.reload();
+            } else {
+                alert(`Error: ${data.error}`);
+                btn.disabled = false;
+                btn.textContent = '🔄 Reevaluate Selected';
+            }
+        })
+        .catch(err => {
+            alert('Failed to reevaluate jobs');
+            btn.disabled = false;
+            btn.textContent = '🔄 Reevaluate Selected';
+        });
+    }
+    
+    function bulkDelete() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) return alert('No jobs selected');
+        
+        if (!confirm(`DELETE ${ids.length} job(s)? This cannot be undone!`)) return;
+        
+        fetch('/api/admin/sheets_staging/delete', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ids: ids})
+        })
+        .then(r => r.json())
+        .then(data => {
+            alert(`${data.deleted} jobs deleted`);
+            location.reload();
+        });
+    }
+
+    function submitFinalReview() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) return alert('No jobs selected');
+
+        if (!confirm(`Submit final review for ${ids.length} job(s)?\n\nThis saves final values to BOTH staging and jobs tables.`)) {
+            return;
+        }
+
+        fetch('/api/admin/sheets_staging/submit_review', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ ids: ids, reviewer: 'admin' })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Final review submitted for ${data.reviewed} job(s).`);
+                location.reload();
+            } else {
+                alert(`Submit failed: ${data.error}`);
+            }
+        });
+    }
+    
+    function createNewTab() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) return alert('Select jobs to assign to new tab');
+        
+        const tabName = prompt('Enter new tab name:');
+        if (!tabName) return;
+        
+        fetch('/api/admin/sheets_staging/create_tab', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({job_ids: ids, tab_name: tabName})
+        })
+        .then(r => r.json())
+        .then(data => {
+            alert(`Created tab "${data.tab_name}" with ${data.affected} jobs`);
+            location.reload();
+        });
+    }
+
+    function runGrokPass() {
+        const requireReview = document.getElementById('grokRequireReview').checked;
+        const autoUpload = document.getElementById('grokAutoUpload').checked;
+        const maxRowsInput = document.getElementById('grokMaxRows');
+        let maxRows = parseInt(maxRowsInput.value || '0', 10);
+        if (Number.isNaN(maxRows) || maxRows < 0) {
+            maxRows = 0;
+        }
+        if (maxRows > 100000) {
+            maxRows = 100000;
+        }
+        maxRowsInput.value = String(maxRows);
+        const urlParams = new URLSearchParams(window.location.search);
+        const currentCountry = urlParams.get('country') || 'all';
+        const currentTab = urlParams.get('tab') || 'all';
+        const selectedCountries = Array.from(document.querySelectorAll('.upload-country:checked')).map(el => el.value);
+
+        const modeText = requireReview
+            ? 'AI pass with manual review'
+            : (autoUpload ? 'AI pass then auto-upload' : 'AI pass without mandatory review');
+
+        const batchText = maxRows === 0 ? 'all pending rows' : String(maxRows);
+        if (!confirm(`Run Groq AI on pending rows?\nMode: ${modeText}\nBatch size: ${batchText}`)) {
+            return;
+        }
+
+        fetch('/api/admin/sheets_staging/ai_process', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                country: currentCountry === 'all' ? null : currentCountry,
+                countries: selectedCountries.length ? selectedCountries : null,
+                tab: currentTab === 'all' ? null : currentTab,
+                max_rows: maxRows,
+                require_review: requireReview,
+                auto_upload: autoUpload
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) {
+                alert(`AI processing failed: ${data.error}`);
+                return;
+            }
+
+            let message = `AI processing completed.\nRequested batch: ${batchText}\nProcessed: ${data.stats.processed}\nUpdated: ${data.stats.updated}\nNeeds review: ${data.stats.needs_review}`;
+            if (typeof data.stats.errors !== 'undefined') {
+                message += `\nErrors: ${data.stats.errors}`;
+            }
+            if (data.upload) {
+                message += `\n\nAuto-upload completed.`;
+            } else if (requireReview) {
+                message += `\n\nReview mode is ON. Please review rows before upload.`;
+            }
+
+            alert(message);
+            location.reload();
+        })
+        .catch(err => {
+            alert(`AI processing error: ${err.message || err}`);
+        });
+    }
+    
+    function uploadToSheets() {
+        // Get current filters
+        const urlParams = new URLSearchParams(window.location.search);
+        const currentCountry = urlParams.get('country') || 'all';
+        const currentTab = urlParams.get('tab') || 'all';
+        const selectedCountries = Array.from(document.querySelectorAll('.upload-country:checked')).map(el => el.value);
+        
+        // Get pending count to estimate time
+        const pendingRows = document.querySelectorAll('tr .badge-warning').length;
+        const estimatedMinutes = Math.max(1, Math.ceil(pendingRows / 50)); // Rough estimate: 50 jobs per minute
+        
+        // Build filter description
+        let filterText = '';
+        if (currentTab !== 'all' && currentCountry !== 'all') {
+            filterText = `${pendingRows} pending job(s) for ${currentCountry} → ${currentTab}`;
+        } else if (currentTab !== 'all') {
+            filterText = `${pendingRows} pending job(s) for tab: ${currentTab}`;
+        } else if (currentCountry !== 'all') {
+            filterText = `${pendingRows} pending job(s) for ${currentCountry}`;
+        } else {
+            filterText = 'all pending jobs';
+        }
+        
+        const message = `Upload ${filterText} to Google Sheets?\n\n` +
+            `⚠️ This will take approximately ${estimatedMinutes}-${estimatedMinutes * 2} minutes.\n\n` +
+            `The page will reload automatically when complete.\n` +
+            `Do NOT close this tab during upload.`;
+        
+        if (!confirm(message)) return;
+        
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '⏳ Uploading... (check console for progress)';
+        
+        // Open console automatically to show progress
+        console.log('%c📤 Google Sheets Upload Started', 'font-size: 16px; font-weight: bold; color: #667eea');
+        console.log(`Uploading ${filterText}...`);
+        console.log('This may take several minutes. Watch this console for progress...');
+        
+        // Create AbortController for timeout handling
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 600000); // 10 minute timeout
+        
+        fetch('/api/admin/sheets_staging/upload', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                country: currentCountry === 'all' ? null : currentCountry,
+                countries: selectedCountries.length ? selectedCountries : null,
+                tab: currentTab === 'all' ? null : currentTab
+            }),
+            signal: controller.signal
+        })
+        .then(r => {
+            clearTimeout(timeoutId);
+            if (!r.ok) {
+                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+            }
+            return r.json();
+        })
+        .then(data => {
+            if (data.success) {
+                console.log('%c✓ Upload Complete!', 'font-size: 16px; font-weight: bold; color: green');
+                alert(`✓ Successfully uploaded pending jobs to Google Sheets!\n\nJobs moved to 'staged' status and remain visible for review.\nYou can delete staged jobs if needed.\n\nStats:\n${JSON.stringify(data.stats, null, 2)}`);
+                location.reload();
+            } else {
+                console.error('Upload failed:', data.error);
+                alert(`Upload failed: ${data.error}`);
+                btn.disabled = false;
+                btn.textContent = '☁️ Upload Pending to Google Sheets';
+            }
+        })
+        .catch(err => {
+            clearTimeout(timeoutId);
+            let errorMsg = err.message || String(err);
+            if (err.name === 'AbortError') {
+                errorMsg = 'Upload timed out after 10 minutes.\n\nTry:\n1. Filter by ONE country at a time\n2. Upload Canada separately\n3. Upload UK separately\n4. Upload US separately';
+            }
+            console.error('Upload error:', err);
+            alert(`Upload error: ${errorMsg}`);
+            btn.disabled = false;
+            btn.textContent = '☁️ Upload Pending to Google Sheets';
+        });
+    }
+    
+    // ─── Similar Jobs & Move to Tab Functions ────────────────────────────────
+    
+    let similarJobsData = [];
+    let pendingMoveIds = [];
+    
+    function findSimilar() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) return alert('Select 1 or more jobs to find similar titles');
+        
+        const threshold = prompt('Enter similarity threshold (0.5-1.0, default 0.75):', '0.75');
+        if (!threshold) return;
+        
+        const thresholdNum = parseFloat(threshold);
+        if (isNaN(thresholdNum) || thresholdNum < 0.5 || thresholdNum > 1.0) {
+            return alert('Invalid threshold. Use 0.5 to 1.0');
+        }
+        
+        fetch('/api/admin/sheets_staging/find_similar', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                job_ids: ids,
+                threshold: thresholdNum,
+                country: '{{ current_country }}'
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                similarJobsData = data.similar_jobs;
+                showSimilarModal(data.similar_jobs, data.threshold);
+            } else {
+                alert(`Error: ${data.error}`);
+            }
+        });
+    }
+    
+    function showSimilarModal(jobs, threshold) {
+        if (jobs.length === 0) {
+            alert(`No similar jobs found with ${Math.round(threshold * 100)}% similarity threshold. Try lowering the threshold.`);
+            return;
+        }
+        
+        const resultsDiv = document.getElementById('similarResults');
+        resultsDiv.innerHTML = `
+            <p style="color: #6b7280; margin-bottom: 1rem;">
+                Found <strong>${jobs.length}</strong> similar job(s) with ≥${Math.round(threshold * 100)}% similarity
+            </p>
+            <div style="max-height: 400px; overflow-y: auto;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th><input type="checkbox" id="selectAllSimilarChk" onclick="toggleAllSimilar()"></th>
+                            <th>Title</th>
+                            <th>Current Tab</th>
+                            <th>Similarity</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${jobs.map(job => `
+                            <tr>
+                                <td><input type="checkbox" class="similar-checkbox" value="${job.id}"></td>
+                                <td>${job.title}</td>
+                                <td>${job.current_tab}</td>
+                                <td>${Math.round(job.similarity * 100)}%</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+        
+        document.getElementById('similarModal').style.display = 'block';
+    }
+    
+    function closeSimilarModal() {
+        document.getElementById('similarModal').style.display = 'none';
+        similarJobsData = [];
+    }
+    
+    function toggleAllSimilar() {
+        const checked = document.getElementById('selectAllSimilarChk').checked;
+        document.querySelectorAll('.similar-checkbox').forEach(cb => cb.checked = checked);
+    }
+    
+    function selectAllSimilar() {
+        document.querySelectorAll('.similar-checkbox').forEach(cb => cb.checked = true);
+    }
+    
+    function getSelectedSimilarIds() {
+        return Array.from(document.querySelectorAll('.similar-checkbox:checked')).map(cb => parseInt(cb.value));
+    }
+    
+    function createTabFromSimilar() {
+        const ids = getSelectedSimilarIds();
+        if (ids.length === 0) return alert('Select jobs from the similar list');
+        
+        const tabName = prompt('Enter new tab name for these similar jobs:');
+        if (!tabName) return;
+        
+        fetch('/api/admin/sheets_staging/move_to_tab', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                job_ids: ids,
+                target_tab: tabName,
+                create_new: true
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert(`✓ Created tab "${data.target_tab}" and moved ${data.moved} jobs`);
+                closeSimilarModal();
+                location.reload();
+            } else {
+                alert(`Error: ${data.error}`);
+            }
+        });
+    }
+    
+    function moveSelectedSimilar() {
+        const ids = getSelectedSimilarIds();
+        if (ids.length === 0) return alert('Select jobs from the similar list');
+        
+        pendingMoveIds = ids;
+        document.getElementById('moveJobCount').textContent = ids.length;
+        closeSimilarModal();
+        document.getElementById('moveTabModal').style.display = 'block';
+    }
+    
+    function moveToTab() {
+        const ids = getSelectedIds();
+        if (ids.length === 0) return alert('Select jobs to move');
+        
+        pendingMoveIds = ids;
+        document.getElementById('moveJobCount').textContent = ids.length;
+        document.getElementById('moveTabModal').style.display = 'block';
+    }
+    
+    function closeMoveTabModal() {
+        document.getElementById('moveTabModal').style.display = 'none';
+        pendingMoveIds = [];
+    }
+    
+    function executeMoveToTab() {
+        if (pendingMoveIds.length === 0) return alert('No jobs selected');
+        
+        const existingTab = document.getElementById('targetTabSelect').value;
+        const newTab = document.getElementById('newTabName').value.trim();
+        
+        if (!existingTab && !newTab) {
+            return alert('Select an existing tab or enter a new tab name');
+        }
+        
+        if (existingTab && newTab) {
+            return alert('Select either an existing tab OR enter a new name, not both');
+        }
+        
+        const targetTab = existingTab || newTab;
+        const createNew = !!newTab;
+        
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = 'Moving...';
+        
+        fetch('/api/admin/sheets_staging/move_to_tab', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                job_ids: pendingMoveIds,
+                target_tab: targetTab,
+                create_new: createNew
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                let message = `✓ Moved ${data.moved} job(s) to "${data.target_tab}"${data.created_new ? ' (new tab)' : ''}`;
+                if (data.skipped_duplicates > 0) {
+                    message += `\n(${data.skipped_duplicates} already in target tab)`;
+                }
+                alert(message);
+                closeMoveTabModal();
+                location.reload();
+            } else {
+                alert(`Error: ${data.error}`);
+                btn.disabled = false;
+                btn.textContent = 'Move Jobs';
+            }
+        })
+        .catch(err => {
+            alert('Failed to move jobs: ' + err.message);
+            btn.disabled = false;
+            btn.textContent = 'Move Jobs';
+        });
+    }
+    
+    // Toggle collapsible section
+    function toggleCollapsible(element) {
+        element.classList.toggle('collapsed');
+        const content = element.nextElementSibling;
+        content.classList.toggle('collapsed');
+    }
+</script>
+{% endblock %}

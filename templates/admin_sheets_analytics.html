@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Google Sheets Analytics - Admin{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Breadcrumb -->
+    <div style="margin-bottom: 1rem;">
+        <a href="/admin" style="color: #667eea; text-decoration: none; font-size: 0.875rem;">← Back to Admin Dashboard</a>
+        <span style="margin: 0 0.5rem; color: #999;">|</span>
+        <a href="/admin/sheets_staging" style="color: #667eea; text-decoration: none; font-size: 0.875rem;">Sheets Staging</a>
+    </div>
+    
+    <h1>📊 Google Sheets Click Analytics</h1>
+    <p class="subtitle">Track which job types are getting the most attention from Overview tab links</p>
+    
+    <!-- Overall Stats -->
+    <div class="stats-grid" style="margin-top: 2rem;">
+        <div class="stat-card">
+            <div class="stat-value">{{ overall_stats.total_clicks|number_format }}</div>
+            <div class="stat-label">Total Clicks</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ overall_stats.unique_users|number_format }}</div>
+            <div class="stat-label">Unique Users</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ overall_stats.unique_tabs|number_format }}</div>
+            <div class="stat-label">Tabs Clicked</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">{{ overall_stats.countries|number_format }}</div>
+            <div class="stat-label">Countries</div>
+        </div>
+    </div>
+    
+    <!-- Filters -->
+    <div class="card">
+        <h2>🔍 Filters</h2>
+        <form method="GET" style="margin-top: 1rem;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                <div>
+                    <label for="country">Country:</label>
+                    <select name="country" id="country" onchange="this.form.submit()">
+                        <option value="all" {% if current_country == 'all' %}selected{% endif %}>All Countries</option>
+                        {% for c in countries %}
+                        <option value="{{ c.country }}" {% if current_country == c.country %}selected{% endif %}>
+                            {{ c.country }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div>
+                    <label for="days">Time Range:</label>
+                    <select name="days" id="days" onchange="this.form.submit()">
+                        <option value="7" {% if current_days == 7 %}selected{% endif %}>Last 7 days</option>
+                        <option value="30" {% if current_days == 30 %}selected{% endif %}>Last 30 days</option>
+                        <option value="90" {% if current_days == 90 %}selected{% endif %}>Last 90 days</option>
+                        <option value="365" {% if current_days == 365 %}selected{% endif %}>Last year</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; align-items: flex-end;">
+                    <a href="/api/admin/sheets_analytics/export" class="btn btn-primary" download>
+                        📥 Export CSV
+                    </a>
+                </div>
+            </div>
+        </form>
+    </div>
+    
+    <!-- Most Clicked Tabs -->
+    <div class="card">
+        <h2>🔥 Most Clicked Job Types</h2>
+        <div style="overflow-x: auto; margin-top: 1rem;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Country</th>
+                        <th>Job Type (Tab)</th>
+                        <th>Total Clicks</th>
+                        <th>Unique Users</th>
+                        <th>Last Clicked</th>
+                        <th>Engagement</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in most_clicked %}
+                    <tr>
+                        <td><strong>#{{ loop.index }}</strong></td>
+                        <td>{{ row.country }}</td>
+                        <td><strong>{{ row.tab_name }}</strong></td>
+                        <td>{{ row.click_count|number_format }}</td>
+                        <td>{{ row.unique_users|number_format }}</td>
+                        <td>{{ row.last_clicked|format_date }}</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: {{ (row.click_count / most_clicked[0].click_count * 100) if most_clicked else 0 }}%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <!-- Click Trends Chart -->
+    <div class="card">
+        <h2>📈 Click Trends Over Time</h2>
+        <canvas id="trendsChart" style="margin-top: 1rem; max-height: 400px;"></canvas>
+    </div>
+    
+    <!-- User Engagement -->
+    <div class="card">
+        <h2>👥 User Engagement</h2>
+        <div style="overflow-x: auto; margin-top: 1rem;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>User ID</th>
+                        <th>Total Clicks</th>
+                        <th>Unique Tabs Viewed</th>
+                        <th>First Click</th>
+                        <th>Last Click</th>
+                        <th>Activity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for user in user_stats %}
+                    <tr>
+                        <td><code>{{ user.user_identifier[:12] }}...</code></td>
+                        <td>{{ user.total_clicks|number_format }}</td>
+                        <td>{{ user.unique_tabs_viewed|number_format }}</td>
+                        <td>{{ user.first_click|format_date }}</td>
+                        <td>{{ user.last_click|format_date }}</td>
+                        <td>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: {{ (user.total_clicks / user_stats[0].total_clicks * 100) if user_stats else 0 }}%"></div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<style>
+    .progress-bar {
+        width: 100%;
+        height: 20px;
+        background: #e9ecef;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+    
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        transition: width 0.3s;
+    }
+    
+    .btn {
+        padding: 0.5rem 1rem;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        font-weight: 500;
+        text-decoration: none;
+        display: inline-block;
+        transition: all 0.2s;
+    }
+    
+    .btn-primary {
+        background: #667eea;
+        color: white;
+    }
+    
+    .btn:hover {
+        opacity: 0.9;
+        transform: translateY(-1px);
+    }
+    
+    select {
+        width: 100%;
+        padding: 0.5rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 1rem;
+    }
+    
+    label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 500;
+    }
+    
+    code {
+        background: #f8f9fa;
+        padding: 0.2rem 0.4rem;
+        border-radius: 3px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.85rem;
+    }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+    // Prepare trends data
+    const trendsData = {{ trends|tojson }};
+    
+    // Group by date and country
+    const dateMap = {};
+    trendsData.forEach(row => {
+        if (!dateMap[row.date]) {
+            dateMap[row.date] = {};
+        }
+        dateMap[row.date][row.country] = row.clicks;
+    });
+    
+    const dates = Object.keys(dateMap).sort().reverse().slice(0, 30).reverse();
+    const countries = [...new Set(trendsData.map(r => r.country))];
+    
+    const datasets = countries.map(country => {
+        const color = country === 'Canada' ? '#FF6384' : country === 'United Kingdom' ? '#36A2EB' : '#FFCE56';
+        return {
+            label: country,
+            data: dates.map(date => dateMap[date][country] || 0),
+            borderColor: color,
+            backgroundColor: color + '33',
+            tension: 0.1
+        };
+    });
+    
+    // Create chart
+    const ctx = document.getElementById('trendsChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: dates,
+            datasets: datasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                title: {
+                    display: true,
+                    text: 'Daily Clicks per Country'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}

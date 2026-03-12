@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Skills - Job Market Intelligence{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 1.5rem; color: #1f2937;">Skills Overview</h2>
+
+<div class="card">
+    <h3 style="margin-bottom: 1rem; color: #1f2937;">Skills by Category</h3>
+    
+    {% if categories %}
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+        {% for cat in categories %}
+        <div style="background: #f3f4f6; padding: 1rem; border-radius: 8px; text-align: center;">
+            <div style="font-size: 1.5rem; font-weight: bold; color: #667eea;">{{ cat.count }}</div>
+            <div style="color: #6b7280; font-size: 0.875rem; text-transform: uppercase; margin-top: 0.25rem;">{{ cat.category }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 style="margin-bottom: 1rem; color: #1f2937;">Top 100 Skills Across All Jobs</h3>
+    
+    {% if top_skills %}
+    <table>
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Skill</th>
+                <th>Category</th>
+                <th>Frequency</th>
+                <th>Jobs</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for skill in top_skills %}
+            <tr>
+                <td><strong>{{ loop.index }}</strong></td>
+                <td>{{ skill.normalized_skill }}</td>
+                <td>
+                    <span class="badge" style="background: #e0e7ff; color: #4338ca;">
+                        {{ skill.category }}
+                    </span>
+                </td>
+                <td>
+                    <div style="background: #e0e7ff; border-radius: 4px; padding: 0.25rem 0.5rem; display: inline-block;">
+                        {{ skill.frequency }}
+                    </div>
+                </td>
+                <td>{{ skill.job_count }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+        <p>No skills data available yet.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

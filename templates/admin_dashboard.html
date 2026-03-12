@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Dashboard - Job Market Intelligence{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 style="margin-bottom: 1rem;">⚙️ Admin Dashboard</h1>
+    <p style="color: #666; margin-bottom: 2rem;">Manage data normalization and system settings</p>
+    
+    <!-- Admin Sections Grid -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 2rem;">
+        
+        <!-- Country Normalization -->
+        <div class="card" style="cursor: pointer; transition: transform 0.2s;" onclick="window.location.href='/admin/normalize'">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <div style="font-size: 3rem;">🌍</div>
+                <div>
+                    <h2 style="margin: 0; color: #1f2937;">Country Normalization</h2>
+                    <p style="color: #6b7280; margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+                        Fix "Unknown" countries and normalize location data
+                    </p>
+                </div>
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e5e7eb;">
+                <h4 style="margin: 0 0 0.75rem 0; color: #4b5563; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Features</h4>
+                <ul style="margin: 0; padding-left: 1.5rem; color: #6b7280; font-size: 0.875rem; line-height: 1.8;">
+                    <li>Review and fix "Unknown" country assignments</li>
+                    <li>Preview changes before applying</li>
+                    <li>Auto-suggest countries using geopy</li>
+                    <li>Auto-fix all unknown countries at once</li>
+                    <li>Manual country mapping overrides</li>
+                </ul>
+            </div>
+            
+            <div style="margin-top: 1.5rem;">
+                <a href="/admin/normalize" class="btn" style="display: inline-block; width: 100%; text-align: center; text-decoration: none;">
+                    Open Country Admin →
+                </a>
+            </div>
+        </div>
+        
+        <!-- Title Normalization -->
+        <div class="card" style="cursor: pointer; transition: transform 0.2s;" onclick="window.location.href='/admin/normalize-titles'">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <div style="font-size: 3rem;">📋</div>
+                <div>
+                    <h2 style="margin: 0; color: #1f2937;">Title Normalization</h2>
+                    <p style="color: #6b7280; margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+                        Manage job title normalizations and consolidations
+                    </p>
+                </div>
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e5e7eb;">
+                <h4 style="margin: 0 0 0.75rem 0; color: #4b5563; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Features</h4>
+                <ul style="margin: 0; padding-left: 1.5rem; color: #6b7280; font-size: 0.875rem; line-height: 1.8;">
+                    <li>View confidence scores for all normalizations</li>
+                    <li>Review low-confidence normalizations</li>
+                    <li>Create manual title mappings</li>
+                    <li>View title consolidations and variants</li>
+                    <li>Export mappings as CSV</li>
+                </ul>
+            </div>
+            
+            <div style="margin-top: 1.5rem;">
+                <a href="/admin/normalize-titles" class="btn" style="display: inline-block; width: 100%; text-align: center; text-decoration: none;">
+                    Open Title Admin →
+                </a>
+            </div>
+        </div>
+        
+        <!-- Google Sheets Staging -->
+        <div class="card" style="cursor: pointer; transition: transform 0.2s;" onclick="window.location.href='/admin/sheets_staging'">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <div style="font-size: 3rem;">📊</div>
+                <div>
+                    <h2 style="margin: 0; color: #1f2937;">Google Sheets Staging</h2>
+                    <p style="color: #6b7280; margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+                        Review and export jobs to Google Sheets by country
+                    </p>
+                </div>
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e5e7eb;">
+                <h4 style="margin: 0 0 0.75rem 0; color: #4b5563; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Features</h4>
+                <ul style="margin: 0; padding-left: 1.5rem; color: #6b7280; font-size: 0.875rem; line-height: 1.8;">
+                    <li>Review jobs from past week (Canada/UK/US)</li>
+                    <li>Edit job details before upload</li>
+                    <li>Organize jobs into custom tabs</li>
+                    <li>One-click upload to Google Sheets</li>
+                    <li>Track staged and pending jobs</li>
+                </ul>
+            </div>
+            
+            <div style="margin-top: 1.5rem;">
+                <a href="/admin/sheets_staging" class="btn" style="display: inline-block; width: 100%; text-align: center; text-decoration: none;">
+                    Open Sheets Staging →
+                </a>
+            </div>
+        </div>
+        
+        <!-- Google Sheets Analytics -->
+        <div class="card" style="cursor: pointer; transition: transform 0.2s;" onclick="window.location.href='/admin/sheets_analytics'">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <div style="font-size: 3rem;">📈</div>
+                <div>
+                    <h2 style="margin: 0; color: #1f2937;">Sheets Click Analytics</h2>
+                    <p style="color: #6b7280; margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+                        Track which job types get the most clicks
+                    </p>
+                </div>
+            </div>
+            
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid #e5e7eb;">
+                <h4 style="margin: 0 0 0.75rem 0; color: #4b5563; font-size: 0.875rem; text-transform: uppercase; letter-spacing: 0.05em;">Features</h4>
+                <ul style="margin: 0; padding-left: 1.5rem; color: #6b7280; font-size: 0.875rem; line-height: 1.8;">
+                    <li>Most clicked job types by country</li>
+                    <li>Click trends over time</li>
+                    <li>User engagement metrics</li>
+                    <li>Export analytics as CSV</li>
+                    <li>Track Overview tab navigation</li>
+                </ul>
+            </div>
+            
+            <div style="margin-top: 1.5rem;">
+                <a href="/admin/sheets_analytics" class="btn" style="display: inline-block; width: 100%; text-align: center; text-decoration: none;">
+                    Open Sheets Analytics →
+                </a>
+            </div>
+        </div>
+        
+    </div>
+    
+    <!-- System Stats -->
+    <div class="card" style="margin-top: 2rem;">
+        <h2 style="margin-bottom: 1rem;">📊 System Statistics</h2>
+        
+        <div class="stats-grid" style="margin-top: 1.5rem;">
+            <div class="stat-card">
+                <div class="stat-value">{{ total_jobs | number_format }}</div>
+                <div class="stat-label">Total Jobs</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-value">{{ unknown_countries | number_format }}</div>
+                <div class="stat-label">Unknown Countries</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-value">{{ normalized_titles | number_format }}</div>
+                <div class="stat-label">Normalized Titles</div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-value">{{ low_conf_titles | number_format }}</div>
+                <div class="stat-label">Low-Conf Titles</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Quick Actions -->
+    <div class="card" style="margin-top: 2rem;">
+        <h2 style="margin-bottom: 1rem;">⚡ Quick Actions</h2>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+            <a href="/dashboard" class="btn-secondary" style="display: block; text-align: center; padding: 1rem; text-decoration: none; background: #f3f4f6; color: #1f2937; border-radius: 6px; font-weight: 500; transition: background 0.2s;">
+                📈 View Dashboard
+            </a>
+            
+            <a href="/titles/analytics" class="btn-secondary" style="display: block; text-align: center; padding: 1rem; text-decoration: none; background: #f3f4f6; color: #1f2937; border-radius: 6px; font-weight: 500; transition: background 0.2s;">
+                📋 Title Analytics
+            </a>
+            
+            <a href="/skills/intelligence" class="btn-secondary" style="display: block; text-align: center; padding: 1rem; text-decoration: none; background: #f3f4f6; color: #1f2937; border-radius: 6px; font-weight: 500; transition: background 0.2s;">
+                🎯 Skills Intelligence
+            </a>
+            
+            <a href="/api/admin/normalize-titles/export" class="btn-secondary" style="display: block; text-align: center; padding: 1rem; text-decoration: none; background: #f3f4f6; color: #1f2937; border-radius: 6px; font-weight: 500; transition: background 0.2s;">
+                💾 Export Title Mappings
+            </a>
+        </div>
+    </div>
+</div>
+
+<style>
+    .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    
+    .btn-secondary:hover {
+        background: #e5e7eb !important;
+    }
+</style>
+{% endblock %}
