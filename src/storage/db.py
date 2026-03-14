@@ -57,109 +57,119 @@ def run_migrations() -> None:
     with conn:
         for mf in migration_files:
             sql = mf.read_text(encoding="utf-8")
-            # Skip empty migration files (comments only)
-            if sql.strip() and not sql.strip().startswith('--') or 'ALTER TABLE' in sql:
+            # Skip truly empty migration files only; comment-prefixed SQL files are valid.
+            if not sql.strip():
+                continue
+
+            # Special handling for migration 002 - add columns if they don't exist
+            if mf.name == "002_add_growth_columns.sql":
+                # Check if columns already exist
+                cursor = conn.execute("PRAGMA table_info(weekly_metrics)")
+                columns = {row[1] for row in cursor.fetchall()}
                 # Special handling for migration 002 - add columns if they don't exist
-                if mf.name == "002_add_growth_columns.sql":
-                    # Check if columns already exist
-                    cursor = conn.execute("PRAGMA table_info(weekly_metrics)")
-                    columns = {row[1] for row in cursor.fetchall()}
-                    
-                    if "absolute_delta" not in columns:
-                        conn.execute("ALTER TABLE weekly_metrics ADD COLUMN absolute_delta INTEGER DEFAULT 0")
-                        logger.info("[db] Added column: absolute_delta")
-                    
-                    if "mover_score" not in columns:
-                        conn.execute("ALTER TABLE weekly_metrics ADD COLUMN mover_score REAL DEFAULT 0.0")
-                        logger.info("[db] Added column: mover_score")
+                if "absolute_delta" not in columns:
+                    conn.execute("ALTER TABLE weekly_metrics ADD COLUMN absolute_delta INTEGER DEFAULT 0")
+                    logger.info("[db] Added column: absolute_delta")
+
+                if "mover_score" not in columns:
+                    conn.execute("ALTER TABLE weekly_metrics ADD COLUMN mover_score REAL DEFAULT 0.0")
+                    logger.info("[db] Added column: mover_score")
                 
-                # Special handling for migration 003 - multi-location support
-                elif mf.name == "003_multi_location_support.sql":
-                    # Check if columns already exist in jobs table
-                    cursor = conn.execute("PRAGMA table_info(jobs)")
-                    job_columns = {row[1] for row in cursor.fetchall()}
-                    
-                    if "job_group_id" not in job_columns:
-                        conn.execute("ALTER TABLE jobs ADD COLUMN job_group_id TEXT")
-                        logger.info("[db] Added column: job_group_id")
-                        # Populate job_group_id from existing canonical_hash
-                        conn.execute("UPDATE jobs SET job_group_id = SUBSTR(canonical_hash, 1, 16)")
-                        logger.info("[db] Populated job_group_id from canonical_hash")
-                    
-                    if "location_count" not in job_columns:
-                        conn.execute("ALTER TABLE jobs ADD COLUMN location_count INTEGER DEFAULT 1")
-                        logger.info("[db] Added column: location_count")
-                    
-                    # Create indexes
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_group ON jobs(job_group_id)")
-                    
-                    # Create job_locations table
+            # Special handling for migration 003 - multi-location support
+            elif mf.name == "003_multi_location_support.sql":
+                # Check if columns already exist in jobs table
+                cursor = conn.execute("PRAGMA table_info(jobs)")
+                job_columns = {row[1] for row in cursor.fetchall()}
+
+                if "job_group_id" not in job_columns:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN job_group_id TEXT")
+                    logger.info("[db] Added column: job_group_id")
+                    # Populate job_group_id from existing canonical_hash
+                    conn.execute("UPDATE jobs SET job_group_id = SUBSTR(canonical_hash, 1, 16)")
+                    logger.info("[db] Populated job_group_id from canonical_hash")
+
+                if "location_count" not in job_columns:
+                    conn.execute("ALTER TABLE jobs ADD COLUMN location_count INTEGER DEFAULT 1")
+                    logger.info("[db] Added column: location_count")
+
+                # Create indexes
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_group ON jobs(job_group_id)")
+
+                # Create job_locations table
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS job_locations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        job_id INTEGER NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+                        job_group_id TEXT NOT NULL,
+                        location TEXT NOT NULL DEFAULT '',
+                        country TEXT NOT NULL DEFAULT '',
+                        remote_type TEXT NOT NULL DEFAULT 'unknown',
+                        salary_min REAL,
+                        salary_max REAL,
+                        currency TEXT,
+                        first_seen_at TEXT NOT NULL,
+                        last_seen_at TEXT NOT NULL,
+                        UNIQUE(job_group_id, location, country)
+                    )
+                """)
+                logger.info("[db] Created table: job_locations")
+
+                # Create indexes for job_locations
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_job_locations_group ON job_locations(job_group_id)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_job_locations_location ON job_locations(location)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_job_locations_country ON job_locations(country)")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_job_locations_job_id ON job_locations(job_id)")
+
+                # Migrate existing data to job_locations table (only if not already migrated)
+                cursor = conn.execute("SELECT COUNT(*) FROM job_locations")
+                if cursor.fetchone()[0] == 0:
                     conn.execute("""
-                        CREATE TABLE IF NOT EXISTS job_locations (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            job_id INTEGER NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
-                            job_group_id TEXT NOT NULL,
-                            location TEXT NOT NULL DEFAULT '',
-                            country TEXT NOT NULL DEFAULT '',
-                            remote_type TEXT NOT NULL DEFAULT 'unknown',
-                            salary_min REAL,
-                            salary_max REAL,
-                            currency TEXT,
-                            first_seen_at TEXT NOT NULL,
-                            last_seen_at TEXT NOT NULL,
-                            UNIQUE(job_group_id, location, country)
+                        INSERT OR IGNORE INTO job_locations (
+                            job_id, job_group_id, location, country, remote_type,
+                            salary_min, salary_max, currency,
+                            first_seen_at, last_seen_at
                         )
+                        SELECT 
+                            job_id, job_group_id, location, country, remote_type,
+                            salary_min, salary_max, currency,
+                            first_seen_at, last_seen_at
+                        FROM jobs
+                        WHERE job_group_id IS NOT NULL
                     """)
-                    logger.info("[db] Created table: job_locations")
-                    
-                    # Create indexes for job_locations
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_locations_group ON job_locations(job_group_id)")
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_locations_location ON job_locations(location)")
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_locations_country ON job_locations(country)")
-                    conn.execute("CREATE INDEX IF NOT EXISTS idx_job_locations_job_id ON job_locations(job_id)")
-                    
-                    # Migrate existing data to job_locations table (only if not already migrated)
-                    cursor = conn.execute("SELECT COUNT(*) FROM job_locations")
-                    if cursor.fetchone()[0] == 0:
-                        conn.execute("""
-                            INSERT OR IGNORE INTO job_locations (
-                                job_id, job_group_id, location, country, remote_type,
-                                salary_min, salary_max, currency,
-                                first_seen_at, last_seen_at
-                            )
-                            SELECT 
-                                job_id, job_group_id, location, country, remote_type,
-                                salary_min, salary_max, currency,
-                                first_seen_at, last_seen_at
-                            FROM jobs
-                            WHERE job_group_id IS NOT NULL
-                        """)
-                        rows_migrated = conn.execute("SELECT COUNT(*) FROM job_locations").fetchone()[0]
-                        logger.info(f"[db] Migrated {rows_migrated} job locations from jobs table")
-                        
-                        # Update location_count for existing jobs
-                        conn.execute("""
-                            UPDATE jobs
-                            SET location_count = (
-                                SELECT COUNT(DISTINCT location)
-                                FROM job_locations
-                                WHERE job_locations.job_group_id = jobs.job_group_id
-                            )
-                            WHERE job_group_id IS NOT NULL
-                        """)
-                        logger.info("[db] Updated location_count for existing jobs")
+                    rows_migrated = conn.execute("SELECT COUNT(*) FROM job_locations").fetchone()[0]
+                    logger.info(f"[db] Migrated {rows_migrated} job locations from jobs table")
+
+                    # Update location_count for existing jobs
+                    conn.execute("""
+                        UPDATE jobs
+                        SET location_count = (
+                            SELECT COUNT(DISTINCT location)
+                            FROM job_locations
+                            WHERE job_locations.job_group_id = jobs.job_group_id
+                        )
+                        WHERE job_group_id IS NOT NULL
+                    """)
+                    logger.info("[db] Updated location_count for existing jobs")
                 
-                # Skip migrations 004, 005, 006 - handled conditionally after the loop
-                elif mf.name in ["004_add_normalized_title.sql", "005_add_normalization_confidence.sql", "006_job_click_tracking.sql"]:
-                    pass  # These migrations are handled conditionally after the loop
+            # Skip migrations 004, 005, 006 - handled conditionally after the loop
+            elif mf.name in ["004_add_normalized_title.sql", "005_add_normalization_confidence.sql", "006_job_click_tracking.sql"]:
+                pass  # These migrations are handled conditionally after the loop
                 
-                else:
-                    # Run other migrations normally
-                    conn.executescript(sql)
+            else:
+                # Run other migrations normally
+                conn.executescript(sql)
         
         # Migration 004: Add normalized_title column (conditional)
         cursor = conn.execute("PRAGMA table_info(jobs)")
         job_columns = {row[1] for row in cursor.fetchall()}
+
+        # Ensure week_id exists before creating any index/query path that depends on it.
+        if "week_id" not in job_columns:
+            logger.info("[db] Running migration 004: add week_id column")
+            conn.execute("ALTER TABLE jobs ADD COLUMN week_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_week_id ON jobs(week_id)")
+            job_columns.add("week_id")
+            logger.info("[db] Migration 004 complete: week_id column added")
         
         if "normalized_title" not in job_columns:
             logger.info("[db] Running migration 004: add normalized_title column")
