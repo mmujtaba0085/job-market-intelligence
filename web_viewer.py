@@ -11,7 +11,6 @@ Then open: http://localhost:5000
 
 from flask import Flask, render_template, request, jsonify, send_file, make_response
 import sqlite3
-from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import json
 import csv
@@ -25,14 +24,14 @@ from queue import Empty, Queue
 from threading import Lock, Thread
 
 import requests
-from config.settings import FLASK_SECRET_KEY
+from config.settings import FLASK_SECRET_KEY, DB_PATH as SETTINGS_DB_PATH
 
 # Google Sheets integration
 from src.sheets_routes import register_sheets_routes
 
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY  # For session management
-DB_PATH = Path("data/jobs.sqlite")
+DB_PATH = SETTINGS_DB_PATH
 logger = logging.getLogger(__name__)
 
 
@@ -389,6 +388,19 @@ def index():
 def dashboard():
     """BI Dashboard with interactive widgets."""
     return render_template("dashboard.html")
+
+
+@app.route("/healthz")
+def healthz():
+    """Container/web health probe with a lightweight SQLite check."""
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=5)
+        conn.execute("SELECT 1")
+        conn.close()
+        return jsonify({"status": "ok", "db": "ok"}), 200
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[healthz] DB check failed: %s", exc)
+        return jsonify({"status": "degraded", "db": "error", "error": str(exc)}), 503
 
 
 @app.route("/api/dashboard/kpis")

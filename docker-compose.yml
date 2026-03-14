@@ -1,0 +1,38 @@
+services:
+  web:
+    build: .
+    container_name: jobmarket-web
+    restart: unless-stopped
+    env_file:
+      - /opt/jobmarket/.env
+    environment:
+      GOOGLE_SA_JSON_PATH: /run/secrets/google-sa.json
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - /opt/jobmarket/data:/app/data
+      - /opt/jobmarket/outputs:/app/outputs
+      - /opt/jobmarket/logs:/app/logs
+      - /opt/jobmarket/secrets/google-sa.json:/run/secrets/google-sa.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:5000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  pipeline:
+    build: .
+    container_name: jobmarket-pipeline
+    profiles: ["jobs"]
+    env_file:
+      - /opt/jobmarket/.env
+    environment:
+      GOOGLE_SA_JSON_PATH: /run/secrets/google-sa.json
+    volumes:
+      - /opt/jobmarket/data:/app/data
+      - /opt/jobmarket/outputs:/app/outputs
+      - /opt/jobmarket/logs:/app/logs
+      - /opt/jobmarket/secrets/google-sa.json:/run/secrets/google-sa.json:ro
+    command: ["python", "-m", "src.orchestrator", "--mode", "ingest-only"]
+    restart: "no"

@@ -1,0 +1,12 @@
+# Replace with your domain
+jobs.example.com {
+    encode gzip
+
+    @admin path /admin* /api/admin*
+    basicauth @admin {
+        # Generate your own hash with: caddy hash-password --plaintext 'change-me-now'
+        admin $2a$14$REPLACE_WITH_REAL_BCRYPT_HASH
+    }
+
+    reverse_proxy 127.0.0.1:5000
+}
