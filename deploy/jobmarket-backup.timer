@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily SQLite backup for Job Market Intelligence
+Requires=jobmarket-backup.service
+
+[Timer]
+# Every day at 03:00 server time
+OnCalendar=*-*-* 03:00:00
+RandomizedDelaySec=300
+Persistent=true
+Unit=jobmarket-backup.service
+
+[Install]
+WantedBy=timers.target

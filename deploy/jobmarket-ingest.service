@@ -1,0 +1,14 @@
+[Unit]
+Description=Job Market Intelligence — data ingestion run
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/jobmarket
+EnvironmentFile=/opt/jobmarket/.env
+ExecStart=/usr/bin/docker compose run --rm pipeline python -m src.orchestrator --mode weekly
+StandardOutput=journal
+StandardError=journal
+# Allow up to 2 hours for a full collection run
+TimeoutStartSec=7200

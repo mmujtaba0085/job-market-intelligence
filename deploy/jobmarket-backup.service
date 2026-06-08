@@ -1,0 +1,13 @@
+[Unit]
+Description=Job Market Intelligence — daily SQLite backup
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/jobmarket
+EnvironmentFile=/opt/jobmarket/.env
+ExecStart=/opt/jobmarket/deploy/scripts/backup_sqlite.sh
+ExecStartPost=/usr/bin/find /opt/jobmarket/data/sqlite_backups -name "*.sqlite.gz" -mtime +14 -delete
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=300

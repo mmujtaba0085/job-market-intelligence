@@ -1,12 +1,50 @@
-# Replace with your domain
-jobs.example.com {
-    encode gzip
+# ─────────────────────────────────────────────────────────────────────────────
+# Caddyfile — Job Market Intelligence
+# ─────────────────────────────────────────────────────────────────────────────
+# Replace jobs.example.com with your actual domain.
+# Caddy auto-provisions a Let's Encrypt TLS certificate.
+#
+# Authentication is handled entirely inside the Flask app:
+#   Browser   →  session login at /auth/login
+#   API       →  X-API-Key: jmi_<key>  or  Authorization: Bearer jmi_<key>
+#   Admin     →  /admin/auth/users | /admin/auth/keys | /admin/auth/logs
+#
+# Caddy's job here is TLS termination, security headers, and reverse proxy.
+# ─────────────────────────────────────────────────────────────────────────────
 
-    @admin path /admin* /api/admin*
-    basicauth @admin {
-        # Generate your own hash with: caddy hash-password --plaintext 'change-me-now'
-        admin $2a$14$REPLACE_WITH_REAL_BCRYPT_HASH
+jobs.example.com {
+    encode gzip zstd
+
+    # Security headers
+    header {
+        X-Frame-Options "SAMEORIGIN"
+        X-Content-Type-Options "nosniff"
+        X-XSS-Protection "1; mode=block"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        -Server
     }
 
-    reverse_proxy 127.0.0.1:5000
+    # Health probe (publicly accessible — needed for Docker healthcheck)
+    handle /healthz {
+        reverse_proxy 127.0.0.1:5000
+    }
+
+    # All other traffic → Flask (auth enforced by Flask)
+    handle {
+        reverse_proxy 127.0.0.1:5000 {
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    log {
+        output file /var/log/caddy/jmi-access.log {
+            roll_size 50mb
+            roll_keep 10
+        }
+        format json
+    }
 }
