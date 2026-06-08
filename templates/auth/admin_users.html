@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Users — Admin{% endblock %}
+{% block content %}
+<div class="page-header flex-between">
+    <div>
+        <h2>👥 User Management</h2>
+        <p>Create accounts, manage roles, disable access</p>
+    </div>
+    <button class="btn btn-primary" onclick="openModal('createUserModal')">+ New User</button>
+</div>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Active Keys</th>
+                <th>Last Login</th>
+                <th>Created</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for u in users %}
+        <tr>
+            <td>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0;">
+                        {{ u.username[0].upper() }}
+                    </div>
+                    <span style="font-weight:500;">{{ u.username }}</span>
+                </div>
+            </td>
+            <td style="color:var(--text-secondary);">{{ u.email }}</td>
+            <td>
+                <span class="badge {{ 'badge-purple' if u.role == 'admin' else 'badge-accent' }}">{{ u.role }}</span>
+            </td>
+            <td>
+                <span class="badge {{ 'badge-success' if u.active else 'badge-danger' }}">
+                    {{ 'Active' if u.active else 'Disabled' }}
+                </span>
+            </td>
+            <td style="text-align:center;">{{ u.active_keys }}</td>
+            <td style="color:var(--text-secondary);font-size:12px;">{{ u.last_login or '—' }}</td>
+            <td style="color:var(--text-secondary);font-size:12px;">{{ u.created_at[:10] }}</td>
+            <td>
+                <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                    <!-- Toggle active -->
+                    <form method="POST" action="/admin/auth/users/{{ u.id }}/toggle" style="display:inline;">
+                        <button type="submit" class="btn btn-xs {{ 'btn-danger' if u.active else 'btn-success' }}"
+                                onclick="return confirm('{{ 'Disable' if u.active else 'Enable' }} {{ u.username }}?')">
+                            {{ 'Disable' if u.active else 'Enable' }}
+                        </button>
+                    </form>
+                    <!-- Change role -->
+                    <button class="btn btn-xs btn-secondary" onclick="openRoleModal({{ u.id }}, '{{ u.role }}', '{{ u.username }}')">Role</button>
+                    <!-- Reset password -->
+                    <button class="btn btn-xs btn-secondary" onclick="openResetModal({{ u.id }}, '{{ u.username }}')">Password</button>
+                </div>
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8"><div class="empty-state"><div class="empty-icon">👤</div><p>No users yet.</p></div></td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Create User Modal -->
+<div class="modal-overlay" id="createUserModal">
+    <div class="modal">
+        <div class="modal-title">Create New User</div>
+        <form method="POST" action="/admin/auth/users/create">
+            <div class="form-group">
+                <label class="form-label">Username</label>
+                <input class="form-control" name="username" required placeholder="e.g. john_doe">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input class="form-control" type="email" name="email" required placeholder="john@example.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Password (min 8 chars)</label>
+                <input class="form-control" type="password" name="password" required minlength="8">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Role</label>
+                <select class="form-control" name="role">
+                    <option value="viewer">Viewer</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('createUserModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create User</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Change Role Modal -->
+<div class="modal-overlay" id="roleModal">
+    <div class="modal">
+        <div class="modal-title">Change Role — <span id="roleModalUser"></span></div>
+        <form method="POST" id="roleForm">
+            <div class="form-group">
+                <label class="form-label">New Role</label>
+                <select class="form-control" name="role" id="roleSelect">
+                    <option value="viewer">Viewer</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('roleModal')">Cancel</button>
+                <button type="submit" class="btn btn-primary">Update Role</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Reset Password Modal -->
+<div class="modal-overlay" id="resetModal">
+    <div class="modal">
+        <div class="modal-title">Reset Password — <span id="resetModalUser"></span></div>
+        <form method="POST" id="resetForm">
+            <div class="form-group">
+                <label class="form-label">New Password (min 8 chars)</label>
+                <input class="form-control" type="password" name="new_password" required minlength="8">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('resetModal')">Cancel</button>
+                <button type="submit" class="btn btn-danger">Reset Password</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    function openModal(id) {
+        document.getElementById(id).classList.add('open');
+    }
+    function closeModal(id) {
+        document.getElementById(id).classList.remove('open');
+    }
+    function openRoleModal(userId, currentRole, username) {
+        document.getElementById('roleModalUser').textContent = username;
+        document.getElementById('roleForm').action = `/admin/auth/users/${userId}/role`;
+        document.getElementById('roleSelect').value = currentRole;
+        openModal('roleModal');
+    }
+    function openResetModal(userId, username) {
+        document.getElementById('resetModalUser').textContent = username;
+        document.getElementById('resetForm').action = `/admin/auth/users/${userId}/reset-password`;
+        openModal('resetModal');
+    }
+    // Close on overlay click
+    document.querySelectorAll('.modal-overlay').forEach(el => {
+        el.addEventListener('click', e => { if (e.target === el) el.classList.remove('open'); });
+    });
+</script>
+{% endblock %}

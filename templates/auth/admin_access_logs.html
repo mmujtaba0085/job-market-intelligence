@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Access Logs — Admin{% endblock %}
+{% block content %}
+<div class="page-header flex-between">
+    <div>
+        <h2>📋 Access Logs</h2>
+        <p>Real-time request log with user, endpoint, and response tracking</p>
+    </div>
+    <a href="/api/admin/auth/stats" class="btn btn-secondary btn-sm" target="_blank">JSON Stats</a>
+</div>
+
+<!-- Stats row -->
+<div class="stats-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:20px;">
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.last_hour | default(0) }}</div>
+        <div class="stat-label">Requests Last Hour</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.today | default(0) }}</div>
+        <div class="stat-label">Requests Today</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-value">{{ stats.total | default(0) }}</div>
+        <div class="stat-label">Total Requests</div>
+    </div>
+</div>
+
+<!-- Filters -->
+<form method="GET" class="filter-bar" style="margin-bottom:16px;">
+    <select name="user_id" class="form-control" style="width:auto;" onchange="this.form.submit()">
+        <option value="">All users</option>
+        {% for u in users %}
+        <option value="{{ u.id }}" {{ 'selected' if user_filter == u.id }}>{{ u.username }}</option>
+        {% endfor %}
+    </select>
+    {% if user_filter %}
+    <a href="/admin/auth/logs" class="btn btn-secondary btn-sm">Clear filter</a>
+    {% endif %}
+</form>
+
+<div class="table-wrap">
+    <table>
+        <thead>
+            <tr>
+                <th>Time (UTC)</th>
+                <th>User</th>
+                <th>Auth</th>
+                <th>Method</th>
+                <th>Endpoint</th>
+                <th>Status</th>
+                <th>ms</th>
+                <th>IP</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for log in logs %}
+        <tr>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-secondary);white-space:nowrap;">
+                {{ log.ts }}
+            </td>
+            <td style="font-size:12px;">
+                {% if log.username %}
+                <span style="font-weight:500;">{{ log.username }}</span>
+                {% elif log.key_prefix %}
+                <span style="color:var(--text-secondary);">{{ log.key_name or 'key' }}</span>
+                {% else %}
+                <span style="color:var(--text-muted);">—</span>
+                {% endif %}
+            </td>
+            <td>
+                {% if log.auth_type == 'session' %}
+                <span class="badge badge-accent">session</span>
+                {% elif log.auth_type == 'api_key' %}
+                <span class="badge badge-purple">api_key</span>
+                {% else %}
+                <span class="badge badge-muted">anon</span>
+                {% endif %}
+            </td>
+            <td>
+                <span class="badge {{ 'badge-success' if log.method == 'GET' else 'badge-warning' }}" style="font-family:monospace;">
+                    {{ log.method }}
+                </span>
+            </td>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ log.endpoint }}">
+                {{ log.endpoint }}
+            </td>
+            <td>
+                {% set sc = log.status_code or 0 %}
+                <span class="badge {{ 'badge-success' if sc < 300 else ('badge-warning' if sc < 400 else 'badge-danger') }}">
+                    {{ sc }}
+                </span>
+            </td>
+            <td style="font-variant-numeric:tabular-nums;font-size:12px;color:var(--text-secondary);">
+                {{ log.response_ms or '—' }}
+            </td>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted);">
+                {{ log.ip or '—' }}
+            </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8"><div class="empty-state"><div class="empty-icon">📋</div><p>No logs yet.</p></div></td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Pagination -->
+{% if logs | length == per_page %}
+<div style="display:flex;justify-content:center;gap:8px;margin-top:16px;">
+    {% if page > 1 %}
+    <a href="?page={{ page - 1 }}{% if user_filter %}&user_id={{ user_filter }}{% endif %}" class="btn btn-secondary btn-sm">← Previous</a>
+    {% endif %}
+    <span style="padding:7px 14px;color:var(--text-secondary);font-size:13px;">Page {{ page }}</span>
+    <a href="?page={{ page + 1 }}{% if user_filter %}&user_id={{ user_filter }}{% endif %}" class="btn btn-secondary btn-sm">Next →</a>
+</div>
+{% endif %}
+
+<!-- Top endpoints -->
+{% if stats.top_endpoints %}
+<div class="card" style="margin-top:24px;">
+    <div class="card-header">
+        <div class="card-title">Top Endpoints</div>
+    </div>
+    <table>
+        <thead><tr><th>Endpoint</th><th style="text-align:right;">Requests</th></tr></thead>
+        <tbody>
+        {% for ep in stats.top_endpoints %}
+        <tr>
+            <td style="font-family:'JetBrains Mono',monospace;font-size:12px;">{{ ep.endpoint }}</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums;">{{ ep.cnt }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% endblock %}
