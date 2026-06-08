@@ -31,6 +31,9 @@ schedule>=1.2
 # Web viewer
 flask>=3.0
 
+# Auth (session management — werkzeug already ships with flask)
+# No extra deps needed; hashlib + secrets are stdlib
+
 # Geocoding for country detection
 geopy>=2.4
 

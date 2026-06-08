@@ -92,7 +92,11 @@ GOOGLE_SA_JSON_PATH: str = os.getenv(
     str(ROOT_DIR / "config" / "job-market-intelligence-489015-57c9087db0cf.json")
 )
 WEB_VIEWER_URL: str = os.getenv("WEB_VIEWER_URL", "http://localhost:5000")
+APP_ENV: str = os.getenv("APP_ENV", "development").lower()
 FLASK_SECRET_KEY: str = os.getenv("FLASK_SECRET_KEY", "dev-only-change-me")
+ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "change-me-now")
+SESSION_COOKIE_SECURE: bool = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
+TRUST_PROXY_HEADERS: bool = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
 
 # Three separate spreadsheets (one per country)
 # Private/edit IDs

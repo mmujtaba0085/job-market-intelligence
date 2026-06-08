@@ -91,9 +91,18 @@
             <select name="market">
                 <option value="">All Markets</option>
                 {% for market in markets %}
-                <option value="{{ market }}" {% if market == current_market %}selected{% endif %}>
-                    {{ market }}
+                <option value="{{ market.market_id }}" {% if market.market_id == current_market %}selected{% endif %}>
+                    {{ "- " if market.depth else "" }}{{ market.name }}
                 </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="filter-section">
+            <label>Listing Status</label>
+            <select name="status">
+                {% for value, label in [('active', 'Active'), ('all', 'Active + Historical'), ('unverified', 'Historical / Unverified'), ('closed', 'Closed')] %}
+                <option value="{{ value }}" {% if value == current_status %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -179,13 +188,13 @@
 {% endblock %}
 
 {% block content %}
-<h2 style="margin-bottom: 1.5rem; color: #1f2937;">All Jobs ({{ jobs|length }})</h2>
+<h2 style="margin-bottom: 1.5rem; color: var(--text-primary);">Jobs ({{ total_jobs | number_format }})</h2>
 <div style="margin-top: -0.75rem; margin-bottom: 1rem;">
     <a href="/jobs/quality" class="btn" style="padding: 0.4rem 0.9rem; font-size: 0.85rem;">🛠️ Open Data Quality Review</a>
 </div>
 
 <!-- Active Filters Display -->
-{% if search_query or current_market or current_remote or current_country or current_source or current_company or skills_filter or date_from or date_to %}
+{% if search_query or current_market or current_remote or current_country or current_source or current_company or skills_filter or date_from or date_to or current_status != 'active' %}
 <div class="active-filters">
     <strong>Active Filters:</strong>
     {% if search_query %}
@@ -193,6 +202,9 @@
     {% endif %}
     {% if current_market %}
     <span class="filter-badge">Market: {{ current_market }}</span>
+    {% endif %}
+    {% if current_status != 'active' %}
+    <span class="filter-badge">Status: {{ current_status }}</span>
     {% endif %}
     {% if current_remote %}
     <span class="filter-badge">Type: {{ current_remote }}</span>
@@ -269,6 +281,16 @@
     </div>
     {% endif %}
 </div>
+
+{% if total_pages > 1 %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+    <div class="text-muted text-sm">Page {{ page }} of {{ total_pages }}</div>
+    <div style="display:flex;gap:8px;">
+        {% if prev_url %}<a class="btn btn-secondary" href="{{ prev_url }}">Previous</a>{% endif %}
+        {% if next_url %}<a class="btn btn-secondary" href="{{ next_url }}">Next</a>{% endif %}
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_scripts %}

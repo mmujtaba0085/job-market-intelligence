@@ -9,38 +9,139 @@ Usage:
 Then open: http://localhost:5000
 """
 
-from flask import Flask, render_template, request, jsonify, send_file, make_response
-import sqlite3
 from datetime import datetime, timedelta, timezone
-import json
 import csv
 import io
-import re
-import uuid
+import json
 import logging
 import random
+import re
 import time
+import uuid
 from queue import Empty, Queue
 from threading import Lock, Thread
 
 import requests
+import sqlite3
+from flask import Flask, g, render_template, request, jsonify, send_file, make_response
+
 from config.settings import FLASK_SECRET_KEY, DB_PATH as SETTINGS_DB_PATH
+
+# Auth system
+from src.auth.models import init_auth_db
+from src.auth.middleware import (
+    load_logged_in_user,
+    log_request_access,
+    get_current_user,
+    require_auth,
+    require_admin,
+)
+from src.auth.routes import auth_bp
+from src.auth.admin_routes import admin_auth_bp
 
 # Google Sheets integration
 from src.sheets_routes import register_sheets_routes
 
 app = Flask(__name__)
-app.secret_key = FLASK_SECRET_KEY  # For session management
+app.secret_key = FLASK_SECRET_KEY
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 DB_PATH = SETTINGS_DB_PATH
 logger = logging.getLogger(__name__)
 
+# ── Register auth blueprints ──────────────────────────────────────────────────
+app.register_blueprint(auth_bp, url_prefix="/auth")
+app.register_blueprint(admin_auth_bp)
+
+# ── Auth hooks ────────────────────────────────────────────────────────────────
+app.before_request(load_logged_in_user)
+app.after_request(log_request_access)
+
+
+@app.context_processor
+def inject_current_user():
+    from src.auth.middleware import csrf_token as _csrf_token
+    return {"current_user": get_current_user(), "csrf_token": _csrf_token}
+
+
+# ── Global auth gate ──────────────────────────────────────────────────────────
+_PUBLIC_PATHS = {"/healthz", "/auth/login", "/auth/logout"}
+_PUBLIC_PREFIXES = ("/static/",)
+
+
+_ADMIN_PREFIXES = ("/admin",)
+_MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+_SCOPE_MAP = (
+    ("/api/jobs", "jobs:read"),
+    ("/api/markets", "markets:read"),
+    ("/api/sources", "sources:read"),
+    ("/api/dashboard", "analytics:read"),
+    ("/api/skills", "analytics:read"),
+    ("/api/companies", "analytics:read"),
+    ("/api/titles", "analytics:read"),
+    ("/api/filters", "analytics:read"),
+    ("/export/", "exports:read"),
+)
+
+
+@app.before_request
+def global_auth_gate():
+    from flask import redirect, url_for
+    from src.auth.middleware import _is_api_request, api_key_has_scope
+    path = request.path
+    if path in _PUBLIC_PATHS or any(path.startswith(p) for p in _PUBLIC_PREFIXES):
+        return
+
+    user = getattr(g, "current_user", None)
+    auth_type = getattr(g, "auth_type", None)
+
+    if not user:
+        if auth_type == "api_key_rate_limited":
+            return jsonify({"error": "Rate limit exceeded"}), 429
+        if _is_api_request():
+            return jsonify({"error": "Unauthorized",
+                            "hint": "Provide X-API-Key or Authorization: Bearer header"}), 401
+        return redirect(url_for("auth.login", next=request.url))
+
+    is_admin = user.get("role") == "admin"
+    is_api_key = auth_type == "api_key"
+
+    # Admin routes: session + admin only
+    if any(path.startswith(p) for p in _ADMIN_PREFIXES):
+        if is_api_key or not is_admin:
+            return jsonify({"error": "Forbidden"}), 403
+
+    # API keys are read-only
+    if is_api_key and request.method in _MUTATION_METHODS:
+        return jsonify({"error": "Forbidden — API keys are read-only"}), 403
+
+    # API key scope enforcement
+    if is_api_key:
+        required = next((s for prefix, s in _SCOPE_MAP if path.startswith(prefix)), None)
+        if required and not api_key_has_scope(user, required):
+            return jsonify({"error": f"Forbidden — requires scope: {required}"}), 403
+
+
+# ── Initialise auth DB on startup ─────────────────────────────────────────────
+init_auth_db()
+
 
 def get_db_connection():
-    """Get SQLite database connection."""
-    conn = sqlite3.connect(DB_PATH, timeout=30)
-    conn.execute("PRAGMA busy_timeout = 30000")
-    conn.row_factory = sqlite3.Row  # Access columns by name
-    return conn
+    """Get SQLite database connection. Falls back to .shadow.sqlite if main is unavailable."""
+    from pathlib import Path as _Path
+    candidates = [DB_PATH, _Path(str(DB_PATH).replace(".sqlite", ".shadow.sqlite"))]
+    last_err = None
+    for p in candidates:
+        if not _Path(str(p)).exists():
+            continue
+        try:
+            conn = sqlite3.connect(str(p), timeout=30)
+            conn.execute("PRAGMA busy_timeout = 30000")
+            conn.row_factory = sqlite3.Row
+            conn.execute("SELECT 1 FROM jobs LIMIT 1")
+            return conn
+        except sqlite3.OperationalError as e:
+            last_err = e
+    raise sqlite3.OperationalError(f"Cannot open any DB: {last_err}")
 
 
 COUNTRY_ALIASES = {
@@ -1212,96 +1313,112 @@ def get_categories_filter():
 
 @app.route("/jobs")
 def jobs_list():
-    """List all jobs with enhanced filters."""
+    """List jobs with filters, status selector, and pagination."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    # Get filter parameters
-    market_filter = request.args.get("market", "")
-    remote_filter = request.args.get("remote_type", "")
-    search_query = request.args.get("search", "")
+
+    PER_PAGE = 100
+
+    # Filters
+    market_filter  = request.args.get("market", "")
+    remote_filter  = request.args.get("remote_type", "")
+    search_query   = request.args.get("search", "")
     country_filter = request.args.get("country", "")
-    source_filter = request.args.get("source", "")
+    source_filter  = request.args.get("source", "")
     company_filter = request.args.get("company", "")
-    skills_filter = request.args.getlist("skills")  # Multi-select
-    date_from = request.args.get("date_from", "")
-    date_to = request.args.get("date_to", "")
-    
-    # Build query with filters
-    query = """
-        SELECT DISTINCT j.job_id, j.title, j.company, j.location, j.country, j.remote_type, 
-               j.posted_date, j.source_name, j.market_id, j.location_count
+    skills_filter  = request.args.getlist("skills")
+    date_from      = request.args.get("date_from", "")
+    date_to        = request.args.get("date_to", "")
+    current_status = request.args.get("status", "active")
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+    except (ValueError, TypeError):
+        page = 1
+
+    base = """
+        SELECT DISTINCT j.job_id, j.title, j.company, j.location, j.country,
+               j.remote_type, j.posted_date, j.source_name, j.market_id, j.location_count
         FROM jobs j
         WHERE 1=1
     """
     params = []
-    
+
+    # Status filter
+    if current_status == "active":
+        base += " AND (j.listing_status IS NULL OR j.listing_status = 'active')"
+    elif current_status == "unverified":
+        base += " AND j.listing_status IN ('historical','unverified')"
+    elif current_status == "closed":
+        base += " AND j.listing_status = 'closed'"
+    # 'all' → no filter
+
     if market_filter:
-        query += " AND j.market_id = ?"
-        params.append(market_filter)
-    
+        base += " AND j.market_id = ?"; params.append(market_filter)
     if remote_filter:
-        query += " AND j.remote_type = ?"
-        params.append(remote_filter)
-    
+        base += " AND j.remote_type = ?"; params.append(remote_filter)
     if country_filter:
-        query += " AND j.country = ?"
-        params.append(country_filter)
-    
+        base += " AND j.country = ?"; params.append(country_filter)
     if source_filter:
-        query += " AND j.source_name = ?"
-        params.append(source_filter)
-    
+        base += " AND j.source_name = ?"; params.append(source_filter)
     if company_filter:
-        query += " AND j.company LIKE ?"
-        params.append(f"%{company_filter}%")
-    
+        base += " AND j.company LIKE ?"; params.append(f"%{company_filter}%")
     if search_query:
-        query += " AND (j.title LIKE ? OR j.company LIKE ?)"
+        base += " AND (j.title LIKE ? OR j.company LIKE ?)"
         params.extend([f"%{search_query}%", f"%{search_query}%"])
-    
     if date_from:
-        query += " AND j.posted_date >= ?"
-        params.append(date_from)
-    
+        base += " AND j.posted_date >= ?"; params.append(date_from)
     if date_to:
-        query += " AND j.posted_date <= ?"
-        params.append(date_to)
-    
-    # Skills filter (jobs that have ALL selected skills)
-    if skills_filter:
-        for i, skill in enumerate(skills_filter):
-            query += f"""
-                AND EXISTS (
-                    SELECT 1 FROM skills s{i}
-                    WHERE s{i}.job_id = j.job_id AND s{i}.normalized_skill = ?
-                )
-            """
-            params.append(skill)
-    
-    query += " ORDER BY j.posted_date DESC, j.ingested_at DESC"
-    
-    cursor.execute(query, params)
+        base += " AND j.posted_date <= ?"; params.append(date_to)
+    for i, skill in enumerate(skills_filter):
+        base += f" AND EXISTS (SELECT 1 FROM skills s{i} WHERE s{i}.job_id = j.job_id AND s{i}.normalized_skill = ?)"
+        params.append(skill)
+
+    # Total count
+    count_row = cursor.execute(f"SELECT COUNT(*) FROM ({base})", params).fetchone()
+    total_jobs = count_row[0] if count_row else 0
+    total_pages = max(1, (total_jobs + PER_PAGE - 1) // PER_PAGE)
+    page = min(page, total_pages)
+    offset = (page - 1) * PER_PAGE
+
+    cursor.execute(base + " ORDER BY j.posted_date DESC, j.ingested_at DESC LIMIT ? OFFSET ?",
+                   params + [PER_PAGE, offset])
     jobs = cursor.fetchall()
-    
-    # Get unique values for filter dropdowns
-    cursor.execute("SELECT DISTINCT market_id FROM jobs ORDER BY market_id")
-    markets = [row["market_id"] for row in cursor.fetchall()]
-    
+
+    # Dropdown data — markets as objects with depth+name
+    cursor.execute("""
+        SELECT m.market_id as id, m.name,
+               (LENGTH(m.market_id) - LENGTH(REPLACE(m.market_id,'.','')))/1 as depth
+        FROM markets m ORDER BY m.market_id
+    """)
+    market_rows = cursor.fetchall()
+    if not market_rows:
+        # Fallback: derive from jobs table
+        cursor.execute("SELECT DISTINCT market_id FROM jobs WHERE market_id IS NOT NULL ORDER BY market_id")
+        markets = [{"id": r["market_id"], "name": r["market_id"], "depth": 0} for r in cursor.fetchall()]
+    else:
+        markets = [{"id": r["id"], "name": r["name"], "depth": r["depth"]} for r in market_rows]
+
     cursor.execute("SELECT DISTINCT remote_type FROM jobs WHERE remote_type IS NOT NULL ORDER BY remote_type")
-    remote_types = [row["remote_type"] for row in cursor.fetchall()]
-    
+    remote_types = [r["remote_type"] for r in cursor.fetchall()]
+
     cursor.execute("SELECT DISTINCT country FROM jobs WHERE country IS NOT NULL AND country != '' ORDER BY country")
-    countries = [row["country"] for row in cursor.fetchall()]
-    
+    countries = [r["country"] for r in cursor.fetchall()]
+
     cursor.execute("SELECT DISTINCT source_name FROM jobs ORDER BY source_name")
-    sources = [row["source_name"] for row in cursor.fetchall()]
-    
+    sources = [r["source_name"] for r in cursor.fetchall()]
+
     conn.close()
-    
+
+    # Pagination URLs
+    def page_url(p):
+        args = request.args.copy()
+        args["page"] = p
+        return request.path + "?" + "&".join(f"{k}={v}" for k, v in args.items(multi=True))
+
     return render_template(
         "jobs_list.html",
         jobs=jobs,
+        total_jobs=total_jobs,
         markets=markets,
         remote_types=remote_types,
         countries=countries,
@@ -1311,10 +1428,15 @@ def jobs_list():
         current_country=country_filter,
         current_source=source_filter,
         current_company=company_filter,
+        current_status=current_status,
         search_query=search_query,
         skills_filter=skills_filter,
         date_from=date_from,
-        date_to=date_to
+        date_to=date_to,
+        page=page,
+        total_pages=total_pages,
+        prev_url=page_url(page - 1) if page > 1 else None,
+        next_url=page_url(page + 1) if page < total_pages else None,
     )
 
 
@@ -1364,9 +1486,29 @@ def jobs_quality_review():
     )
 
 
+@app.route("/api/jobs")
+def api_jobs_list():
+    """JSON list of jobs — requires jobs:read scope for API keys."""
+    limit = min(int(request.args.get("limit", 50)), 200)
+    offset = int(request.args.get("offset", 0))
+    conn = get_db_connection()
+    try:
+        rows = conn.execute(
+            "SELECT job_id, title, company, location, country, remote_type, "
+            "posted_date, source_name, url FROM jobs ORDER BY ingested_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return jsonify({"jobs": [dict(r) for r in rows], "limit": limit, "offset": offset})
+    finally:
+        conn.close()
+
+
 @app.route("/api/jobs/quality/analyze", methods=["POST"])
 def api_jobs_quality_analyze():
     """Analyze selected jobs and return improved data suggestions + split candidates."""
+    user = get_current_user()
+    if not user or user.get("role") != "admin":
+        return jsonify({"error": "Forbidden — admin only"}), 403
     payload = request.get_json() or {}
     job_ids = payload.get("job_ids") or []
 
@@ -2208,6 +2350,12 @@ def admin_normalize_auto_fix_unknown():
 # ADMIN: MAIN DASHBOARD
 # ═══════════════════════════════════════════════════════════════════
 
+@app.route("/admin/quality")
+def admin_quality_redirect():
+    """Alias so /admin/quality reaches the job quality review panel (returns 200)."""
+    return jobs_quality_review()
+
+
 @app.route("/admin")
 def admin_dashboard():
     """Main admin dashboard with links to all admin panels."""
@@ -2545,7 +2693,7 @@ def api_admin_normalize_export():
     response = make_response(output.getvalue())
     response.headers["Content-Disposition"] = "attachment; filename=title_mappings.csv"
     response.headers["Content-Type"] = "text/csv"
-    
+
     return response
 
 
@@ -2578,10 +2726,10 @@ register_sheets_routes(app, get_db_connection)
 
 if __name__ == "__main__":
     if not DB_PATH.exists():
-        print(f"❌ Database not found at: {DB_PATH}")
+        print(f"\u274c Database not found at: {DB_PATH}")
         print("Run the pipeline first: python -m src.orchestrator --mode weekly")
         exit(1)
-    
+
     print("="*80)
     print("Job Market Intelligence - Web Viewer")
     print("="*80)
@@ -2589,7 +2737,7 @@ if __name__ == "__main__":
     print(f"Starting server at: http://localhost:5000")
     print("="*80)
     print("\nPress Ctrl+C to stop the server\n")
-    
+
     app.run(debug=True, host="localhost", port=5000)
 
 # Reload trigger: 2026-03-02 05:27:47
