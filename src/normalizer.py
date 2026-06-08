@@ -130,6 +130,27 @@ _REMOTE_SIGNALS = ["remote", "work from home", "wfh", "distributed", "virtual"]
 _HYBRID_SIGNALS = ["hybrid"]
 _ONSITE_SIGNALS = ["on-site", "onsite", "in-office", "in office", "on site", "office"]
 
+# Canonical map: all variant spellings → one of "remote"|"hybrid"|"on-site"|"unknown"
+_REMOTE_TYPE_CANONICAL: dict[str, str] = {
+    "remote": "remote", "fully remote": "remote", "fully_remote": "remote",
+    "full_remote": "remote", "full remote": "remote",
+    "remote only": "remote", "remote-only": "remote",
+    "remote first": "remote", "remote_first": "remote",
+    "remote-first": "remote", "remote work": "remote",
+    "work from home": "remote", "wfh": "remote",
+    "no office": "remote", "distributed": "remote",
+    "fully-remote": "remote",
+    "hybrid": "hybrid", "partially remote": "hybrid",
+    "partially_remote": "hybrid", "partial_remote": "hybrid",
+    "flexible_remote": "hybrid", "flexible remote": "hybrid",
+    "hybrid remote": "hybrid", "hybrid-remote": "hybrid",
+    "on-site": "on-site", "on_site": "on-site", "onsite": "on-site",
+    "in-office": "on-site", "in office": "on-site",
+    "office": "on-site", "office based": "on-site",
+    "office-based": "on-site",
+    "unknown": "unknown",
+}
+
 
 def _infer_remote_type(declared: str, title: str, description: str) -> str:
     """
@@ -137,8 +158,9 @@ def _infer_remote_type(declared: str, title: str, description: str) -> str:
     Returns one of: "remote" | "hybrid" | "on-site" | "unknown"
     """
     d = declared.lower().strip()
-    if d in ("remote", "hybrid", "on-site", "on_site", "onsite"):
-        return d.replace("_", "-")
+    # Check canonical map first (covers all variant spellings)
+    if d in _REMOTE_TYPE_CANONICAL:
+        return _REMOTE_TYPE_CANONICAL[d]
 
     combined = (title + " " + description[:500]).lower()
     if any(s in combined for s in _HYBRID_SIGNALS):
