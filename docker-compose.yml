@@ -4,16 +4,18 @@ services:
     container_name: jobmarket-web
     restart: unless-stopped
     env_file:
-      - /opt/jobmarket/.env
+      - ${JOBMARKET_HOME:-.}/.env
     environment:
       GOOGLE_SA_JSON_PATH: /run/secrets/google-sa.json
+      # Auth DB lives in the same data volume as jobs.sqlite
+      AUTH_DB_PATH: data/auth.sqlite
     ports:
       - "127.0.0.1:5000:5000"
     volumes:
-      - /opt/jobmarket/data:/app/data
-      - /opt/jobmarket/outputs:/app/outputs
-      - /opt/jobmarket/logs:/app/logs
-      - /opt/jobmarket/secrets/google-sa.json:/run/secrets/google-sa.json:ro
+      - ${JOBMARKET_HOME:-.}/data:/app/data
+      - ${JOBMARKET_HOME:-.}/outputs:/app/outputs
+      - ${JOBMARKET_HOME:-.}/logs:/app/logs
+      - ${JOBMARKET_HOME:-.}/secrets/google-sa.json:/run/secrets/google-sa.json:ro
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5000/healthz"]
       interval: 30s
@@ -26,13 +28,14 @@ services:
     container_name: jobmarket-pipeline
     profiles: ["jobs"]
     env_file:
-      - /opt/jobmarket/.env
+      - ${JOBMARKET_HOME:-.}/.env
     environment:
       GOOGLE_SA_JSON_PATH: /run/secrets/google-sa.json
+      AUTH_DB_PATH: data/auth.sqlite
     volumes:
-      - /opt/jobmarket/data:/app/data
-      - /opt/jobmarket/outputs:/app/outputs
-      - /opt/jobmarket/logs:/app/logs
-      - /opt/jobmarket/secrets/google-sa.json:/run/secrets/google-sa.json:ro
+      - ${JOBMARKET_HOME:-.}/data:/app/data
+      - ${JOBMARKET_HOME:-.}/outputs:/app/outputs
+      - ${JOBMARKET_HOME:-.}/logs:/app/logs
+      - ${JOBMARKET_HOME:-.}/secrets/google-sa.json:/run/secrets/google-sa.json:ro
     command: ["python", "-m", "src.orchestrator", "--mode", "ingest-only"]
     restart: "no"
