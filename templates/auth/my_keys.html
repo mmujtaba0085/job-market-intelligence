@@ -52,7 +52,7 @@
             <td>
                 {% if not k.revoked %}
                 <form method="POST" action="/auth/me/keys/{{ k.id }}/revoke" style="display:inline;">
-                    <input type="hidden" name="_csrf_token" value="{{ session.get('_csrf_token','') }}">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-xs btn-danger"
                             onclick="return confirm('Revoke this key?')">Revoke</button>
                 </form>
@@ -75,7 +75,7 @@
     <div class="modal">
         <div class="modal-title">Create New API Key</div>
         <form method="POST" action="/auth/me/keys/create">
-            <input type="hidden" name="_csrf_token" value="{{ session.get('_csrf_token','') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label class="form-label">Key Name</label>
                 <input class="form-control" name="name" required placeholder="e.g. My Dashboard Script">
