@@ -61,11 +61,11 @@ class HireWeb3Collector(BaseCollector):
             root = ET.fromstring(resp.content)
             
             # Register namespaces (hireweb3Jobs custom fields)
-            # Namespace might be in the XML, try to detect it
+            import io as _io
             namespaces = dict([node for _, node in ET.iterparse(
-                requests.get(_RSS_URL, timeout=_TIMEOUT).content,
+                _io.BytesIO(requests.get(_RSS_URL, timeout=_TIMEOUT).content),
                 events=['start-ns']
-            )]) if False else {}  # Skip for now, use direct tag names
+            )])
             
             # RSS items under channel/item
             items = root.findall(".//item")

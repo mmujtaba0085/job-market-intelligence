@@ -65,6 +65,27 @@ class BaseCollector(ABC):
             return []
 
         try:
+            # Apply per-source cap override (only ever lowers the global cap)
+            override = (
+                market.get("source_overrides", {})
+                .get(self.source_id, {})
+            )
+            if override.get("max_jobs") is not None:
+                effective_cap = min(
+                    override["max_jobs"],
+                    market.get("max_jobs_per_source", override["max_jobs"]),
+                )
+                if effective_cap != market.get("max_jobs_per_source"):
+                    logger.debug(
+                        "[%s] source_overrides: capping max_jobs_per_source "
+                        "%d → %d for market '%s'",
+                        self.source_id,
+                        market.get("max_jobs_per_source"),
+                        effective_cap,
+                        market["market_id"],
+                    )
+                    market = {**market, "max_jobs_per_source": effective_cap}
+
             results = self._fetch_raw(market)
             logger.info(
                 "[%s] Collected %d raw jobs for market '%s'.",

@@ -31,14 +31,14 @@ class RemotiveCollector(BaseCollector):
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=30), reraise=True)
     def _fetch_raw(self, market: dict) -> list[JobRaw]:
         results: list[JobRaw] = []
-        max_jobs = market.get("max_jobs_per_source", 200)
+        max_jobs = market.get("max_jobs_per_source", 500)
 
         for keyword in market["keywords"]:
             self._wait()
             try:
                 resp = requests.get(
                     _BASE_URL,
-                    params={"search": keyword, "limit": 50},
+                    params={"search": keyword},
                     timeout=_TIMEOUT,
                     headers={"User-Agent": "JobMarketIntelligence/1.0 (research)"},
                 )

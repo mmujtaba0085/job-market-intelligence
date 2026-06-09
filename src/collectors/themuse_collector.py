@@ -48,7 +48,7 @@ class TheMuseCollector(BaseCollector):
         results: list[JobRaw] = []
         max_jobs = market.get("max_jobs_per_source", 200)
         page = 0
-        max_pages = 5  # Limit pagination
+        max_pages = 50  # TheMuse supports up to page 99 at 20 results/page
         
         keywords = market.get("keywords", [])
 

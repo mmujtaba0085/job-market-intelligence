@@ -95,139 +95,144 @@ class AdzunaCollector(BaseCollector):
                     return results[:max_jobs]
                 
                 page = 1
-                self._wait()
-                
-                try:
-                    remaining = max_jobs - len(results)
-                    per_page = min(_MAX_RESULTS, remaining)
-                    
-                    # Build URL
-                    url = f"{_BASE_URL}/{country_code}/search/{page}"
-                    params = {
-                        "app_id": app_id,
-                        "app_key": app_key,
-                        "what": keyword,
-                        "results_per_page": per_page,
-                        "sort_by": "date",
-                    }
-                    
-                    logger.debug("[adzuna] Fetching %s/%s: keyword=%s, per_page=%d", 
-                                country_code, page, keyword, per_page)
-                    
-                    resp = requests.get(url, params=params, timeout=_TIMEOUT, 
-                                      headers={"Accept": "application/json"})
-                    
-                    if resp.status_code == 429:
-                        # Rate limited - retry with backoff
-                        retry_429_count += 1
-                        logger.warning("[adzuna] Rate limited (429), sleeping 5s and retrying (%d/%d)", 
-                                     retry_429_count, max_429_retries)
-                        time.sleep(5)
-                        
-                        resp = requests.get(url, params=params, timeout=_TIMEOUT,
+                while len(results) < max_jobs:
+                    self._wait()
+
+                    try:
+                        remaining = max_jobs - len(results)
+                        per_page = min(_MAX_RESULTS, remaining)
+
+                        # Build URL with current page
+                        fetch_url = f"{_BASE_URL}/{country_code}/search/{page}"
+                        params = {
+                            "app_id": app_id,
+                            "app_key": app_key,
+                            "what": keyword,
+                            "results_per_page": per_page,
+                            "sort_by": "date",
+                        }
+
+                        logger.debug("[adzuna] Fetching %s/page%d: keyword=%s, per_page=%d",
+                                    country_code, page, keyword, per_page)
+
+                        resp = requests.get(fetch_url, params=params, timeout=_TIMEOUT,
                                           headers={"Accept": "application/json"})
-                        
+
                         if resp.status_code == 429:
-                            logger.warning("[adzuna] Still 429 after retry")
-                            continue
-                        # If retry succeeded, reset counter
-                        retry_429_count = 0
-                    
-                    if resp.status_code >= 500:
-                        error_count += 1
-                        logger.warning("[adzuna] HTTP %d for %s/%s", resp.status_code, country_code, keyword)
-                        if error_count >= max_errors:
-                            logger.warning("[adzuna] Too many 5xx errors, stopping")
+                            # Rate limited - retry with backoff
+                            retry_429_count += 1
+                            logger.warning("[adzuna] Rate limited (429), sleeping 5s and retrying (%d/%d)",
+                                         retry_429_count, max_429_retries)
+                            time.sleep(5)
+
+                            resp = requests.get(fetch_url, params=params, timeout=_TIMEOUT,
+                                              headers={"Accept": "application/json"})
+
+                            if resp.status_code == 429:
+                                logger.warning("[adzuna] Still 429 after retry")
+                                break  # stop paging this combo
+                            # If retry succeeded, reset counter
+                            retry_429_count = 0
+
+                        if resp.status_code >= 500:
+                            error_count += 1
+                            logger.warning("[adzuna] HTTP %d for %s/%s", resp.status_code, country_code, keyword)
+                            if error_count >= max_errors:
+                                logger.warning("[adzuna] Too many 5xx errors, stopping")
+                            break  # stop paging this combo
+
+                        if resp.status_code == 401:
+                            logger.error("[adzuna] Authentication failed (401) - check ADZUNA_APP_ID and ADZUNA_APP_KEY")
+                            return []  # Stop entirely if auth fails
+
+                        if resp.status_code != 200:
+                            logger.warning("[adzuna] HTTP %d for %s/%s", resp.status_code, country_code, keyword)
+                            break  # stop paging this combo
+
+                        data = resp.json()
+                        jobs_data = data.get("results", [])
+
+                        if not jobs_data:
+                            logger.debug("[adzuna] No jobs for %s/page%d '%s'", country_code, page, keyword)
                             break
-                        continue
-                    
-                    if resp.status_code == 401:
-                        logger.error("[adzuna] Authentication failed (401) - check ADZUNA_APP_ID and ADZUNA_APP_KEY")
-                        return []  # Stop entirely if auth fails
-                    
-                    if resp.status_code != 200:
-                        logger.warning("[adzuna] HTTP %d for %s/%s", resp.status_code, country_code, keyword)
-                        continue
-                    
-                    data = resp.json()
-                    jobs_data = data.get("results", [])
-                    
-                    if not jobs_data:
-                        logger.debug("[adzuna] No jobs for %s/%s", country_code, keyword)
-                        continue
-                    
-                    new_jobs = 0
-                    for item in jobs_data:
-                        if len(results) >= max_jobs:
-                            break
-                        
-                        # Extract URL for deduplication
-                        url = item.get("redirect_url") or item.get("adref") or ""
-                        if not url:
-                            # Generate fallback URL
-                            job_id = item.get("id") or ""
-                            if job_id:
-                                url = f"adzuna://{job_id}"
-                            else:
-                                hash_input = f"{item.get('title')}|{self._get_company(item)}|{item.get('created')}"
-                                url_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
-                                url = f"adzuna://{url_hash}"
-                        
-                        # Deduplicate across keywords/countries
-                        if url in seen_urls:
-                            continue
-                        seen_urls.add(url)
-                        
-                        # Extract fields
-                        title = item.get("title") or ""
-                        company = self._get_company(item)
-                        location = self._get_location(item)
-                        description = item.get("description") or ""
-                        created = item.get("created") or ""
-                        posted_date = self._parse_date(created)
-                        
-                        # Infer country from location or use search country
-                        country = self._extract_country(location, country_code)
-                        
-                        # Infer remote type from title/description
-                        remote_type = self._infer_remote_type(title, description, location)
-                        
-                        results.append(
-                            JobRaw(
-                                source_id=self.source_id,
-                                source_name="Adzuna",
-                                url=url,
-                                fetched_at=self._now(),
-                                raw_json=item,
-                                parsed_fields={
-                                    "title": title,
-                                    "company": company,
-                                    "location": location,
-                                    "country": country,
-                                    "remote_type": remote_type,
-                                    "posted_date": posted_date,
-                                    "description": description,
-                                },
+
+                        new_jobs = 0
+                        for item in jobs_data:
+                            if len(results) >= max_jobs:
+                                break
+
+                            # Extract URL for deduplication
+                            url = item.get("redirect_url") or item.get("adref") or ""
+                            if not url:
+                                # Generate fallback URL
+                                job_id = item.get("id") or ""
+                                if job_id:
+                                    url = f"adzuna://{job_id}"
+                                else:
+                                    hash_input = f"{item.get('title')}|{self._get_company(item)}|{item.get('created')}"
+                                    url_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+                                    url = f"adzuna://{url_hash}"
+
+                            # Deduplicate across keywords/countries
+                            if url in seen_urls:
+                                continue
+                            seen_urls.add(url)
+
+                            # Extract fields
+                            title = item.get("title") or ""
+                            company = self._get_company(item)
+                            location = self._get_location(item)
+                            description = item.get("description") or ""
+                            created = item.get("created") or ""
+                            posted_date = self._parse_date(created)
+
+                            # Infer country from location or use search country
+                            country = self._extract_country(location, country_code)
+
+                            # Infer remote type from title/description
+                            remote_type = self._infer_remote_type(title, description, location)
+
+                            results.append(
+                                JobRaw(
+                                    source_id=self.source_id,
+                                    source_name="Adzuna",
+                                    url=url,
+                                    fetched_at=self._now(),
+                                    raw_json=item,
+                                    parsed_fields={
+                                        "title": title,
+                                        "company": company,
+                                        "location": location,
+                                        "country": country,
+                                        "remote_type": remote_type,
+                                        "posted_date": posted_date,
+                                        "description": description,
+                                    },
+                                )
                             )
-                        )
-                        new_jobs += 1
-                    
-                    logger.debug("[adzuna] %s/%s '%s': collected %d new jobs", 
-                               country_code, page, keyword, new_jobs)
-                    
-                    # Reset error counter on success
-                    error_count = 0
-                    
-                except requests.Timeout:
-                    error_count += 1
-                    logger.warning("[adzuna] Timeout for %s/%s (%d/%d)", country_code, keyword, error_count, max_errors)
-                    if error_count >= max_errors:
-                        break
-                except Exception as e:
-                    error_count += 1
-                    logger.error("[adzuna] Error for %s/%s: %s (%d/%d)", country_code, keyword, e, error_count, max_errors)
-                    if error_count >= max_errors:
-                        break
+                            new_jobs += 1
+
+                        logger.debug("[adzuna] %s/page%d '%s': collected %d new jobs",
+                                   country_code, page, keyword, new_jobs)
+
+                        # Reset error counter on success
+                        error_count = 0
+
+                        if len(jobs_data) < per_page:
+                            break  # exhausted pages for this keyword/country combo
+                        page += 1
+
+                    except requests.Timeout:
+                        error_count += 1
+                        logger.warning("[adzuna] Timeout for %s/%s (%d/%d)", country_code, keyword, error_count, max_errors)
+                        break  # stop paging this combo
+                    except Exception as e:
+                        error_count += 1
+                        logger.error("[adzuna] Error for %s/%s: %s (%d/%d)", country_code, keyword, e, error_count, max_errors)
+                        break  # stop paging this combo
+
+                if error_count >= max_errors:
+                    break  # stop remaining countries for this keyword
         
         logger.info("[adzuna] Collected %d raw jobs for market %s", len(results), market.get("market_id"))
         return results[:max_jobs]

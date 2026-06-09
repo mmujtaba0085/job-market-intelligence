@@ -45,7 +45,7 @@ class ArbeitnowCollector(BaseCollector):
         results: list[JobRaw] = []
         max_jobs = market.get("max_jobs_per_source", 200)
         page = 1
-        max_pages = 5  # Limit pagination to avoid excessive calls
+        max_pages = 20  # Raised from 5 to reach max_jobs_per_source=500
 
         keywords = market.get("keywords", [])
 

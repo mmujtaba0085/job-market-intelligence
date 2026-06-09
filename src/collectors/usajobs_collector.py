@@ -66,108 +66,119 @@ class USAJobsCollector(BaseCollector):
         max_jobs = market.get("max_jobs_per_source", 200)
         keywords = market.get("keywords", ["technology"])
 
+        page_size = 50
+        headers = {
+            "Host": "data.usajobs.gov",
+            "User-Agent": self.user_agent,
+            "Authorization-Key": self.api_key,
+            "Accept": "application/json",
+        }
+
         for keyword in keywords:
             if len(results) >= max_jobs:
                 break
 
-            self._wait()
+            page = 1
+            while len(results) < max_jobs:
+                self._wait()
 
-            try:
-                headers = {
-                    "Host": "data.usajobs.gov",
-                    "User-Agent": self.user_agent,
-                    "Authorization-Key": self.api_key,
-                    "Accept": "application/json",
-                }
-                
-                params = {
-                    "Keyword": keyword,
-                    "ResultsPerPage": min(50, max_jobs),
-                    "Page": "1",  # Only fetch first page for MVP
-                }
-                
-                logger.debug("[usajobs] Fetching keyword='%s'", keyword)
-                resp = requests.get(_BASE_URL, headers=headers, params=params, timeout=_TIMEOUT)
-                
-                if resp.status_code == 429:
-                    logger.warning("[usajobs] Rate limited (429), stopping")
-                    break
-                
-                if resp.status_code != 200:
-                    logger.warning("[usajobs] HTTP %d for keyword '%s'", resp.status_code, keyword)
-                    continue
+                try:
+                    params = {
+                        "Keyword": keyword,
+                        "ResultsPerPage": page_size,
+                        "Page": str(page),
+                    }
 
-                data = resp.json()
-                items = data.get("SearchResult", {}).get("SearchResultItems", [])
-                
-                for item in items:
-                    if len(results) >= max_jobs:
+                    logger.debug("[usajobs] Fetching keyword='%s' page=%d", keyword, page)
+                    resp = requests.get(_BASE_URL, headers=headers, params=params, timeout=_TIMEOUT)
+
+                    if resp.status_code == 429:
+                        logger.warning("[usajobs] Rate limited (429), stopping")
                         break
-                    
-                    job_data = item.get("MatchedObjectDescriptor", {})
-                    
-                    # Extract locations
-                    locations = job_data.get("PositionLocationDisplay", [])
-                    location = locations[0] if locations else ""
-                    
-                    # Extract apply URL
-                    apply_uris = job_data.get("ApplyURI", [])
-                    url = apply_uris[0] if apply_uris else ""
-                    
-                    # Fallback URL if empty
-                    if not url:
-                        hash_input = f"{job_data.get('PositionTitle')}|{job_data.get('OrganizationName')}|{job_data.get('PositionID')}"
-                        url_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
-                        url = f"usajobs://{url_hash}"
-                    
-                    # Extract description
-                    user_area = job_data.get("UserArea", {})
-                    details = user_area.get("Details", {})
-                    description = details.get("JobSummary") or ""
-                    
-                    # Parse salary
-                    remuneration = job_data.get("PositionRemuneration", [])
-                    salary_min = None
-                    salary_max = None
-                    
-                    if remuneration and isinstance(remuneration, list):
-                        try:
-                            first_rem = remuneration[0]
-                            salary_min = float(first_rem.get("MinimumRange", 0)) or None
-                            salary_max = float(first_rem.get("MaximumRange", 0)) or None
-                        except Exception:
-                            pass
-                    
-                    results.append(
-                        JobRaw(
-                            source_id=self.source_id,
-                            source_name="USAJobs",
-                            url=url,
-                            fetched_at=self._now(),
-                            raw_json=job_data,
-                            parsed_fields={
-                                "title": job_data.get("PositionTitle") or "",
-                                "company": job_data.get("OrganizationName") or "",
-                                "location": location,
-                                "country": "United States",
-                                "remote_type": "On-site",  # Most gov jobs are on-site
-                                "posted_date": self._parse_date(job_data.get("PublicationStartDate")),
-                                "description": description,
-                                "salary_min": salary_min,
-                                "salary_max": salary_max,
-                                "currency": "USD",
-                            },
+
+                    if resp.status_code != 200:
+                        logger.warning("[usajobs] HTTP %d for keyword '%s' page %d", resp.status_code, keyword, page)
+                        break
+
+                    data = resp.json()
+                    items = data.get("SearchResult", {}).get("SearchResultItems", [])
+
+                    if not items:
+                        logger.debug("[usajobs] No more results for keyword '%s' on page %d", keyword, page)
+                        break
+
+                    for item in items:
+                        if len(results) >= max_jobs:
+                            break
+
+                        job_data = item.get("MatchedObjectDescriptor", {})
+
+                        # Extract locations
+                        locations = job_data.get("PositionLocationDisplay", [])
+                        location = locations[0] if locations else ""
+
+                        # Extract apply URL
+                        apply_uris = job_data.get("ApplyURI", [])
+                        url = apply_uris[0] if apply_uris else ""
+
+                        # Fallback URL if empty
+                        if not url:
+                            hash_input = f"{job_data.get('PositionTitle')}|{job_data.get('OrganizationName')}|{job_data.get('PositionID')}"
+                            url_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+                            url = f"usajobs://{url_hash}"
+
+                        # Extract description
+                        user_area = job_data.get("UserArea", {})
+                        details = user_area.get("Details", {})
+                        description = details.get("JobSummary") or ""
+
+                        # Parse salary
+                        remuneration = job_data.get("PositionRemuneration", [])
+                        salary_min = None
+                        salary_max = None
+
+                        if remuneration and isinstance(remuneration, list):
+                            try:
+                                first_rem = remuneration[0]
+                                salary_min = float(first_rem.get("MinimumRange", 0)) or None
+                                salary_max = float(first_rem.get("MaximumRange", 0)) or None
+                            except Exception:
+                                pass
+
+                        results.append(
+                            JobRaw(
+                                source_id=self.source_id,
+                                source_name="USAJobs",
+                                url=url,
+                                fetched_at=self._now(),
+                                raw_json=job_data,
+                                parsed_fields={
+                                    "title": job_data.get("PositionTitle") or "",
+                                    "company": job_data.get("OrganizationName") or "",
+                                    "location": location,
+                                    "country": "United States",
+                                    "remote_type": "On-site",  # Most gov jobs are on-site
+                                    "posted_date": self._parse_date(job_data.get("PublicationStartDate")),
+                                    "description": description,
+                                    "salary_min": salary_min,
+                                    "salary_max": salary_max,
+                                    "currency": "USD",
+                                },
+                            )
                         )
-                    )
 
-                logger.debug("[usajobs] Keyword '%s': collected %d jobs", keyword, len(items))
+                    logger.debug("[usajobs] Keyword '%s' page %d: got %d items", keyword, page, len(items))
 
-            except requests.Timeout:
-                logger.warning("[usajobs] Timeout for keyword '%s'", keyword)
-                continue
-            except Exception as e:
-                logger.error("[usajobs] Error for keyword '%s': %s", keyword, e)
-                continue
+                    if len(items) < page_size:
+                        break  # no more pages
+                    page += 1
+
+                except requests.Timeout:
+                    logger.warning("[usajobs] Timeout for keyword '%s' page %d", keyword, page)
+                    break
+                except Exception as e:
+                    logger.error("[usajobs] Error for keyword '%s' page %d: %s", keyword, page, e)
+                    break
 
         return results[:max_jobs]
 
