@@ -33,6 +33,8 @@ import requests
 
 from src.collectors.base_collector import BaseCollector
 from src.storage.models import JobRaw
+from src.enrichment.location_resolver import resolve_location
+from src.enrichment.salary import parse_salary
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +212,8 @@ class JoobleCollector(BaseCollector):
                         
                         # Extract country from location string
                         country = self._extract_country(job_location, location)
+                        resolved = resolve_location(job_location, country if country != "Unknown" else None)
+                        salary = parse_salary(job.get("salary") or job.get("salaryRange") or "")
                         
                         # Create JobRaw object
                         job_raw = JobRaw(
@@ -226,7 +230,11 @@ class JoobleCollector(BaseCollector):
                                 "remote_type": remote_type,
                                 "posted_date": posted_date,
                                 "description": raw_description,
+                                "structured_locations": [resolved.__dict__],
+                                **salary,
                             },
+                            source_record_id=str(job.get("id") or url),
+                            structured_locations=[resolved.__dict__],
                         )
                         
                         results.append(job_raw)

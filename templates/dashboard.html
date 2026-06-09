@@ -175,6 +175,15 @@
 {% endblock %}
 
 {% block content %}
+<div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:12px;gap:8px;">
+    <label for="dashboardStatus" style="color:var(--text-secondary);font-size:13px;">Listing status</label>
+    <select id="dashboardStatus" class="form-control" style="width:auto;">
+        <option value="active">Active listings</option>
+        <option value="all">Active + historical</option>
+        <option value="unverified">Historical / unverified</option>
+        <option value="closed">Closed listings</option>
+    </select>
+</div>
 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
     <h2 style="color: #1f2937; margin: 0;">📊 Business Intelligence Dashboard</h2>
     <div>

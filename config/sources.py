@@ -42,6 +42,7 @@ ALLOWED_SOURCES: list[dict] = [
             "No direct scraping — API access only."
         ),
         "enabled": False,
+        "disabled_reason": "Quota-sensitive paid API; enable explicitly when quota is available.",
     },
     {
         "source_id": "arbeitnow",
@@ -99,6 +100,7 @@ ALLOWED_SOURCES: list[dict] = [
             "Free to use for job aggregation and research."
         ),
         "enabled": False,  # DNS error - api.graphql.jobs doesn't resolve
+        "disabled_reason": "API hostname does not currently resolve.",
     },
     {
         "source_id": "himalayas",
@@ -113,6 +115,7 @@ ALLOWED_SOURCES: list[dict] = [
             "Supports pagination with limit/offset parameters."
         ),
         "enabled": False,  # API slow/unreliable, disabled
+        "disabled_reason": "API is too slow and unreliable for scheduled ingestion.",
     },
     {
         "source_id": "himalayas_rss",
@@ -127,6 +130,7 @@ ALLOWED_SOURCES: list[dict] = [
             "Backup source to Himalayas JSON API."
         ),
         "enabled": False,
+        "disabled_reason": "Feed is disabled until reliability and parser coverage are revalidated.",
     },
     {
         "source_id": "jobicy",
@@ -168,7 +172,7 @@ ALLOWED_SOURCES: list[dict] = [
             "Official public API. Free tier available. "
             "Aggregates jobs from multiple sources across multiple countries."
         ),
-        "enabled": False,  # Enable after adding API credentials to .env
+        "enabled": True,  # Official API; collector skips cleanly when credentials are absent
     },
     {
         "source_id": "findwork",

@@ -9,6 +9,7 @@
 # Google service account keys and similar credentials
 config/job-market-intelligence-*.json
 config/*service-account*.json
+secrets/
 *.pem
 *.key
 *.p12
@@ -35,7 +36,9 @@ data/*.sqlite-*
 data/*.db
 data/cache/
 data/backups/
+data/sqlite_backups/
 data/findwork_crawler_state.json
+data/.fuse_hidden*
 logs/
 outputs/
 

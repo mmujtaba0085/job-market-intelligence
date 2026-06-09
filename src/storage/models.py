@@ -37,6 +37,9 @@ class JobRaw:
 
     # Optionally pre-parsed fields from API responses
     parsed_fields: Optional[dict] = None
+    source_record_id: Optional[str] = None
+    listing_status: str = "active"
+    structured_locations: Optional[list[dict]] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -82,6 +85,13 @@ class JobNormalized:
     
     # ── Multi-location support ────────────────────────────────────────────────
     all_locations: Optional[list[str]] = None  # All locations if job has multiple
+    source_id: str = ""
+    source_record_id: Optional[str] = None
+    listing_status: str = "active"
+    salary_raw: Optional[str] = None
+    salary_period: Optional[str] = None
+    salary_is_estimated: bool = False
+    structured_locations: Optional[list[dict]] = None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

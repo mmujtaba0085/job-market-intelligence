@@ -129,9 +129,42 @@
                 </a>
             </div>
         </div>
-        
+
+        <!-- User & Access Management -->
+        <div class="card" style="cursor: pointer; transition: transform 0.2s;" onclick="window.location.href='/admin/quality'">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <div>
+                    <h2 style="margin: 0; color: var(--text-primary);">Warehouse Quality</h2>
+                    <p style="color: var(--text-secondary); margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+                        Monitor source freshness, classifications, and enrichment history
+                    </p>
+                </div>
+            </div>
+            <a href="/admin/quality" class="btn btn-secondary btn-sm">Open Quality Monitor</a>
+        </div>
+
+        <!-- User & Access Management -->
+        <div class="card" style="cursor: pointer; transition: transform 0.2s;" onclick="window.location.href='/admin/auth/users'">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <div style="font-size: 3rem;">🔐</div>
+                <div>
+                    <h2 style="margin: 0; color: var(--text-primary);">Users & Access</h2>
+                    <p style="color: var(--text-secondary); margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+                        Manage user accounts, API keys, and access logs
+                    </p>
+                </div>
+            </div>
+            <div style="margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border);">
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <a href="/admin/auth/users" class="btn btn-secondary btn-sm">👥 Users</a>
+                    <a href="/admin/auth/keys" class="btn btn-secondary btn-sm">🔑 API Keys</a>
+                    <a href="/admin/auth/logs" class="btn btn-secondary btn-sm">📋 Access Logs</a>
+                </div>
+            </div>
+        </div>
+
     </div>
-    
+
     <!-- System Stats -->
     <div class="card" style="margin-top: 2rem;">
         <h2 style="margin-bottom: 1rem;">📊 System Statistics</h2>

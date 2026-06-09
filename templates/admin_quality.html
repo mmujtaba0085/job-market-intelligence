@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Warehouse Quality - Admin{% endblock %}
+{% block content %}
+<div class="page-header flex-between">
+    <div>
+        <h2>Warehouse Quality</h2>
+        <p>Source freshness, classification coverage, and enrichment audit history</p>
+    </div>
+    <a class="btn btn-secondary" href="/api/admin/quality">JSON diagnostics</a>
+</div>
+
+<div class="stats-grid">
+    <div class="stat-card"><div class="stat-value">{{ report.jobs | number_format }}</div><div class="stat-label">Jobs</div></div>
+    <div class="stat-card"><div class="stat-value">{{ report.active_jobs | number_format }}</div><div class="stat-label">Active</div></div>
+    <div class="stat-card"><div class="stat-value">{{ report.historical_jobs | number_format }}</div><div class="stat-label">Historical</div></div>
+    <div class="stat-card"><div class="stat-value">{{ (report.classification_rate * 100) | round(1) }}%</div><div class="stat-label">Classified</div></div>
+    <div class="stat-card"><div class="stat-value">{{ report.missing_country_jobs | number_format }}</div><div class="stat-label">Missing Country</div></div>
+    <div class="stat-card"><div class="stat-value">{{ report.salary_jobs | number_format }}</div><div class="stat-label">Salary Captured</div></div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-title mb-4">Source Health</div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Source</th><th>Enabled</th><th>Status</th><th>Last Run</th><th>Fetched</th><th>Records</th><th>Reason</th></tr></thead>
+            <tbody>
+            {% for source in source_health %}
+            <tr>
+                <td>{{ source.display_name }}</td>
+                <td><span class="badge {{ 'badge-success' if source.enabled else 'badge-muted' }}">{{ 'yes' if source.enabled else 'no' }}</span></td>
+                <td><span class="badge {{ 'badge-success' if source.status == 'success' else 'badge-warning' if source.status in ('empty', 'never_run') else 'badge-muted' if source.status == 'disabled' else 'badge-danger' }}">{{ source.status }}</span></td>
+                <td>{{ source.last_finished_at or source.latest_record_at or '-' }}</td>
+                <td>{{ source.fetched_count }}</td>
+                <td>{{ source.record_count }}</td>
+                <td>{{ source.health_reason or '-' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:16px;margin-top:16px;">
+    <div class="card">
+        <div class="card-title mb-4">Recurring Unclassified Titles</div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Pattern</th><th>Count</th></tr></thead>
+                <tbody>
+                {% for title, count in unknown_title_patterns %}
+                <tr><td>{{ title }}</td><td>{{ count }}</td></tr>
+                {% else %}
+                <tr><td colspan="2">No recurring unknown patterns.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title mb-4">Market Assignments</div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>Market</th><th>Primary</th><th>Tagged</th></tr></thead>
+                <tbody>
+                {% for market in market_counts %}
+                <tr><td>{{ market.name }}</td><td>{{ market.primary_jobs }}</td><td>{{ market.tagged_jobs }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-title mb-4">Recent Enrichment Events</div>
+    <div class="table-wrap">
+        <table>
+            <thead><tr><th>Time</th><th>Job</th><th>Field</th><th>Old</th><th>New</th><th>Method</th><th>Applied</th></tr></thead>
+            <tbody>
+            {% for event in recent_enrichment %}
+            <tr>
+                <td>{{ event.created_at }}</td><td>{{ event.title or event.job_id }}</td><td>{{ event.field_name }}</td>
+                <td>{{ event.old_value or '-' }}</td><td>{{ event.new_value or '-' }}</td><td>{{ event.method }}</td>
+                <td>{{ 'yes' if event.applied else 'no' }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="7">No enrichment events recorded yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

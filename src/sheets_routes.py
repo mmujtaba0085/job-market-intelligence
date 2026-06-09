@@ -927,8 +927,12 @@ def register_sheets_routes(app, get_db_connection):
         finally:
             conn.close()
         
-        # Redirect to the job posting
+        # Validate URL scheme before redirecting
         if apply_url:
+            from urllib.parse import urlparse as _up
+            scheme = _up(apply_url).scheme.lower()
+            if scheme not in ("http", "https", ""):
+                return "Unsafe redirect URL", 400
             return redirect(apply_url)
         else:
             return "No URL provided", 400

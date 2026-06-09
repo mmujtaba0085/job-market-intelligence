@@ -8,7 +8,15 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('refreshBtn').addEventListener('click', function() {
         loadDashboard();
     });
+    document.getElementById('dashboardStatus').addEventListener('change', function() {
+        loadDashboard();
+    });
 });
+
+function dashboardApi(path) {
+    const status = document.getElementById('dashboardStatus')?.value || 'active';
+    return `${path}?status=${encodeURIComponent(status)}`;
+}
 
 function loadDashboard() {
     updateTime();
@@ -30,7 +38,7 @@ function updateTime() {
 
 // Load KPIs
 function loadKPIs() {
-    fetch('/api/dashboard/kpis')
+    fetch(dashboardApi('/api/dashboard/kpis'))
         .then(response => response.json())
         .then(data => {
             document.getElementById('kpiJobs').textContent = data.total_jobs.toLocaleString();
@@ -49,7 +57,7 @@ function loadKPIs() {
 
 // Load Job Posting Trends Chart
 function loadTrendsChart() {
-    fetch('/api/dashboard/trends')
+    fetch(dashboardApi('/api/dashboard/trends'))
         .then(response => response.json())
         .then(data => {
             const ctx = document.getElementById('trendsChart').getContext('2d');
@@ -120,7 +128,7 @@ function loadTrendsChart() {
 
 // Load Top Skills Chart
 function loadTopSkillsChart() {
-    fetch('/api/dashboard/top-skills')
+    fetch(dashboardApi('/api/dashboard/top-skills'))
         .then(response => response.json())
         .then(data => {
             const ctx = document.getElementById('skillsChart').getContext('2d');
@@ -188,7 +196,7 @@ function loadTopSkillsChart() {
 
 // Load Geographic Distribution Chart
 function loadGeoChart() {
-    fetch('/api/dashboard/geo')
+    fetch(dashboardApi('/api/dashboard/geo'))
         .then(response => response.json())
         .then(data => {
             const ctx = document.getElementById('geoChart').getContext('2d');
@@ -244,7 +252,7 @@ function loadGeoChart() {
 
 // Load Sources Chart
 function loadSourcesChart() {
-    fetch('/api/dashboard/sources')
+    fetch(dashboardApi('/api/dashboard/sources'))
         .then(response => response.json())
         .then(data => {
             const ctx = document.getElementById('sourcesChart').getContext('2d');
@@ -297,7 +305,7 @@ function loadSourcesChart() {
 
 // Load Emerging Skills
 function loadEmergingSkills() {
-    fetch('/api/dashboard/emerging')
+    fetch(dashboardApi('/api/dashboard/emerging'))
         .then(response => response.json())
         .then(data => {
             const container = document.getElementById('emergingList');
@@ -340,7 +348,7 @@ function loadEmergingSkills() {
 
 // Load Declining Skills
 function loadDecliningSkills() {
-    fetch('/api/dashboard/declining')
+    fetch(dashboardApi('/api/dashboard/declining'))
         .then(response => response.json())
         .then(data => {
             const container = document.getElementById('decliningList');
@@ -383,7 +391,7 @@ function loadDecliningSkills() {
 
 // Load Top Companies
 function loadTopCompanies() {
-    fetch('/api/dashboard/companies')
+    fetch(dashboardApi('/api/dashboard/companies'))
         .then(response => response.json())
         .then(data => {
             const tbody = document.querySelector('#companiesTable tbody');
@@ -417,7 +425,7 @@ function loadTopCompanies() {
 }
 
 function loadLocationDiversity() {
-    fetch('/api/dashboard/location-diversity')
+    fetch(dashboardApi('/api/dashboard/location-diversity'))
         .then(response => response.json())
         .then(data => {
             const tbody = document.querySelector('#locationDiversityTable tbody');
