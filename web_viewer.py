@@ -2724,6 +2724,68 @@ def number_format(value):
 register_sheets_routes(app, get_db_connection)
 
 
+# ═══════════════════════════════════════════════════════════════════
+# ADMIN: PIPELINE MONITOR
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route("/admin/pipeline")
+@require_admin
+def admin_pipeline():
+    from src.pipeline_monitor import compute_next_run, get_config, get_recent_runs, get_running_runs
+    config = get_config()
+    runs = get_recent_runs(40)
+    running = get_running_runs()
+    next_ingest = compute_next_run("ingest-only", config)
+    next_crawl  = compute_next_run("crawl", config)
+    return render_template(
+        "admin_pipeline.html",
+        runs=runs,
+        running=running,
+        config=config,
+        next_ingest=next_ingest,
+        next_crawl=next_crawl,
+    )
+
+
+@app.route("/admin/pipeline/run", methods=["POST"])
+@require_admin
+def admin_pipeline_run():
+    from src.pipeline_monitor import get_running_runs, launch_pipeline
+    mode = request.form.get("mode", "ingest-only")
+    if mode not in ("weekly", "ingest-only", "report-only", "crawl"):
+        return jsonify({"error": "invalid mode"}), 400
+    # Prevent duplicate concurrent runs of the same mode
+    running = [r for r in get_running_runs() if r["mode"] == mode]
+    if running:
+        return jsonify({"error": f"{mode} is already running", "run_id": running[0]["run_id"]}), 409
+    run_id = launch_pipeline(mode)
+    return jsonify({"run_id": run_id, "mode": mode, "status": "started"})
+
+
+@app.route("/admin/pipeline/config", methods=["POST"])
+@require_admin
+def admin_pipeline_config():
+    from src.pipeline_monitor import set_config
+    allowed = {"ingest_interval_hours", "crawl_interval_hours", "crawl_max_runtime_minutes"}
+    updated = []
+    for key in allowed:
+        val = request.form.get(key, "").strip()
+        if val and val.isdigit():
+            set_config(key, val)
+            updated.append(key)
+    return jsonify({"updated": updated})
+
+
+@app.route("/admin/pipeline/status")
+@require_admin
+def admin_pipeline_status():
+    from src.pipeline_monitor import get_recent_runs, get_running_runs
+    return jsonify({
+        "running": get_running_runs(),
+        "recent": get_recent_runs(10),
+    })
+
+
 if __name__ == "__main__":
     if not DB_PATH.exists():
         print(f"\u274c Database not found at: {DB_PATH}")

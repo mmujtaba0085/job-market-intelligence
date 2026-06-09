@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}Pipeline Monitor - Admin{% endblock %}
+{% block content %}
+<div class="container" style="max-width:1100px">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+    <div>
+      <h1 style="margin:0">Pipeline Monitor</h1>
+      <p style="color:#6b7280;margin:0.25rem 0 0">Schedule, run history and instant triggers</p>
+    </div>
+    <a href="/admin" class="btn" style="background:#f3f4f6;color:#374151;text-decoration:none">← Admin</a>
+  </div>
+
+  <!-- Status bar -->
+  {% if running %}
+  <div id="running-banner" style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:0.75rem">
+    <span style="width:10px;height:10px;border-radius:50%;background:#f59e0b;display:inline-block;animation:pulse 1s infinite"></span>
+    <span><strong>Running now:</strong>
+    {% for r in running %}<code>{{ r.mode }}</code> (started {{ r.started_at[:19] }}){% endfor %}
+    </span>
+  </div>
+  {% endif %}
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem">
+
+    <!-- Schedule -->
+    <div class="card">
+      <h3 style="margin:0 0 1rem">Schedule</h3>
+      <table style="width:100%;font-size:0.875rem;border-collapse:collapse">
+        <thead><tr style="border-bottom:1px solid #e5e7eb">
+          <th style="text-align:left;padding:0.5rem 0;color:#6b7280">Mode</th>
+          <th style="text-align:left;padding:0.5rem 0;color:#6b7280">Interval</th>
+          <th style="text-align:left;padding:0.5rem 0;color:#6b7280">Est. Next Run</th>
+        </tr></thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #f3f4f6">
+            <td style="padding:0.5rem 0"><strong>Ingest-only</strong></td>
+            <td>Every {{ config.ingest_interval_hours }}h</td>
+            <td style="color:#6b7280;font-size:0.8rem">{{ next_ingest[:16] if next_ingest else '—' }}</td>
+          </tr>
+          <tr style="border-bottom:1px solid #f3f4f6">
+            <td style="padding:0.5rem 0"><strong>Crawl</strong></td>
+            <td>Every {{ config.crawl_interval_hours }}h (max {{ config.crawl_max_runtime_minutes }}m)</td>
+            <td style="color:#6b7280;font-size:0.8rem">{{ next_crawl[:16] if next_crawl else '—' }}</td>
+          </tr>
+          <tr>
+            <td style="padding:0.5rem 0"><strong>Full weekly</strong></td>
+            <td>{{ config.weekly_day }} {{ config.weekly_time }}</td>
+            <td style="color:#6b7280;font-size:0.8rem">—</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Interval config -->
+      <form id="config-form" style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid #e5e7eb">
+        <h4 style="margin:0 0 0.75rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">Adjust Intervals</h4>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:0.75rem">
+          <label style="font-size:0.8rem">
+            Ingest (h)
+            <input name="ingest_interval_hours" type="number" min="1" max="168"
+              value="{{ config.ingest_interval_hours }}"
+              style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
+          </label>
+          <label style="font-size:0.8rem">
+            Crawl (h)
+            <input name="crawl_interval_hours" type="number" min="1" max="48"
+              value="{{ config.crawl_interval_hours }}"
+              style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
+          </label>
+          <label style="font-size:0.8rem">
+            Crawl max (min)
+            <input name="crawl_max_runtime_minutes" type="number" min="5" max="120"
+              value="{{ config.crawl_max_runtime_minutes }}"
+              style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
+          </label>
+        </div>
+        <button type="submit" class="btn" style="font-size:0.8rem;padding:0.4rem 1rem">Save config</button>
+        <span id="config-msg" style="font-size:0.8rem;color:#6b7280;margin-left:0.5rem"></span>
+        <p style="margin:0.75rem 0 0;font-size:0.75rem;color:#9ca3af">
+          Changes apply to "Run Now". To update systemd timers re-run <code>sudo bash deploy/install-timers.sh</code> on the VPS.
+        </p>
+      </form>
+    </div>
+
+    <!-- Run Now -->
+    <div class="card">
+      <h3 style="margin:0 0 1rem">Run Now</h3>
+      <div style="display:grid;gap:0.75rem">
+
+        <button onclick="triggerRun('ingest-only')" class="run-btn"
+          style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:0.75rem 1rem;cursor:pointer;text-align:left;font-size:0.875rem">
+          <strong>Ingest-only</strong>
+          <span style="display:block;font-size:0.75rem;opacity:.8;margin-top:2px">Collect → Normalize → Deduplicate → Store → Extract Skills</span>
+        </button>
+
+        <button onclick="triggerRun('crawl')" class="run-btn"
+          style="background:#8b5cf6;color:#fff;border:none;border-radius:6px;padding:0.75rem 1rem;cursor:pointer;text-align:left;font-size:0.875rem">
+          <strong>Findwork Crawl</strong>
+          <span style="display:block;font-size:0.75rem;opacity:.8;margin-top:2px">Full catalogue crawl, stops after {{ config.crawl_max_runtime_minutes }} min</span>
+        </button>
+
+        <button onclick="triggerRun('weekly')" class="run-btn"
+          style="background:#059669;color:#fff;border:none;border-radius:6px;padding:0.75rem 1rem;cursor:pointer;text-align:left;font-size:0.875rem">
+          <strong>Full Weekly Pipeline</strong>
+          <span style="display:block;font-size:0.75rem;opacity:.8;margin-top:2px">Collect + Normalize + Deduplicate + Analytics + Report</span>
+        </button>
+
+        <button onclick="triggerRun('report-only')" class="run-btn"
+          style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:0.75rem 1rem;cursor:pointer;text-align:left;font-size:0.875rem">
+          <strong>Report-only</strong>
+          <span style="display:block;font-size:0.75rem;opacity:.8;margin-top:2px">Recompute analytics + regenerate report (no new collection)</span>
+        </button>
+      </div>
+      <div id="run-msg" style="margin-top:0.75rem;font-size:0.875rem;color:#6b7280;display:none"></div>
+    </div>
+  </div>
+
+  <!-- Run history -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+      <h3 style="margin:0">Run History</h3>
+      <button onclick="refreshHistory()" style="background:none;border:1px solid #d1d5db;border-radius:4px;padding:0.25rem 0.75rem;cursor:pointer;font-size:0.8rem;color:#6b7280">Refresh</button>
+    </div>
+    <div id="history-table" style="overflow-x:auto">
+      <table style="width:100%;font-size:0.875rem;border-collapse:collapse">
+        <thead><tr style="border-bottom:2px solid #e5e7eb;text-align:left">
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Run ID</th>
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Mode</th>
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Trigger</th>
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Status</th>
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Started</th>
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Duration</th>
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Fetched</th>
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Inserted</th>
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Skills</th>
+        </tr></thead>
+        <tbody>
+        {% for r in runs %}
+        <tr style="border-bottom:1px solid #f3f4f6">
+          <td style="padding:0.5rem 0.75rem;font-family:monospace;font-size:0.8rem;color:#6b7280">{{ r.run_id }}</td>
+          <td style="padding:0.5rem 0.75rem"><strong>{{ r.mode }}</strong></td>
+          <td style="padding:0.5rem 0.75rem;color:#6b7280">{{ r.trigger }}</td>
+          <td style="padding:0.5rem 0.75rem">
+            {% if r.status == 'success' %}
+              <span style="color:#059669;font-weight:600">✓ success</span>
+            {% elif r.status == 'failed' %}
+              <span style="color:#dc2626;font-weight:600" title="{{ r.error or '' }}">✗ failed</span>
+            {% else %}
+              <span style="color:#f59e0b;font-weight:600">⟳ running</span>
+            {% endif %}
+          </td>
+          <td style="padding:0.5rem 0.75rem;color:#6b7280;font-size:0.8rem">{{ r.started_at[:16] if r.started_at else '—' }}</td>
+          <td style="padding:0.5rem 0.75rem;color:#6b7280">
+            {% if r.duration_seconds %}{{ r.duration_seconds // 60 }}m {{ r.duration_seconds % 60 }}s{% else %}—{% endif %}
+          </td>
+          <td style="padding:0.5rem 0.75rem">{{ r.jobs_fetched or '—' }}</td>
+          <td style="padding:0.5rem 0.75rem">{{ r.jobs_inserted or '—' }}</td>
+          <td style="padding:0.5rem 0.75rem">{{ r.skills_extracted or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="9" style="padding:2rem;text-align:center;color:#9ca3af">No runs recorded yet. Runs will appear here once a pipeline is triggered.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<style>
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+.run-btn:hover { opacity:.9; transform:translateY(-1px); transition:.15s }
+</style>
+
+<script>
+const csrf = "{{ csrf_token() }}";
+
+async function triggerRun(mode) {
+  const btn = document.querySelector(`button[onclick="triggerRun('${mode}')"]`);
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  const msg = document.getElementById('run-msg');
+  msg.style.display = 'block';
+  msg.style.color = '#6b7280';
+  msg.textContent = `Starting ${mode}…`;
+
+  try {
+    const fd = new FormData();
+    fd.append('mode', mode);
+    fd.append('csrf_token', csrf);
+    const r = await fetch('/admin/pipeline/run', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (r.ok) {
+      msg.style.color = '#059669';
+      msg.textContent = `Started: run_id=${data.run_id}. Refresh history to track progress.`;
+      setTimeout(refreshHistory, 3000);
+    } else {
+      msg.style.color = '#dc2626';
+      msg.textContent = data.error || 'Failed to start run';
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    }
+  } catch(e) {
+    msg.style.color = '#dc2626';
+    msg.textContent = 'Network error';
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  }
+}
+
+document.getElementById('config-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  fd.append('csrf_token', csrf);
+  const r = await fetch('/admin/pipeline/config', { method: 'POST', body: fd });
+  const data = await r.json();
+  const msg = document.getElementById('config-msg');
+  msg.textContent = r.ok ? `Saved: ${data.updated.join(', ')}` : 'Save failed';
+  msg.style.color = r.ok ? '#059669' : '#dc2626';
+});
+
+async function refreshHistory() {
+  const r = await fetch('/admin/pipeline/status');
+  const data = await r.json();
+  // Simple reload approach — full page for accuracy
+  location.reload();
+}
+
+// Auto-refresh every 15s if a run is in progress
+{% if running %}
+setInterval(refreshHistory, 15000);
+{% endif %}
+</script>
+{% endblock %}

@@ -365,24 +365,30 @@ class FindworkCrawler(BaseCollector):
     # Main Crawler Loop
     # ────────────────────────────────────────────────────────────────
 
-    def crawl_forever(self, market: dict) -> None:
+    def crawl_forever(self, market: dict, max_runtime_seconds: int | None = None) -> None:
         """
         Continuous crawler that starts from page 1 each run.
-        Stops when it encounters jobs already collected in previous run.
-        Runs until stop_event is set (CTRL+C / SIGTERM).
+        Stops when it encounters jobs already collected in previous run,
+        when stop_event is set (CTRL+C / SIGTERM), or when max_runtime_seconds elapses.
         """
         api_key = os.getenv("FINDWORK_API_KEY")
         if not api_key:
             logger.error("[findwork_crawler] Missing FINDWORK_API_KEY in environment")
             return
-        
+
         crawl_keywords = market.get("crawl_keywords", [])
         market_id = market.get("market_id", "unknown")
-        
+
         if not crawl_keywords:
             logger.warning("[findwork_crawler] No crawl_keywords defined in market config")
-        
-        logger.info("[findwork_crawler] Starting crawler from page 1 (CTRL+C to stop)")
+
+        if max_runtime_seconds:
+            logger.info(
+                "[findwork_crawler] Starting crawler (max runtime: %dm)",
+                max_runtime_seconds // 60,
+            )
+        else:
+            logger.info("[findwork_crawler] Starting crawler from page 1 (CTRL+C to stop)")
         logger.info("[findwork_crawler] Market: %s", market_id)
         logger.info("[findwork_crawler] Crawl keywords: %s", crawl_keywords)
         logger.info("[findwork_crawler] Strategy: Stop when encountering previously collected jobs")
@@ -397,6 +403,14 @@ class FindworkCrawler(BaseCollector):
         total_new_jobs_this_run = 0
         
         while not stop_event.is_set():
+            # Stop if we've exceeded the time budget
+            if max_runtime_seconds and (time.time() - self.session_start) >= max_runtime_seconds:
+                logger.info(
+                    "[findwork_crawler] Max runtime (%dm) reached at page %d, stopping",
+                    max_runtime_seconds // 60, current_page,
+                )
+                break
+
             # Fetch one page
             logger.debug("[findwork_crawler] Fetching page %d...", current_page)
             page_jobs, next_url = self._fetch_page(current_page, api_key)

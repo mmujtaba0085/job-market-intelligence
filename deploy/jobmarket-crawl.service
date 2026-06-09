@@ -1,0 +1,12 @@
+[Unit]
+Description=Job Market Intelligence — Findwork crawler (30 min bounded run)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec jobmarket-web python -m src.orchestrator --mode crawl --max-runtime 30
+StandardOutput=journal
+StandardError=journal
+# 35 minutes — 5 minute grace over the 30-minute runtime cap
+TimeoutStartSec=2100

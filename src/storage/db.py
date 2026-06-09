@@ -151,9 +151,9 @@ def run_migrations() -> None:
                     """)
                     logger.info("[db] Updated location_count for existing jobs")
                 
-            # Skip migrations 004, 005, 006 - handled conditionally after the loop
-            elif mf.name in ["004_add_normalized_title.sql", "005_add_normalization_confidence.sql", "006_job_click_tracking.sql"]:
-                pass  # These migrations are handled conditionally after the loop
+            # Skip migrations handled conditionally after the loop
+            elif mf.name in ["004_add_normalized_title.sql", "005_add_normalization_confidence.sql", "006_job_click_tracking.sql", "007_listing_status.sql"]:
+                pass
                 
             else:
                 # Run other migrations normally
@@ -222,9 +222,50 @@ def run_migrations() -> None:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_clicks_type ON sheets_click_tracking(click_type)")
             logger.info("[db] Added click_type column and index")
 
-        # Migration 007: Dynamic spreadsheet targets + staging review fields
+        # Migration 007: listing_status column
+        _ensure_column(conn, "jobs", "listing_status", "listing_status TEXT NOT NULL DEFAULT 'active'")
+
+        # Migration 007b: Dynamic spreadsheet targets + staging review fields
         _ensure_dynamic_sheet_targets(conn)
-    
+
+        # Migration 008: Pipeline monitoring tables
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS pipeline_runs (
+                run_id      TEXT PRIMARY KEY,
+                mode        TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'running',
+                trigger     TEXT NOT NULL DEFAULT 'schedule',
+                started_at  TEXT NOT NULL,
+                finished_at TEXT,
+                duration_seconds INTEGER,
+                jobs_fetched    INTEGER DEFAULT 0,
+                jobs_inserted   INTEGER DEFAULT 0,
+                jobs_deduped    INTEGER DEFAULT 0,
+                skills_extracted INTEGER DEFAULT 0,
+                error       TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started ON pipeline_runs(started_at DESC);
+
+            CREATE TABLE IF NOT EXISTS pipeline_config (
+                key        TEXT PRIMARY KEY,
+                value      TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+        """)
+        # Seed default config if empty
+        defaults = [
+            ("ingest_interval_hours",       "12"),
+            ("crawl_interval_hours",        "4"),
+            ("crawl_max_runtime_minutes",   "30"),
+            ("weekly_day",                  "Sunday"),
+            ("weekly_time",                 "03:00"),
+        ]
+        for key, value in defaults:
+            conn.execute(
+                "INSERT OR IGNORE INTO pipeline_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+                (key, value),
+            )
+
     conn.close()
 
 

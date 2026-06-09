@@ -1,0 +1,11 @@
+[Unit]
+Description=Job Market Intelligence — full weekly pipeline (collect + analytics + report)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker exec jobmarket-web python -m src.orchestrator --mode weekly
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=7200

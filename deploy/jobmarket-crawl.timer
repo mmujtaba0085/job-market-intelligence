@@ -1,0 +1,15 @@
+[Unit]
+Description=Run Findwork crawler every 4 hours
+Requires=jobmarket-crawl.service
+
+[Timer]
+# First run 10 minutes after boot
+OnBootSec=10min
+# Then every 4 hours after the previous run finishes
+OnUnitActiveSec=4h
+# Spread runs by up to 5 minutes to avoid hammering at the exact second
+RandomizedDelaySec=300
+Unit=jobmarket-crawl.service
+
+[Install]
+WantedBy=timers.target

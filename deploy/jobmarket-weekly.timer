@@ -1,0 +1,13 @@
+[Unit]
+Description=Run full Job Market Intelligence pipeline every Sunday at 03:00
+Requires=jobmarket-weekly.service
+
+[Timer]
+# Every Sunday at 03:00 local time
+OnCalendar=Sun *-*-* 03:00:00
+# Spread by up to 15 minutes
+RandomizedDelaySec=900
+Unit=jobmarket-weekly.service
+
+[Install]
+WantedBy=timers.target

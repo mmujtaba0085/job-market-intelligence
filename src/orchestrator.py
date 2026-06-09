@@ -528,6 +528,16 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--html", action="store_true", help="Also generate report.html (Mode B paste helper)"
     )
+    parser.add_argument(
+        "--max-runtime",
+        type=int,
+        metavar="MINUTES",
+        help="Max runtime in minutes for crawl mode (default: unlimited)",
+    )
+    parser.add_argument(
+        "--run-id",
+        help="Pipeline monitor run ID (set automatically when launched from admin)",
+    )
     return parser.parse_args()
 
 
@@ -541,6 +551,20 @@ def main() -> None:
     week_str = f"{week_start.year}-{week_start.isocalendar()[1]:02d}"
     _setup_logging(week=week_str)
 
+    # Pipeline monitor: record this run
+    from src.pipeline_monitor import finish_run, start_run
+    mode = args.mode if not args.backfill else "backfill"
+    run_id = args.run_id if (hasattr(args, "run_id") and args.run_id) else start_run(mode)
+
+    try:
+        _run(args, week_start)
+        finish_run(run_id, status="success")
+    except Exception as exc:
+        finish_run(run_id, status="failed", error=str(exc))
+        raise
+
+
+def _run(args, week_start) -> None:
     if args.backfill:
         if not args.start or not args.end:
             print("--backfill requires --start YYYY-MM-DD and --end YYYY-MM-DD")
@@ -550,18 +574,15 @@ def main() -> None:
         logger.info("[orchestrator] BACKFILL mode: %s → %s", start_date, end_date)
         run_backfill(start_date, end_date, generate_html=args.html)
     elif args.mode == "crawl":
-        # Continuous Findwork crawler mode
         logger.info("[orchestrator] Starting CRAWL mode (Findwork full-catalogue)")
         from src.collectors.findwork_crawler import FindworkCrawler
-        
+
         crawler = FindworkCrawler()
-        market = TARGET_MARKETS[0]  # Use first market (ai_ml_global)
-        
-        logger.info("[orchestrator] Crawler will run continuously until CTRL+C")
-        logger.info("[orchestrator] Market: %s", market["market_id"])
-        
+        market = TARGET_MARKETS[0]
+        max_runtime_seconds = args.max_runtime * 60 if args.max_runtime else None
+
         try:
-            crawler.crawl_forever(market)
+            crawler.crawl_forever(market, max_runtime_seconds=max_runtime_seconds)
         except KeyboardInterrupt:
             logger.info("[orchestrator] Crawler interrupted by user")
         except Exception as exc:
