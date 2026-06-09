@@ -48,6 +48,10 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
 DB_PATH = SETTINGS_DB_PATH
 logger = logging.getLogger(__name__)
 
+# Run DB migrations on startup so the web app is never behind
+from src.storage.db import run_migrations as _run_migrations
+_run_migrations()
+
 # ── Register auth blueprints ──────────────────────────────────────────────────
 app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(admin_auth_bp)
