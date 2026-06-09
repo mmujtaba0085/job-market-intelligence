@@ -26,7 +26,7 @@ auth_bp = Blueprint("auth", __name__, template_folder="../../templates/auth")
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if get_current_user():
-        return redirect(url_for("index"))
+        return redirect(url_for("dashboard"))
 
     error = None
     if request.method == "POST":
@@ -43,11 +43,10 @@ def login():
                 session.clear()
                 session["user_id"] = user["id"]
                 session.permanent = True
-                # Safe redirect: only allow local, relative URLs
                 next_url = request.args.get("next", "")
                 if next_url and is_safe_redirect_url(next_url):
                     return redirect(next_url)
-                return redirect(url_for("index"))
+                return redirect(url_for("dashboard"))
             error = "Invalid username or password."
 
     # Ensure CSRF token exists for the form
