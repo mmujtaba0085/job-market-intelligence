@@ -427,10 +427,11 @@ def run_pipeline_for_market(
     mode: str,
     week_start: date,
     generate_html: bool = False,
-) -> None:
+) -> RunContext:
     """
     Run the full (or partial) pipeline for one market.
     All errors are caught and recorded in RunContext — never bubbled up.
+    Returns the RunContext with accumulated stats.
     """
     market_id = market["market_id"]
     week_str = f"{week_start.year}-{week_start.isocalendar()[1]:02d}"
@@ -459,6 +460,8 @@ def run_pipeline_for_market(
             "[orchestrator] ══ DONE market=%s run_id=%s errors=%d ══",
             market_id, run.run_id, run.errors_count,
         )
+
+    return run
 
 
 def run_backfill(start: date, end: date, generate_html: bool = False) -> None:
@@ -557,8 +560,8 @@ def main() -> None:
     run_id = args.run_id if (hasattr(args, "run_id") and args.run_id) else start_run(mode)
 
     try:
-        _run(args, week_start)
-        finish_run(run_id, status="success")
+        stats = _run(args, week_start)
+        finish_run(run_id, status="success", **stats)
     except Exception as exc:
         finish_run(run_id, status="failed", error=str(exc))
         raise
@@ -573,6 +576,7 @@ def _run(args, week_start) -> None:
         end_date = date.fromisoformat(args.end)
         logger.info("[orchestrator] BACKFILL mode: %s → %s", start_date, end_date)
         run_backfill(start_date, end_date, generate_html=args.html)
+        return {}
     elif args.mode == "crawl":
         logger.info("[orchestrator] Starting CRAWL mode (Findwork full-catalogue)")
         from src.collectors.findwork_crawler import FindworkCrawler
@@ -588,15 +592,21 @@ def _run(args, week_start) -> None:
         except Exception as exc:
             logger.error("[orchestrator] Crawler crashed: %s", exc, exc_info=True)
             sys.exit(1)
+        return {}
     else:
+        totals = {"jobs_fetched": 0, "jobs_inserted": 0, "jobs_deduped": 0, "skills_extracted": 0}
         for market in TARGET_MARKETS:
-            run_pipeline_for_market(
+            ctx = run_pipeline_for_market(
                 market=market,
                 mode=args.mode,
                 week_start=week_start,
                 generate_html=args.html,
             )
-        
+            totals["jobs_fetched"]    += ctx.jobs_fetched
+            totals["jobs_inserted"]   += ctx.jobs_inserted
+            totals["jobs_deduped"]    += ctx.jobs_deduped
+            totals["skills_extracted"] += ctx.skills_extracted
+
         # After all markets processed, update Tracker Directory
         if args.mode in ("weekly", "report-only"):
             logger.info("[orchestrator] Exporting to Tracker Directory spreadsheet")
@@ -608,7 +618,6 @@ def _run(args, week_start) -> None:
                     TRACKER_TOKEN,
                     DB_PATH
                 )
-                
                 result = export_directory(
                     tracker_spreadsheet_id=TRACKER_SPREADSHEET_ID,
                     google_sa_json_path=GOOGLE_SA_JSON_PATH,
@@ -616,7 +625,6 @@ def _run(args, week_start) -> None:
                     tracker_token=TRACKER_TOKEN,
                     db_path=DB_PATH
                 )
-                
                 if "error" in result:
                     logger.warning("[orchestrator] Tracker export skipped: %s", result["error"])
                 else:
@@ -631,6 +639,8 @@ def _run(args, week_start) -> None:
                 logger.warning(
                     "[orchestrator] Tracker export failed: %s", exc, exc_info=True
                 )
+
+        return totals
 
 
 if __name__ == "__main__":
