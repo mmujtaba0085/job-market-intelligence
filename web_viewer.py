@@ -1413,6 +1413,7 @@ def jobs_list():
 
 
 @app.route("/jobs/quality")
+@require_admin
 def jobs_quality_review():
     """Quality review workspace for missing/ambiguous job data with description-aware suggestions."""
     conn = get_db_connection()

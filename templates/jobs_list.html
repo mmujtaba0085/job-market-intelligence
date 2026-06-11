@@ -190,7 +190,9 @@
 {% block content %}
 <h2 style="margin-bottom: 1.5rem; color: var(--text-primary);">Jobs ({{ total_jobs | number_format }})</h2>
 <div style="margin-top: -0.75rem; margin-bottom: 1rem;">
+    {% if g.current_user and g.current_user.get('role') == 'admin' %}
     <a href="/jobs/quality" class="btn" style="padding: 0.4rem 0.9rem; font-size: 0.85rem;">🛠️ Open Data Quality Review</a>
+    {% endif %}
 </div>
 
 <!-- Active Filters Display -->
