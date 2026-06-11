@@ -51,8 +51,8 @@
                 {% endif %}
             </td>
             <td style="text-align:center;font-variant-numeric:tabular-nums;">{{ k.usage_count }}</td>
-            <td style="color:var(--text-secondary);font-size:12px;">{{ k.last_used or '—' }}</td>
-            <td style="color:var(--text-secondary);font-size:12px;">{{ k.created_at[:10] }}</td>
+            <td style="color:var(--text-secondary);font-size:12px;"><time data-utc="{{ k.last_used or '' }}">{{ k.last_used or '—' }}</time></td>
+            <td style="color:var(--text-secondary);font-size:12px;"><time data-utc="{{ k.created_at }}">{{ k.created_at[:10] }}</time></td>
             <td>
                 {% if not k.revoked %}
                 <form method="POST" action="/admin/auth/keys/{{ k.id }}/revoke" style="display:inline;">

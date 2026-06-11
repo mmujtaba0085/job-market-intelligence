@@ -47,8 +47,8 @@
             <td><span class="badge {{ 'badge-success' if not k.revoked else 'badge-danger' }}">{{ 'Active' if not k.revoked else 'Revoked' }}</span></td>
             <td style="font-size:12px;color:var(--text-secondary);">{{ k.rate_limit_hour }}/hr</td>
             <td style="font-variant-numeric:tabular-nums;">{{ k.usage_count }}</td>
-            <td style="font-size:12px;color:var(--text-secondary);">{{ k.last_used or '&#8212;' }}</td>
-            <td style="font-size:12px;color:var(--text-secondary);">{{ k.created_at[:10] }}</td>
+            <td style="font-size:12px;color:var(--text-secondary);"><time data-utc="{{ k.last_used or '' }}">{{ k.last_used or '—' }}</time></td>
+            <td style="font-size:12px;color:var(--text-secondary);"><time data-utc="{{ k.created_at }}">{{ k.created_at[:10] }}</time></td>
             <td>
                 {% if not k.revoked %}
                 <form method="POST" action="/auth/me/keys/{{ k.id }}/revoke" style="display:inline;">

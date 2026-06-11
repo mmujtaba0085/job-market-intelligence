@@ -43,7 +43,8 @@ from src.sheets_routes import register_sheets_routes
 
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=2)
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True   # slide the 2h window on every request
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 DB_PATH = SETTINGS_DB_PATH

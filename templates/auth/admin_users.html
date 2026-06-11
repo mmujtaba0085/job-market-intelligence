@@ -44,8 +44,8 @@
                 </span>
             </td>
             <td style="text-align:center;">{{ u.active_keys }}</td>
-            <td style="color:var(--text-secondary);font-size:12px;">{{ u.last_login or '—' }}</td>
-            <td style="color:var(--text-secondary);font-size:12px;">{{ u.created_at[:10] }}</td>
+            <td style="color:var(--text-secondary);font-size:12px;"><time data-utc="{{ u.last_login or '' }}">{{ u.last_login or '—' }}</time></td>
+            <td style="color:var(--text-secondary);font-size:12px;"><time data-utc="{{ u.created_at }}">{{ u.created_at[:10] }}</time></td>
             <td>
                 <div style="display:flex;gap:4px;flex-wrap:wrap;">
                     <!-- Toggle active -->

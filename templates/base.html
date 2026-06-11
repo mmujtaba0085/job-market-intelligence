@@ -395,6 +395,28 @@
     </footer>
 
     <script>
+    // Convert every <time data-utc="..."> to the browser's local timezone.
+    // SQLite timestamps are UTC strings like "2026-06-10 14:32:01".
+    (function () {
+        function localizeTimestamps() {
+            document.querySelectorAll('[data-utc]').forEach(function (el) {
+                var raw = (el.dataset.utc || '').trim();
+                if (!raw) return;
+                var hasTime = raw.length > 10;
+                var d = new Date((hasTime ? raw.replace(' ', 'T') : raw + 'T00:00:00') + 'Z');
+                if (isNaN(d.getTime())) return;
+                el.textContent = hasTime
+                    ? d.toLocaleString(undefined, {year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+                    : d.toLocaleDateString(undefined, {year:'numeric',month:'short',day:'numeric'});
+                el.title = raw + ' UTC';
+            });
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', localizeTimestamps);
+        } else {
+            localizeTimestamps();
+        }
+    })();
     </script>
     {% block extra_scripts %}{% endblock %}
 </body>
