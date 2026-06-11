@@ -142,7 +142,7 @@ def get_db_connection():
             conn = sqlite3.connect(str(p), timeout=30)
             conn.execute("PRAGMA busy_timeout = 30000")
             conn.row_factory = sqlite3.Row
-            conn.execute("SELECT 1 FROM jobs LIMIT 1")
+            conn.execute("SELECT 1 FROM active_jobs LIMIT 1")
             return conn
         except sqlite3.OperationalError as e:
             last_err = e
@@ -482,7 +482,7 @@ def dashboard_kpis():
     cursor = conn.cursor()
     
     # Total jobs
-    cursor.execute("SELECT COUNT(*) as count FROM jobs")
+    cursor.execute("SELECT COUNT(*) as count FROM active_jobs")
     total_jobs = cursor.fetchone()["count"]
     
     # Total skills
@@ -490,14 +490,14 @@ def dashboard_kpis():
     total_skills = cursor.fetchone()["count"]
     
     # Active sources
-    cursor.execute("SELECT COUNT(DISTINCT source_name) as count FROM jobs")
+    cursor.execute("SELECT COUNT(DISTINCT source_name) as count FROM active_jobs")
     active_sources = cursor.fetchone()["count"]
     
     # Remote percentage
     cursor.execute("""
         SELECT 
             CAST(SUM(CASE WHEN LOWER(remote_type) = 'remote' THEN 1 ELSE 0 END) AS FLOAT) * 100 / COUNT(*) as pct
-        FROM jobs
+        FROM active_jobs
     """)
     remote_pct = cursor.fetchone()["pct"] or 0
     
@@ -519,14 +519,14 @@ def dashboard_kpis():
         # Compare job counts
         cursor.execute("""
             SELECT COUNT(DISTINCT job_id) as count
-            FROM jobs
+            FROM active_jobs
             WHERE first_seen_at >= ?
         """, (current_week,))
         current_jobs = cursor.fetchone()["count"]
         
         cursor.execute("""
             SELECT COUNT(DISTINCT job_id) as count
-            FROM jobs
+            FROM active_jobs
             WHERE first_seen_at >= ? AND first_seen_at < ?
         """, (prior_week, current_week))
         prior_jobs = cursor.fetchone()["count"]
@@ -579,7 +579,7 @@ def dashboard_trends():
         SELECT 
             week_id,
             COUNT(DISTINCT job_id) as job_count
-        FROM jobs
+        FROM active_jobs
         WHERE week_id IS NOT NULL AND week_id != 'unknown'
         GROUP BY week_id
         ORDER BY week_id DESC
@@ -642,7 +642,7 @@ def dashboard_geo():
     
     cursor.execute("""
         SELECT country, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         WHERE country IS NOT NULL AND country != ''
         GROUP BY country
         ORDER BY count DESC
@@ -664,7 +664,7 @@ def dashboard_sources():
     
     cursor.execute("""
         SELECT source_name, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         GROUP BY source_name
         ORDER BY count DESC
     """)
@@ -728,7 +728,7 @@ def dashboard_companies():
     
     cursor.execute("""
         SELECT company, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         WHERE company IS NOT NULL AND company != ''
         GROUP BY company
         ORDER BY count DESC
@@ -753,7 +753,7 @@ def dashboard_location_diversity():
             company, 
             MAX(location_count) as max_locations,
             COUNT(DISTINCT job_group_id) as job_count
-        FROM jobs
+        FROM active_jobs
         WHERE location_count > 1
         GROUP BY company
         ORDER BY max_locations DESC, job_count DESC
@@ -921,7 +921,7 @@ def skill_companies(skill_name):
     
     cursor.execute("""
         SELECT j.company, COUNT(DISTINCT j.job_id) as job_count
-        FROM jobs j
+        FROM active_jobs j
         JOIN skills s ON j.job_id = s.job_id
         WHERE s.normalized_skill = ? AND j.company IS NOT NULL AND j.company != ''
         GROUP BY j.company
@@ -944,7 +944,7 @@ def skill_locations(skill_name):
     
     cursor.execute("""
         SELECT j.country, COUNT(DISTINCT j.job_id) as job_count
-        FROM jobs j
+        FROM active_jobs j
         JOIN skills s ON j.job_id = s.job_id
         WHERE s.normalized_skill = ? AND j.country IS NOT NULL AND j.country != ''
         GROUP BY j.country
@@ -1001,7 +1001,7 @@ def companies_list():
             COUNT(DISTINCT s.normalized_skill) as skill_diversity,
             COUNT(DISTINCT j.country) as location_count,
             SUM(CASE WHEN LOWER(j.remote_type) = 'remote' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as remote_pct
-        FROM jobs j
+        FROM active_jobs j
         LEFT JOIN skills s ON j.job_id = s.job_id
         WHERE j.company IS NOT NULL AND j.company != ''
         GROUP BY j.company
@@ -1027,7 +1027,7 @@ def company_details(company):
     
     # Job count
     cursor.execute("""
-        SELECT COUNT(*) as count FROM jobs WHERE company = ?
+        SELECT COUNT(*) as count FROM active_jobs WHERE company = ?
     """, (company,))
     job_count = cursor.fetchone()["count"]
     
@@ -1035,7 +1035,7 @@ def company_details(company):
     cursor.execute("""
         SELECT COUNT(DISTINCT s.normalized_skill) as count
         FROM skills s
-        JOIN jobs j ON s.job_id = j.job_id
+        JOIN active_jobs j ON s.job_id = j.job_id
         WHERE j.company = ?
     """, (company,))
     skill_count = cursor.fetchone()["count"]
@@ -1044,7 +1044,7 @@ def company_details(company):
     cursor.execute("""
         SELECT 
             SUM(CASE WHEN LOWER(remote_type) = 'remote' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as pct
-        FROM jobs
+        FROM active_jobs
         WHERE company = ?
     """, (company,))
     remote_pct = cursor.fetchone()["pct"] or 0
@@ -1052,7 +1052,7 @@ def company_details(company):
     # Location count
     cursor.execute("""
         SELECT COUNT(DISTINCT country) as count
-        FROM jobs
+        FROM active_jobs
         WHERE company = ? AND country IS NOT NULL
     """, (company,))
     location_count = cursor.fetchone()["count"]
@@ -1077,7 +1077,7 @@ def company_tech_stack(company):
     cursor.execute("""
         SELECT s.normalized_skill, s.category, COUNT(*) as count
         FROM skills s
-        JOIN jobs j ON s.job_id = j.job_id
+        JOIN active_jobs j ON s.job_id = j.job_id
         WHERE j.company = ?
         GROUP BY s.normalized_skill, s.category
         ORDER BY count DESC
@@ -1099,7 +1099,7 @@ def company_locations(company):
     
     cursor.execute("""
         SELECT country, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         WHERE company = ? AND country IS NOT NULL AND country != ''
         GROUP BY country
         ORDER BY count DESC
@@ -1129,7 +1129,7 @@ def titles_top():
             normalized_title as title,
             COUNT(*) as count,
             COUNT(DISTINCT title) as variant_count
-        FROM jobs
+        FROM active_jobs
         WHERE normalized_title IS NOT NULL AND normalized_title != ''
         GROUP BY normalized_title
         ORDER BY count DESC
@@ -1152,7 +1152,7 @@ def title_skills(title):
     cursor.execute("""
         SELECT s.normalized_skill, s.category, COUNT(*) as count
         FROM skills s
-        JOIN jobs j ON s.job_id = j.job_id
+        JOIN active_jobs j ON s.job_id = j.job_id
         WHERE j.normalized_title = ?
         GROUP BY s.normalized_skill, s.category
         ORDER BY count DESC
@@ -1194,7 +1194,7 @@ def get_countries_filter():
     
     cursor.execute("""
         SELECT DISTINCT country, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         WHERE country IS NOT NULL AND country != ''
         GROUP BY country
         ORDER BY count DESC
@@ -1215,7 +1215,7 @@ def get_sources_filter():
     
     cursor.execute("""
         SELECT DISTINCT source_name, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         GROUP BY source_name
         ORDER BY count DESC
     """)
@@ -1238,7 +1238,7 @@ def get_companies_filter():
     if search:
         cursor.execute("""
             SELECT DISTINCT company, COUNT(*) as count
-            FROM jobs
+            FROM active_jobs
             WHERE company LIKE ? AND company IS NOT NULL AND company != ''
             GROUP BY company
             ORDER BY count DESC
@@ -1247,7 +1247,7 @@ def get_companies_filter():
     else:
         cursor.execute("""
             SELECT DISTINCT company, COUNT(*) as count
-            FROM jobs
+            FROM active_jobs
             WHERE company IS NOT NULL AND company != ''
             GROUP BY company
             ORDER BY count DESC
@@ -1309,7 +1309,7 @@ def jobs_list():
     base = """
         SELECT DISTINCT j.job_id, j.title, j.company, j.location, j.country,
                j.remote_type, j.posted_date, j.source_name, j.market_id, j.location_count
-        FROM jobs j
+        FROM active_jobs j
         WHERE 1=1
     """
     params = []
@@ -1364,18 +1364,18 @@ def jobs_list():
     market_rows = cursor.fetchall()
     if not market_rows:
         # Fallback: derive from jobs table
-        cursor.execute("SELECT DISTINCT market_id FROM jobs WHERE market_id IS NOT NULL ORDER BY market_id")
+        cursor.execute("SELECT DISTINCT market_id FROM active_jobs WHERE market_id IS NOT NULL ORDER BY market_id")
         markets = [{"id": r["market_id"], "name": r["market_id"], "depth": 0} for r in cursor.fetchall()]
     else:
         markets = [{"id": r["id"], "name": r["name"], "depth": r["depth"]} for r in market_rows]
 
-    cursor.execute("SELECT DISTINCT remote_type FROM jobs WHERE remote_type IS NOT NULL ORDER BY remote_type")
+    cursor.execute("SELECT DISTINCT remote_type FROM active_jobs WHERE remote_type IS NOT NULL ORDER BY remote_type")
     remote_types = [r["remote_type"] for r in cursor.fetchall()]
 
-    cursor.execute("SELECT DISTINCT country FROM jobs WHERE country IS NOT NULL AND country != '' ORDER BY country")
+    cursor.execute("SELECT DISTINCT country FROM active_jobs WHERE country IS NOT NULL AND country != '' ORDER BY country")
     countries = [r["country"] for r in cursor.fetchall()]
 
-    cursor.execute("SELECT DISTINCT source_name FROM jobs ORDER BY source_name")
+    cursor.execute("SELECT DISTINCT source_name FROM active_jobs ORDER BY source_name")
     sources = [r["source_name"] for r in cursor.fetchall()]
 
     conn.close()
@@ -1423,7 +1423,7 @@ def jobs_quality_review():
 
     query = """
         SELECT job_id, title, company, location, country, remote_type, posted_date, source_name, raw_description
-        FROM jobs
+        FROM active_jobs
         WHERE (
             title IS NULL OR TRIM(title) = ''
             OR company IS NULL OR TRIM(company) = ''
@@ -1445,7 +1445,7 @@ def jobs_quality_review():
     params.append(limit)
 
     rows = cursor.execute(query, params).fetchall()
-    countries = cursor.execute("SELECT DISTINCT country FROM jobs WHERE country IS NOT NULL AND TRIM(country) != '' ORDER BY country").fetchall()
+    countries = cursor.execute("SELECT DISTINCT country FROM active_jobs WHERE country IS NOT NULL AND TRIM(country) != '' ORDER BY country").fetchall()
     conn.close()
 
     return render_template(
@@ -1469,7 +1469,7 @@ def api_jobs_list():
     try:
         rows = conn.execute(
             "SELECT job_id, title, company, location, country, remote_type, "
-            "posted_date, source_name, url FROM jobs ORDER BY ingested_at DESC LIMIT ? OFFSET ?",
+            "posted_date, source_name, url FROM active_jobs ORDER BY ingested_at DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
         return jsonify({"jobs": [dict(r) for r in rows], "limit": limit, "offset": offset})
@@ -1494,7 +1494,7 @@ def api_jobs_quality_analyze():
     rows = conn.execute(
         f"""
         SELECT job_id, title, company, location, country, remote_type, posted_date, source_name, raw_description
-        FROM jobs
+        FROM active_jobs
         WHERE job_id IN ({placeholders})
         ORDER BY posted_date DESC, job_id DESC
         """,
@@ -1615,7 +1615,7 @@ def api_jobs_quality_apply():
                 """
                 SELECT job_id, market_id, source_name, url, raw_description, posted_date,
                        salary_min, salary_max, currency
-                FROM jobs
+                FROM active_jobs
                 WHERE job_id = ?
                 """,
                 (int(job_id),),
@@ -1695,7 +1695,7 @@ def job_detail(job_id):
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT * FROM jobs WHERE job_id = ?
+        SELECT * FROM active_jobs WHERE job_id = ?
     """, (job_id,))
     job = cursor.fetchone()
     
@@ -1742,7 +1742,7 @@ def job_locations_api(job_id):
     cursor = conn.cursor()
     
     # Get job_group_id
-    cursor.execute("SELECT job_group_id FROM jobs WHERE job_id = ?", (job_id,))
+    cursor.execute("SELECT job_group_id FROM active_jobs WHERE job_id = ?", (job_id,))
     row = cursor.fetchone()
     
     if not row or not row["job_group_id"]:
@@ -1860,7 +1860,7 @@ def export_jobs():
     cursor.execute("""
         SELECT job_id, title, company, location, country, remote_type, 
                posted_date, source_name, salary_min, salary_max, currency
-        FROM jobs
+        FROM active_jobs
         ORDER BY posted_date DESC
     """)
     
@@ -1933,7 +1933,7 @@ def export_companies():
     
     cursor.execute("""
         SELECT company, COUNT(*) as job_count
-        FROM jobs
+        FROM active_jobs
         WHERE company IS NOT NULL AND company != ''
         GROUP BY company
         ORDER BY job_count DESC
@@ -1983,7 +1983,7 @@ def admin_normalize():
     # Get country statistics
     cursor.execute("""
         SELECT country, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         WHERE country IS NOT NULL AND country != ''
         GROUP BY country
         ORDER BY count DESC
@@ -1993,7 +1993,7 @@ def admin_normalize():
     # Get location statistics
     cursor.execute("""
         SELECT location, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         WHERE location IS NOT NULL AND location != ''
         GROUP BY location
         ORDER BY count DESC
@@ -2004,7 +2004,7 @@ def admin_normalize():
     # Get total unique locations count
     cursor.execute("""
         SELECT COUNT(DISTINCT location) as total
-        FROM jobs
+        FROM active_jobs
         WHERE location IS NOT NULL AND location != ''
     """)
     total_locations = cursor.fetchone()["total"]
@@ -2038,7 +2038,7 @@ def admin_normalize_preview():
     for old_value, new_value in country_mappings.items():
         if old_value and new_value and old_value != new_value:
             cursor.execute(
-                "SELECT COUNT(*) as count FROM jobs WHERE country = ?",
+                "SELECT COUNT(*) as count FROM active_jobs WHERE country = ?",
                 (old_value,)
             )
             count = cursor.fetchone()["count"]
@@ -2052,7 +2052,7 @@ def admin_normalize_preview():
     for old_value, new_value in location_mappings.items():
         if old_value and new_value and old_value != new_value:
             cursor.execute(
-                "SELECT COUNT(*) as count FROM jobs WHERE location = ?",
+                "SELECT COUNT(*) as count FROM active_jobs WHERE location = ?",
                 (old_value,)
             )
             count = cursor.fetchone()["count"]
@@ -2128,7 +2128,7 @@ def admin_normalize_sample():
     
     query = f"""
         SELECT title, company, country, location, remote_type
-        FROM jobs
+        FROM active_jobs
         WHERE {field} = ?
         LIMIT 10
     """
@@ -2156,7 +2156,7 @@ def admin_normalize_suggest_country():
     # Get location patterns for Unknown country jobs
     cursor.execute("""
         SELECT location, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         WHERE (country = ? OR country IS NULL OR country = '')
           AND location IS NOT NULL 
           AND location != ''
@@ -2234,7 +2234,7 @@ def admin_normalize_auto_fix_unknown():
     # Get all jobs with Unknown country
     cursor.execute("""
         SELECT job_id, location
-        FROM jobs
+        FROM active_jobs
         WHERE (country = 'Unknown' OR country IS NULL OR country = '')
           AND location IS NOT NULL
           AND location != ''
@@ -2338,26 +2338,26 @@ def admin_dashboard():
     cursor = conn.cursor()
     
     # Total jobs
-    cursor.execute("SELECT COUNT(*) as count FROM jobs")
+    cursor.execute("SELECT COUNT(*) as count FROM active_jobs")
     total_jobs = cursor.fetchone()["count"]
     
     # Unknown countries
     cursor.execute("""
-        SELECT COUNT(*) as count FROM jobs 
+        SELECT COUNT(*) as count FROM active_jobs 
         WHERE country = 'Unknown'
     """)
     unknown_countries = cursor.fetchone()["count"]
     
     # Normalized titles
     cursor.execute("""
-        SELECT COUNT(*) as count FROM jobs 
+        SELECT COUNT(*) as count FROM active_jobs 
         WHERE normalization_confidence > 0.0
     """)
     normalized_titles = cursor.fetchone()["count"]
     
     # Low-confidence titles
     cursor.execute("""
-        SELECT COUNT(*) as count FROM jobs 
+        SELECT COUNT(*) as count FROM active_jobs 
         WHERE normalization_confidence > 0.0 AND normalization_confidence < 0.6
     """)
     low_conf_titles = cursor.fetchone()["count"]
@@ -2395,7 +2395,7 @@ def admin_normalize_titles():
             COUNT(*) as count,
             ROUND(AVG(normalization_confidence) * 100, 1) as avg_conf,
             MAX(CASE WHEN normalization_confidence = 1.0 THEN 1 ELSE 0 END) as is_manual
-        FROM jobs
+        FROM active_jobs
         GROUP BY title, normalized_title
         HAVING count >= 2
     """
@@ -2413,22 +2413,22 @@ def admin_normalize_titles():
     titles = cursor.fetchall()
     
     # Total unique titles
-    cursor.execute("SELECT COUNT(DISTINCT title) as count FROM jobs")
+    cursor.execute("SELECT COUNT(DISTINCT title) as count FROM active_jobs")
     total_titles = cursor.fetchone()["count"]
     
     # Count titles with ≥2 jobs
-    cursor.execute("SELECT COUNT(*) FROM (SELECT title FROM jobs GROUP BY title HAVING COUNT(*) >= 2)")
+    cursor.execute("SELECT COUNT(*) FROM (SELECT title FROM active_jobs GROUP BY title HAVING COUNT(*) >= 2)")
     titles_with_multiple = cursor.fetchone()[0]
     
     # Stats
-    cursor.execute("SELECT COUNT(*) as count FROM jobs WHERE normalization_confidence > 0.0")
+    cursor.execute("SELECT COUNT(*) as count FROM active_jobs WHERE normalization_confidence > 0.0")
     normalized_count = cursor.fetchone()["count"]
     
-    cursor.execute("SELECT COUNT(DISTINCT normalized_title) as count FROM jobs WHERE normalization_confidence > 0.0")
+    cursor.execute("SELECT COUNT(DISTINCT normalized_title) as count FROM active_jobs WHERE normalization_confidence > 0.0")
     unique_normalized = cursor.fetchone()["count"]
     
     # Count manually normalized titles
-    cursor.execute("SELECT COUNT(DISTINCT title) FROM jobs WHERE normalization_confidence = 1.0")
+    cursor.execute("SELECT COUNT(DISTINCT title) FROM active_jobs WHERE normalization_confidence = 1.0")
     manual_count = cursor.fetchone()[0]
     
     conn.close()
@@ -2459,7 +2459,7 @@ def api_admin_titles_preview():
     changes = []
     for old_title, new_normalized in title_mappings.items():
         cursor.execute(
-            "SELECT COUNT(*) as count FROM jobs WHERE title = ?",
+            "SELECT COUNT(*) as count FROM active_jobs WHERE title = ?",
             (old_title,)
         )
         count = cursor.fetchone()["count"]
@@ -2567,7 +2567,7 @@ def api_admin_titles_sample():
     
     cursor.execute("""
         SELECT title, normalized_title, company, location, remote_type, posted_date
-        FROM jobs
+        FROM active_jobs
         WHERE title = ?
         LIMIT 10
     """, (title,))
@@ -2603,7 +2603,7 @@ def api_admin_titles_suggest_similar():
     # Get all titles
     cursor.execute("""
         SELECT DISTINCT title, normalized_title, COUNT(*) as count
-        FROM jobs
+        FROM active_jobs
         GROUP BY title
         HAVING count >= 2
     """)
@@ -2651,7 +2651,7 @@ def api_admin_normalize_export():
             title as raw_title,
             normalized_title,
             normalization_confidence
-        FROM jobs
+        FROM active_jobs
         WHERE normalized_title != title
         ORDER BY normalized_title, title
     """)

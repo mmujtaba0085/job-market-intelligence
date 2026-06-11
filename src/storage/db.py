@@ -266,6 +266,14 @@ def run_migrations() -> None:
                 (key, value),
             )
 
+        # Migration 009: active_jobs view — excludes listing_status = 'hidden'
+        # Always recreated so definition stays current.
+        conn.execute("DROP VIEW IF EXISTS active_jobs")
+        conn.execute(
+            "CREATE VIEW active_jobs AS"
+            " SELECT * FROM jobs WHERE listing_status != 'hidden'"
+        )
+
     conn.close()
 
 
