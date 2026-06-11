@@ -19,13 +19,15 @@ from src.storage.db import get_connection
 def start_run(mode: str, trigger: str = "schedule") -> str:
     run_id = str(uuid.uuid4())[:8]
     conn = get_connection()
-    with conn:
-        conn.execute(
-            """INSERT INTO pipeline_runs (run_id, mode, status, trigger, started_at)
-               VALUES (?, ?, 'running', ?, datetime('now'))""",
-            (run_id, mode, trigger),
-        )
-    conn.close()
+    try:
+        with conn:
+            conn.execute(
+                """INSERT INTO pipeline_runs (run_id, mode, status, trigger, started_at)
+                   VALUES (?, ?, 'running', ?, datetime('now'))""",
+                (run_id, mode, trigger),
+            )
+    finally:
+        conn.close()
     return run_id
 
 
@@ -40,25 +42,43 @@ def finish_run(
     error: str | None = None,
 ) -> None:
     conn = get_connection()
-    with conn:
-        conn.execute(
-            """UPDATE pipeline_runs SET
-                   status           = ?,
-                   finished_at      = datetime('now'),
-                   duration_seconds = CAST((julianday('now') - julianday(started_at)) * 86400 AS INTEGER),
-                   jobs_fetched     = ?,
-                   jobs_inserted    = ?,
-                   jobs_deduped     = ?,
-                   skills_extracted = ?,
-                   error            = ?
-               WHERE run_id = ?""",
-            (status, jobs_fetched, jobs_inserted, jobs_deduped, skills_extracted, error, run_id),
-        )
-    conn.close()
+    try:
+        with conn:
+            conn.execute(
+                """UPDATE pipeline_runs SET
+                       status           = ?,
+                       finished_at      = datetime('now'),
+                       duration_seconds = CAST((julianday('now') - julianday(started_at)) * 86400 AS INTEGER),
+                       jobs_fetched     = ?,
+                       jobs_inserted    = ?,
+                       jobs_deduped     = ?,
+                       skills_extracted = ?,
+                       error            = ?
+                   WHERE run_id = ?""",
+                (status, jobs_fetched, jobs_inserted, jobs_deduped, skills_extracted, error, run_id),
+            )
+    finally:
+        conn.close()
+
+
+def _cleanup_stale_runs(conn, timeout_minutes: int = 120) -> None:
+    """Mark runs still 'running' after timeout_minutes as failed."""
+    conn.execute(
+        """UPDATE pipeline_runs
+           SET status            = 'failed',
+               finished_at       = datetime('now'),
+               duration_seconds  = CAST((julianday('now') - julianday(started_at)) * 86400 AS INTEGER),
+               error             = 'Process terminated unexpectedly (stale run cleanup)'
+           WHERE status = 'running'
+             AND started_at < datetime('now', ?)""",
+        (f"-{timeout_minutes} minutes",),
+    )
 
 
 def get_recent_runs(limit: int = 30) -> list[dict]:
     conn = get_connection()
+    with conn:
+        _cleanup_stale_runs(conn)
     rows = conn.execute(
         """SELECT run_id, mode, status, trigger, started_at, finished_at,
                   duration_seconds, jobs_fetched, jobs_inserted, jobs_deduped,
@@ -72,45 +92,53 @@ def get_recent_runs(limit: int = 30) -> list[dict]:
 
 def get_running_runs() -> list[dict]:
     conn = get_connection()
-    rows = conn.execute(
-        "SELECT run_id, mode, started_at FROM pipeline_runs WHERE status = 'running'",
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    try:
+        rows = conn.execute(
+            "SELECT run_id, mode, started_at FROM pipeline_runs WHERE status = 'running'",
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
 def get_config() -> dict[str, str]:
     conn = get_connection()
-    rows = conn.execute("SELECT key, value FROM pipeline_config").fetchall()
-    conn.close()
-    return {r["key"]: r["value"] for r in rows}
+    try:
+        rows = conn.execute("SELECT key, value FROM pipeline_config").fetchall()
+        return {r["key"]: r["value"] for r in rows}
+    finally:
+        conn.close()
 
 
 def set_config(key: str, value: str) -> None:
     conn = get_connection()
-    with conn:
-        conn.execute(
-            """INSERT INTO pipeline_config (key, value, updated_at)
-               VALUES (?, ?, datetime('now'))
-               ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at""",
-            (key, value),
-        )
-    conn.close()
+    try:
+        with conn:
+            conn.execute(
+                """INSERT INTO pipeline_config (key, value, updated_at)
+                   VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at""",
+                (key, value),
+            )
+    finally:
+        conn.close()
 
 
 # ── Schedule helpers ──────────────────────────────────────────────────────────
 
 def get_last_run_by_mode(mode: str) -> dict | None:
     conn = get_connection()
-    row = conn.execute(
-        """SELECT started_at, finished_at, status FROM pipeline_runs
-           WHERE mode = ? AND status != 'running' ORDER BY started_at DESC LIMIT 1""",
-        (mode,),
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    try:
+        row = conn.execute(
+            """SELECT started_at, finished_at, status FROM pipeline_runs
+               WHERE mode = ? AND status != 'running' ORDER BY started_at DESC LIMIT 1""",
+            (mode,),
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
 
 
 def compute_next_run(mode: str, config: dict) -> str | None:

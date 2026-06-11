@@ -50,6 +50,7 @@
                 <div style="display:flex;gap:4px;flex-wrap:wrap;">
                     <!-- Toggle active -->
                     <form method="POST" action="/admin/auth/users/{{ u.id }}/toggle" style="display:inline;">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <button type="submit" class="btn btn-xs {{ 'btn-danger' if u.active else 'btn-success' }}"
                                 onclick="return confirm('{{ 'Disable' if u.active else 'Enable' }} {{ u.username }}?')">
                             {{ 'Disable' if u.active else 'Enable' }}
@@ -74,6 +75,7 @@
     <div class="modal">
         <div class="modal-title">Create New User</div>
         <form method="POST" action="/admin/auth/users/create">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label class="form-label">Username</label>
                 <input class="form-control" name="username" required placeholder="e.g. john_doe">
@@ -106,6 +108,7 @@
     <div class="modal">
         <div class="modal-title">Change Role — <span id="roleModalUser"></span></div>
         <form method="POST" id="roleForm">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label class="form-label">New Role</label>
                 <select class="form-control" name="role" id="roleSelect">
@@ -126,6 +129,7 @@
     <div class="modal">
         <div class="modal-title">Reset Password — <span id="resetModalUser"></span></div>
         <form method="POST" id="resetForm">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label class="form-label">New Password (min 8 chars)</label>
                 <input class="form-control" type="password" name="new_password" required minlength="8">

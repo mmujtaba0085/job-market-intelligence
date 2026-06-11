@@ -78,9 +78,10 @@ def normalize(job_raw: JobRaw, market_id: str) -> Optional[JobNormalized]:
     # ── Hashes ────────────────────────────────────────────────────────────────
     url_hash = _sha256(job_raw.source_id + url)
     
-    # Canonical hash NO LONGER includes location - this allows multi-location deduplication
+    # When company is empty, include source_id to prevent cross-source hash collisions
+    company_part = company.lower() if company else f"_src:{job_raw.source_id}"
     canonical_hash = _sha256(
-        f"{title.lower()}|{company.lower()}|{description[:200].lower()}"
+        f"{title.lower()}|{company_part}|{description[:200].lower()}"
     )
     
     description_hash = _sha256(description)

@@ -192,6 +192,8 @@ def create_user(username, email, password, role="viewer") -> dict:
         uid = _create_user(conn, username, email, password, role)
         conn.commit()
         return dict(conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone())
+    except sqlite3.IntegrityError:
+        raise ValueError("Username or email already exists.")
     finally:
         conn.close()
 
@@ -202,15 +204,25 @@ def update_user(user_id: int, **fields) -> bool:
     if not updates: return False
     if "role" in updates and updates["role"] not in {"admin", "viewer"}: raise ValueError("Invalid role")
     conn = get_auth_db()
+    conn.isolation_level = None  # manual transaction control
     try:
+        conn.execute("BEGIN IMMEDIATE")
         cur = conn.execute("SELECT role, active FROM users WHERE id=?", (user_id,)).fetchone()
-        if not cur: return False
+        if not cur:
+            conn.execute("ROLLBACK")
+            return False
         removing = cur["role"]=="admin" and (updates.get("role","admin")!="admin" or int(updates.get("active",1))==0)
         if removing and conn.execute("SELECT COUNT(*) FROM users WHERE role='admin' AND active=1").fetchone()[0] <= 1:
+            conn.execute("ROLLBACK")
             raise ValueError("Cannot disable or demote the last active admin")
         sql = "UPDATE users SET " + ", ".join(f"{k}=?" for k in updates) + " WHERE id=?"
         conn.execute(sql, list(updates.values()) + [user_id])
-        conn.commit(); return True
+        conn.execute("COMMIT")
+        return True
+    except Exception:
+        try: conn.execute("ROLLBACK")
+        except Exception: pass
+        raise
     finally:
         conn.close()
 

@@ -103,4 +103,4 @@ def _infer_country(location_str: str) -> str:
     for keywords, country in _COUNTRY_KEYWORDS:
         if any(k in loc for k in keywords):
             return country
-    return location_str.strip() or "Unknown"
+    return "Unknown"

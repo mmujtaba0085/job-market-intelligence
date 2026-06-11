@@ -46,7 +46,8 @@ class BaseCollector(ABC):
         if not self._source_cfg.get("enabled", True):
             raise ValueError(f"Source '{self.source_id}' is disabled in ALLOWED_SOURCES.")
 
-        self._rate_limit_delay = 60.0 / self._source_cfg["rate_limit_per_minute"]
+        rpm = self._source_cfg.get("rate_limit_per_minute") or 60
+        self._rate_limit_delay = 60.0 / rpm
         self._last_request_at: float = 0.0
 
     # ── Public entry point ───────────────────────────────────────────────────

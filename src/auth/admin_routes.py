@@ -2,7 +2,7 @@
 
 from flask import Blueprint, flash, jsonify, redirect, render_template, request, url_for
 
-from .middleware import require_admin
+from .middleware import require_admin, validate_csrf
 from .models import (
     change_password,
     create_user,
@@ -29,6 +29,9 @@ def users():
 @admin_auth_bp.route("/admin/auth/users/create", methods=["POST"])
 @require_admin
 def create_user_route():
+    err = validate_csrf()
+    if err:
+        return err
     username = request.form.get("username", "").strip()
     email = request.form.get("email", "").strip()
     password = request.form.get("password", "")
@@ -50,6 +53,9 @@ def create_user_route():
 @admin_auth_bp.route("/admin/auth/users/<int:user_id>/toggle", methods=["POST"])
 @require_admin
 def toggle_user(user_id):
+    err = validate_csrf()
+    if err:
+        return err
     user = get_user_by_id(user_id)
     if user:
         new_state = 0 if user["active"] else 1
@@ -65,6 +71,9 @@ def toggle_user(user_id):
 @admin_auth_bp.route("/admin/auth/users/<int:user_id>/role", methods=["POST"])
 @require_admin
 def change_role(user_id):
+    err = validate_csrf()
+    if err:
+        return err
     try:
         update_user(user_id, role=request.form.get("role", "viewer"))
         flash("Role updated.", "success")
@@ -76,6 +85,9 @@ def change_role(user_id):
 @admin_auth_bp.route("/admin/auth/users/<int:user_id>/reset-password", methods=["POST"])
 @require_admin
 def reset_password(user_id):
+    err = validate_csrf()
+    if err:
+        return err
     new_password = request.form.get("new_password", "")
     if len(new_password) < 8:
         flash("Password must be at least 8 characters.", "error")
@@ -94,6 +106,9 @@ def api_keys():
 @admin_auth_bp.route("/admin/auth/keys/create", methods=["POST"])
 @require_admin
 def create_key():
+    err = validate_csrf()
+    if err:
+        return err
     try:
         user_id = int(request.form.get("user_id", 0))
         rate = int(request.form.get("rate_limit_hour", 1000))
@@ -122,6 +137,9 @@ def create_key():
 @admin_auth_bp.route("/admin/auth/keys/<int:key_id>/revoke", methods=["POST"])
 @require_admin
 def revoke_key(key_id):
+    err = validate_csrf()
+    if err:
+        return err
     revoke_api_key(key_id)
     flash("Key revoked.", "success")
     return redirect(url_for("admin_auth.api_keys"))
@@ -130,6 +148,9 @@ def revoke_key(key_id):
 @admin_auth_bp.route("/admin/auth/keys/<int:key_id>/rate-limit", methods=["POST"])
 @require_admin
 def update_rate_limit(key_id):
+    err = validate_csrf()
+    if err:
+        return err
     try:
         limit = int(request.form.get("rate_limit_hour", 1000))
     except ValueError:

@@ -23,7 +23,7 @@ from threading import Lock, Thread
 
 import requests
 import sqlite3
-from flask import Flask, g, render_template, request, jsonify, send_file, make_response
+from flask import Flask, g, render_template, request, jsonify, make_response
 
 from config.settings import FLASK_SECRET_KEY, DB_PATH as SETTINGS_DB_PATH
 
@@ -33,7 +33,6 @@ from src.auth.middleware import (
     load_logged_in_user,
     log_request_access,
     get_current_user,
-    require_auth,
     require_admin,
 )
 from src.auth.routes import auth_bp
@@ -45,6 +44,8 @@ from src.sheets_routes import register_sheets_routes
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 DB_PATH = SETTINGS_DB_PATH
 logger = logging.getLogger(__name__)
 
@@ -1493,8 +1494,11 @@ def jobs_quality_review():
 @app.route("/api/jobs")
 def api_jobs_list():
     """JSON list of jobs — requires jobs:read scope for API keys."""
-    limit = min(int(request.args.get("limit", 50)), 200)
-    offset = int(request.args.get("offset", 0))
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+        offset = int(request.args.get("offset", 0))
+    except ValueError:
+        return jsonify({"error": "limit and offset must be integers"}), 400
     conn = get_db_connection()
     try:
         rows = conn.execute(
@@ -1583,6 +1587,7 @@ def api_jobs_quality_analyze():
 
 
 @app.route("/api/jobs/quality/apply", methods=["POST"])
+@require_admin
 def api_jobs_quality_apply():
     """Apply accepted quality fixes and create new rows for accepted split candidates."""
     payload = request.get_json() or {}
@@ -2173,9 +2178,9 @@ def admin_normalize_sample():
 @app.route("/admin/normalize/suggest-country", methods=["POST"])
 def admin_normalize_suggest_country():
     """Auto-suggest country name from location data for Unknown countries."""
-    data = request.get_json()
-    country_value = data.get("country_value")
-    
+    data = request.get_json() or {}
+    country_value = data.get("country_value") or ""
+
     if country_value.lower() not in ["unknown", "null", ""]:
         return jsonify({"suggestion": None, "message": "Only works for Unknown countries"})
     
@@ -2476,6 +2481,7 @@ def admin_normalize_titles():
 
 
 @app.route("/api/admin/titles/preview", methods=["POST"])
+@require_admin
 def api_admin_titles_preview():
     """Preview title normalization changes before applying."""
     data = request.get_json()
@@ -2505,6 +2511,7 @@ def api_admin_titles_preview():
 
 
 @app.route("/api/admin/titles/apply", methods=["POST"])
+@require_admin
 def api_admin_titles_apply():
     """Apply title normalization mappings to database."""
     data = request.get_json()
@@ -2541,6 +2548,7 @@ def api_admin_titles_apply():
 
 
 @app.route("/api/admin/titles/revert", methods=["POST"])
+@require_admin
 def api_admin_titles_revert():
     """Revert manually normalized titles back to automatic normalization."""
     from src.title_normalizer import normalize_title
@@ -2582,6 +2590,7 @@ def api_admin_titles_revert():
 
 
 @app.route("/api/admin/titles/sample", methods=["POST"])
+@require_admin
 def api_admin_titles_sample():
     """Get sample jobs for a specific title."""
     data = request.get_json()
@@ -2614,6 +2623,7 @@ def api_admin_titles_sample():
 
 
 @app.route("/api/admin/titles/suggest-similar", methods=["POST"])
+@require_admin
 def api_admin_titles_suggest_similar():
     """Find similar titles that could be consolidated."""
     from difflib import SequenceMatcher
@@ -2664,6 +2674,7 @@ def api_admin_titles_suggest_similar():
 
 
 @app.route("/api/admin/normalize-titles/export")
+@require_admin
 def api_admin_normalize_export():
     """Export all title mappings as CSV."""
     conn = get_db_connection()
@@ -2804,6 +2815,6 @@ if __name__ == "__main__":
     print("="*80)
     print("\nPress Ctrl+C to stop the server\n")
 
-    app.run(debug=True, host="localhost", port=5000)
+    app.run(debug=False, host="localhost", port=5000)
 
 # Reload trigger: 2026-03-02 05:27:47

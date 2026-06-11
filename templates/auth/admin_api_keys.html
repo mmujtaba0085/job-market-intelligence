@@ -56,6 +56,7 @@
             <td>
                 {% if not k.revoked %}
                 <form method="POST" action="/admin/auth/keys/{{ k.id }}/revoke" style="display:inline;">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" class="btn btn-xs btn-danger"
                             onclick="return confirm('Revoke this key? This cannot be undone.')">Revoke</button>
                 </form>
@@ -76,6 +77,7 @@
     <div class="modal">
         <div class="modal-title">Create New API Key</div>
         <form method="POST" action="/admin/auth/keys/create">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label class="form-label">Key Name / Label</label>
                 <input class="form-control" name="name" required placeholder="e.g. Production Dashboard">
@@ -115,6 +117,7 @@
     <div class="modal">
         <div class="modal-title">Update Rate Limit</div>
         <form method="POST" id="rateLimitForm">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label class="form-label">Requests per Hour</label>
                 <input class="form-control" type="number" name="rate_limit_hour" id="rateLimitInput" min="1" max="10000">

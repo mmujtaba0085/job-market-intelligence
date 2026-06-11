@@ -115,7 +115,7 @@ class FindworkCrawler(BaseCollector):
         try:
             state["last_run_timestamp"] = datetime.now(timezone.utc).isoformat()
             self.state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
-            logger.debug("[findwork_crawler] State saved: page %d", state["last_completed_page"])
+            logger.debug("[findwork_crawler] State saved: page %d", state.get("last_completed_page", 0))
         except Exception as exc:
             logger.error("[findwork_crawler] Failed to save state: %s", exc)
 

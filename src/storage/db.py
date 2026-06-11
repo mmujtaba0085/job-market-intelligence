@@ -773,7 +773,7 @@ def get_remote_ratio(market_id: str, week_start: str, week_end: str) -> float:
         ).fetchone()
         if not row or row["total"] == 0:
             return 0.0
-        return round(row["remote_count"] / row["total"], 4)
+        return round((row["remote_count"] or 0) / row["total"], 4)
     finally:
         conn.close()
 

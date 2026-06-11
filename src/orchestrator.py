@@ -127,8 +127,7 @@ for collector_class in _COLLECTOR_CLASSES:
         try:
             COLLECTORS.append(collector_class())
         except Exception as e:
-            # Skip collectors that fail to instantiate (e.g., missing API keys)
-            pass
+            logger.warning("[orchestrator] Skipping collector %s: %s", source_id, e)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -567,7 +566,7 @@ def main() -> None:
         raise
 
 
-def _run(args, week_start) -> None:
+def _run(args, week_start) -> dict:
     if args.backfill:
         if not args.start or not args.end:
             print("--backfill requires --start YYYY-MM-DD and --end YYYY-MM-DD")

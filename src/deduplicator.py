@@ -43,6 +43,7 @@ class DeduplicationSummary:
     url_dups: int = 0
     canonical_dups: int = 0
     location_added: int = 0
+    errors: int = 0
 
     def record(self, status: str) -> None:
         self.total += 1
@@ -54,6 +55,8 @@ class DeduplicationSummary:
             self.canonical_dups += 1
         elif status == "location_added":
             self.location_added += 1
+        elif status == "error":
+            self.errors += 1
 
 
 def deduplicate_and_store(
@@ -95,8 +98,10 @@ def deduplicate_and_store(
         summary.record(status)
         results.append(DedupResult(job=job, job_id=job_id, status=status))
 
-    logger.info(
-        "[deduplicator] %d total → %d inserted, %d url_dup, %d canonical_dup, %d location_added",
-        summary.total, summary.inserted, summary.url_dups, summary.canonical_dups, summary.location_added,
-    )
+    log = "[deduplicator] %d total → %d inserted, %d url_dup, %d canonical_dup, %d location_added"
+    args = (summary.total, summary.inserted, summary.url_dups, summary.canonical_dups, summary.location_added)
+    if summary.errors:
+        log += ", %d errors"
+        args += (summary.errors,)
+    logger.info(log, *args)
     return results, summary
