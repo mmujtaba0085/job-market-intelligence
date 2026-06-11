@@ -114,8 +114,7 @@ ALLOWED_SOURCES: list[dict] = [
             "Public JSON API for remote job listings. No authentication required. "
             "Supports pagination with limit/offset parameters."
         ),
-        "enabled": False,  # API slow/unreliable, disabled
-        "disabled_reason": "API is too slow and unreliable for scheduled ingestion.",
+        "enabled": True,
     },
     {
         "source_id": "himalayas_rss",
@@ -144,7 +143,7 @@ ALLOWED_SOURCES: list[dict] = [
             "Public API for remote job listings. No authentication required. "
             "Supports keyword/tag and geographic filtering."
         ),
-        "enabled": False, 
+        "enabled": True,
     },
     {
         "source_id": "hireweb3",
@@ -172,7 +171,12 @@ ALLOWED_SOURCES: list[dict] = [
             "Official public API. Free tier available. "
             "Aggregates jobs from multiple sources across multiple countries."
         ),
-        "enabled": True,  # Official API; collector skips cleanly when credentials are absent
+        "enabled": False,
+        "disabled_reason": (
+            "Results are country-locked: job listings redirect users to a "
+            "location-specific apply page that blocks non-local applicants. "
+            "Data quality is poor for a global audience."
+        ),
     },
     {
         "source_id": "findwork",

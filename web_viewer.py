@@ -452,42 +452,8 @@ def _ai_enhance_quality_rows(
 
 @app.route("/")
 def index():
-    """Home page with database overview."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Get counts
-    cursor.execute("SELECT COUNT(*) as count FROM jobs")
-    total_jobs = cursor.fetchone()["count"]
-    
-    cursor.execute("SELECT COUNT(*) as count FROM skills")
-    total_skills = cursor.fetchone()["count"]
-    
-    cursor.execute("SELECT COUNT(DISTINCT market_id) as count FROM jobs")
-    total_markets = cursor.fetchone()["count"]
-    
-    cursor.execute("SELECT COUNT(DISTINCT week_start_date) as count FROM weekly_metrics")
-    total_weeks = cursor.fetchone()["count"]
-    
-    # Get recent jobs
-    cursor.execute("""
-        SELECT job_id, title, company, location, remote_type, posted_date, source_name
-        FROM jobs 
-        ORDER BY ingested_at DESC 
-        LIMIT 10
-    """)
-    recent_jobs = cursor.fetchall()
-    
-    conn.close()
-    
-    return render_template(
-        "index.html",
-        total_jobs=total_jobs,
-        total_skills=total_skills,
-        total_markets=total_markets,
-        total_weeks=total_weeks,
-        recent_jobs=recent_jobs
-    )
+    from flask import redirect, url_for
+    return redirect(url_for("dashboard"))
 
 
 @app.route("/dashboard")
