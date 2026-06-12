@@ -1471,7 +1471,7 @@ def api_jobs_list():
     try:
         rows = conn.execute(
             "SELECT job_id, title, company, location, country, remote_type, "
-            "posted_date, source_name, url FROM active_jobs ORDER BY ingested_at DESC LIMIT ? OFFSET ?",
+            "posted_date, source_name, url FROM active_jobs ORDER BY ingested_at DESC, job_id DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
         return jsonify({"jobs": [dict(r) for r in rows], "limit": limit, "offset": offset})
@@ -1480,11 +1480,9 @@ def api_jobs_list():
 
 
 @app.route("/api/jobs/quality/analyze", methods=["POST"])
+@require_admin
 def api_jobs_quality_analyze():
     """Analyze selected jobs and return improved data suggestions + split candidates."""
-    user = get_current_user()
-    if not user or user.get("role") != "admin":
-        return jsonify({"error": "Forbidden — admin only"}), 403
     payload = request.get_json() or {}
     job_ids = payload.get("job_ids") or []
 
@@ -2122,20 +2120,17 @@ def admin_normalize_sample():
     field = data.get("field")  # "country" or "location"
     value = data.get("value")
     
-    if field not in ["country", "location"]:
+    _queries = {
+        "country":  "SELECT title, company, country, location, remote_type FROM active_jobs WHERE country = ? LIMIT 10",
+        "location": "SELECT title, company, country, location, remote_type FROM active_jobs WHERE location = ? LIMIT 10",
+    }
+    if field not in _queries:
         return jsonify({"error": "Invalid field"}), 400
-    
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    query = f"""
-        SELECT title, company, country, location, remote_type
-        FROM active_jobs
-        WHERE {field} = ?
-        LIMIT 10
-    """
-    
-    cursor.execute(query, (value,))
+
+    cursor.execute(_queries[field], (value,))
     samples = [dict(row) for row in cursor.fetchall()]
     
     conn.close()
