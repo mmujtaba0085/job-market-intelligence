@@ -685,12 +685,6 @@ def dashboard_emerging():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT COUNT(DISTINCT week_start_date) as cnt FROM weekly_metrics")
-    weeks_available = cursor.fetchone()["cnt"]
-    if weeks_available < 3:
-        conn.close()
-        return jsonify({"status": "insufficient_data", "weeks_available": weeks_available, "needed": 3})
-
     cursor.execute("""
         SELECT skill_name, category,
                SUM(frequency) as frequency,
@@ -717,12 +711,6 @@ def dashboard_declining():
     """Get declining skills, aggregated across all markets."""
     conn = get_db_connection()
     cursor = conn.cursor()
-
-    cursor.execute("SELECT COUNT(DISTINCT week_start_date) as cnt FROM weekly_metrics")
-    weeks_available = cursor.fetchone()["cnt"]
-    if weeks_available < 3:
-        conn.close()
-        return jsonify({"status": "insufficient_data", "weeks_available": weeks_available, "needed": 3})
 
     cursor.execute("""
         SELECT skill_name, category,

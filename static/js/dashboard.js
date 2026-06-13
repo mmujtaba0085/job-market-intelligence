@@ -310,11 +310,6 @@ function loadEmergingSkills() {
         .then(data => {
             const container = document.getElementById('emergingList');
 
-            if (data.status === 'insufficient_data') {
-                container.innerHTML = `<p style="color: #6b7280; text-align: center; padding: 2rem;">Not enough data yet (${data.weeks_available}/${data.needed} weeks collected)</p>`;
-                return;
-            }
-
             if (!Array.isArray(data) || data.length === 0) {
                 container.innerHTML = '<p style="color: #6b7280; text-align: center; padding: 2rem;">No emerging skills detected</p>';
                 return;
@@ -357,11 +352,6 @@ function loadDecliningSkills() {
         .then(response => response.json())
         .then(data => {
             const container = document.getElementById('decliningList');
-
-            if (data.status === 'insufficient_data') {
-                container.innerHTML = `<p style="color: #6b7280; text-align: center; padding: 2rem;">Not enough data yet (${data.weeks_available}/${data.needed} weeks collected)</p>`;
-                return;
-            }
 
             if (!Array.isArray(data) || data.length === 0) {
                 container.innerHTML = '<p style="color: #6b7280; text-align: center; padding: 2rem;">No declining skills detected</p>';
