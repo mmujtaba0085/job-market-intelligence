@@ -1135,8 +1135,7 @@ def titles_analytics():
 
 
 _SENIORITY_PREFIX_RE = re.compile(
-    r'^(?:Senior|Junior|Jr\.?|Sr\.?|Staff|Principal|Lead|Associate|'
-    r'Mid[\s-]Level|Entry[\s-]Level|Founding|Intern)\s+',
+    r'^(?:Senior|Junior|Jr\.?|Sr\.?|Associate|Mid[\s-]Level|Entry[\s-]Level)\s+',
     re.IGNORECASE,
 )
 
