@@ -1134,53 +1134,85 @@ def titles_analytics():
     return render_template("titles_analytics.html")
 
 
+_SENIORITY_PREFIX_RE = re.compile(
+    r'^(?:Senior|Junior|Jr\.?|Sr\.?|Staff|Principal|Lead|Associate|'
+    r'Mid[\s-]Level|Entry[\s-]Level|Founding|Intern)\s+',
+    re.IGNORECASE,
+)
+
+def _role_family(title: str) -> str:
+    """Strip seniority/level prefix to get the base role family.
+    'Senior Software Engineer' → 'Software Engineer'
+    'Software Engineer Intern' stays as-is (Intern suffix, not prefix).
+    """
+    return _SENIORITY_PREFIX_RE.sub('', title).strip()
+
+
 @app.route("/api/titles/top")
 def titles_top():
-    """Get top job titles (using normalized titles for consolidation)."""
+    """Get top job titles grouped by role family (seniority-agnostic)."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     cursor.execute("""
-        SELECT
-            normalized_title as title,
-            COUNT(*) as count,
-            COUNT(DISTINCT title) as variant_count
+        SELECT normalized_title as title, COUNT(*) as count
         FROM active_jobs
         WHERE normalized_title IS NOT NULL
           AND normalized_title != ''
           AND normalized_title != 'Unknown'
         GROUP BY normalized_title
-        ORDER BY count DESC
-        LIMIT 30
     """)
-    
-    titles = [{"title": row["title"], "count": row["count"], "variant_count": row["variant_count"]} 
-              for row in cursor.fetchall()]
+
+    # Aggregate by role family (strip seniority prefix)
+    from collections import defaultdict
+    families: dict[str, int] = defaultdict(int)
+    for row in cursor.fetchall():
+        family = _role_family(row["title"])
+        families[family] += row["count"]
+
     conn.close()
-    
+
+    titles = sorted(
+        [{"title": fam, "count": cnt} for fam, cnt in families.items()],
+        key=lambda x: x["count"],
+        reverse=True,
+    )[:30]
     return jsonify(titles)
 
 
 @app.route("/api/titles/<title>/skills")
 def title_skills(title):
-    """Get skills required for a specific job title (using normalized title)."""
+    """Get skills for a role family — aggregates all seniority variants."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    cursor.execute("""
+
+    # Pull all distinct normalized_titles in this family
+    cursor.execute(
+        "SELECT DISTINCT normalized_title FROM active_jobs WHERE normalized_title IS NOT NULL",
+    )
+    family_titles = [
+        row["normalized_title"] for row in cursor.fetchall()
+        if _role_family(row["normalized_title"]) == title
+    ]
+    if not family_titles:
+        conn.close()
+        return jsonify([])
+
+    ph = ",".join("?" * len(family_titles))
+    cursor.execute(f"""
         SELECT s.normalized_skill, s.category, COUNT(*) as count
         FROM skills s
         JOIN active_jobs j ON s.job_id = j.job_id
-        WHERE j.normalized_title = ?
+        WHERE j.normalized_title IN ({ph})
+          AND s.category != 'soft_skills'
         GROUP BY s.normalized_skill, s.category
         ORDER BY count DESC
         LIMIT 15
-    """, (title,))
-    
-    skills = [{"skill": row["normalized_skill"], "category": row["category"], "count": row["count"]} 
+    """, family_titles)
+
+    skills = [{"skill": row["normalized_skill"], "category": row["category"], "count": row["count"]}
               for row in cursor.fetchall()]
     conn.close()
-    
     return jsonify(skills)
 
 
