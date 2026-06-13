@@ -1141,12 +1141,14 @@ def titles_top():
     cursor = conn.cursor()
     
     cursor.execute("""
-        SELECT 
+        SELECT
             normalized_title as title,
             COUNT(*) as count,
             COUNT(DISTINCT title) as variant_count
         FROM active_jobs
-        WHERE normalized_title IS NOT NULL AND normalized_title != ''
+        WHERE normalized_title IS NOT NULL
+          AND normalized_title != ''
+          AND normalized_title != 'Unknown'
         GROUP BY normalized_title
         ORDER BY count DESC
         LIMIT 30

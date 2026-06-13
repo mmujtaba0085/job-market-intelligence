@@ -385,11 +385,28 @@ def _method_pattern_normalization(title: str) -> Optional[Tuple[str, float]]:
             # Not a seniority, just remove the parentheses
             normalized = f"{seniority} {rest}"
     
-    # Remove location suffixes (common patterns)
-    # e.g., "Engineer - New York, NY" → "Engineer"
-    # e.g., "Intern - Cambridge" → "Intern"
-    # e.g., "Representative - Italy" → "Representative"
-    normalized = re.sub(r'\s*[-,]\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:,\s*[A-Z]{2})?\s*$', '', normalized)
+    # Reverse "Intern - Role" / "Intern, Role" patterns BEFORE any stripping
+    # e.g., "Intern - Data Science" → "Data Science Intern"
+    # e.g., "Summer Intern - Engineering" → "Engineering Intern"
+    _intern_role = re.match(
+        r'^((?:(?:Summer|Fall|Spring|Winter)\s+)?Intern)\s*[-,]\s*(.{3,60})$',
+        normalized, re.IGNORECASE,
+    )
+    if _intern_role:
+        suffix = _intern_role.group(2).strip().rstrip('-').strip()
+        # Only reverse if suffix doesn't look like a geographic location
+        if suffix and not re.search(r',\s*[A-Z]{2}\s*$', suffix):
+            normalized = f"{suffix} Intern"
+
+    # Remove geographic location suffixes only (require state code OR known location word)
+    # e.g., "Engineer - New York, NY" → "Engineer" (has state code)
+    # e.g., "Analyst - Remote" → "Analyst"
+    # Does NOT strip "- Data Science", "- Product Management" (no state code)
+    normalized = re.sub(r'\s*[-,]\s*[A-Za-z][a-z]+(?:\s+[A-Za-z][a-z]+)?,\s*[A-Z]{2}\s*$', '', normalized)
+    normalized = re.sub(
+        r'\s*[-,]\s*(?:Remote|Hybrid|Onsite|On-site|Virtual|Worldwide|Global|Anywhere|WFH)\s*$',
+        '', normalized, flags=re.IGNORECASE,
+    )
     
     # Remove trailing hyphens and whitespace
     normalized = re.sub(r'\s*-\s*$', '', normalized)
