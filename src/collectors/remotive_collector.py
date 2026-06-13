@@ -87,20 +87,6 @@ class RemotiveCollector(BaseCollector):
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
-_COUNTRY_KEYWORDS: list[tuple[list[str], str]] = [
-    (["united states", "usa", "us only", "u.s."], "United States"),
-    (["united kingdom", "uk only", "u.k."], "United Kingdom"),
-    (["germany", "deutschland"], "Germany"),
-    (["canada"], "Canada"),
-    (["australia"], "Australia"),
-    (["worldwide", "global", "anywhere"], "Global"),
-]
-
-
 def _infer_country(location_str: str) -> str:
-    """Best-effort country inference from Remotive's location field."""
-    loc = location_str.lower()
-    for keywords, country in _COUNTRY_KEYWORDS:
-        if any(k in loc for k in keywords):
-            return country
-    return "Unknown"
+    from src.utils.country_inference import infer_country
+    return infer_country(location_str)

@@ -139,33 +139,9 @@ class ArbeitnowCollector(BaseCollector):
         return any(kw.lower() in search_text for kw in keywords)
 
     def _infer_country(self, location: str) -> str:
-        """Infer country from location string."""
-        if not location:
-            return "Global"
-        
-        location_lower = location.lower()
-        
-        # Simple country detection
-        country_keywords = {
-            "germany": "Germany",
-            "berlin": "Germany",
-            "munich": "Germany",
-            "usa": "United States",
-            "united states": "United States",
-            "new york": "United States",
-            "san francisco": "United States",
-            "uk": "United Kingdom",
-            "united kingdom": "United Kingdom",
-            "london": "United Kingdom",
-            "remote": "Global",
-            "worldwide": "Global",
-        }
-        
-        for keyword, country in country_keywords.items():
-            if keyword in location_lower:
-                return country
-        
-        return "Unknown"
+        from src.utils.country_inference import infer_country
+        result = infer_country(location)
+        return "Global" if not location or not location.strip() else result
 
     def _parse_date(self, date_str: str | int | None) -> str:
         """Parse Unix timestamp or ISO timestamp to YYYY-MM-DD."""

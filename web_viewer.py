@@ -644,7 +644,10 @@ def dashboard_geo():
     cursor.execute("""
         SELECT country, COUNT(*) as count
         FROM active_jobs
-        WHERE country IS NOT NULL AND country != ''
+        WHERE country IS NOT NULL
+          AND TRIM(country) != ''
+          AND LOWER(country) != 'unknown'
+          AND LOWER(country) != 'global'
         GROUP BY country
         ORDER BY count DESC
         LIMIT 15
@@ -687,7 +690,9 @@ def dashboard_emerging():
         SELECT skill_name, category, frequency, growth_percentage
         FROM weekly_metrics
         WHERE emerging_flag = 1
-        ORDER BY week_start_date DESC, growth_percentage DESC
+          AND week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+          AND frequency >= 10
+        ORDER BY growth_percentage DESC
         LIMIT 10
     """)
     
@@ -709,7 +714,9 @@ def dashboard_declining():
         SELECT skill_name, category, frequency, growth_percentage
         FROM weekly_metrics
         WHERE declining_flag = 1
-        ORDER BY week_start_date DESC, growth_percentage ASC
+          AND week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+          AND frequency >= 10
+        ORDER BY growth_percentage ASC
         LIMIT 10
     """)
     

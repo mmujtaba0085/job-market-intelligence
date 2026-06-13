@@ -156,30 +156,8 @@ class TheMuseCollector(BaseCollector):
         return any(kw.lower() in search_text for kw in keywords)
 
     def _infer_country(self, location: str) -> str:
-        """Infer country from location."""
-        if not location:
-            return "Unknown"
-        
-        location_lower = location.lower()
-        
-        country_map = {
-            "new york": "United States",
-            "san francisco": "United States",
-            "usa": "United States",
-            "united states": "United States",
-            "london": "United Kingdom",
-            "uk": "United Kingdom",
-            "berlin": "Germany",
-            "munich": "Germany",
-            "paris": "France",
-            "remote": "Global",
-        }
-        
-        for keyword, country in country_map.items():
-            if keyword in location_lower:
-                return country
-        
-        return "Unknown"
+        from src.utils.country_inference import infer_country
+        return infer_country(location)
 
     def _detect_remote_type(self, title: str, location: str, description: str) -> str:
         """Detect if job is remote/hybrid/on-site."""

@@ -789,28 +789,8 @@ class GitHubRepoCollector(BaseCollector):
         return "On-site"
 
     def _infer_country(self, location: str) -> str:
-        loc = (location or "").lower()
-        if not loc:
-            return "Unknown"
-        if any(k in loc for k in ["remote", "anywhere", "worldwide", "global"]):
-            return "Global"
-        # rough mapping
-        mapping = [
-            (["united states", "usa", "u.s.", "ca", "ny", "tx", "seattle", "austin"], "United States"),
-            (["united kingdom", "uk", "london"], "United Kingdom"),
-            (["canada", "toronto", "vancouver"], "Canada"),
-            (["germany", "berlin", "munich"], "Germany"),
-            (["france", "paris"], "France"),
-            (["india", "bangalore", "mumbai", "hyderabad", "delhi"], "India"),
-            (["australia", "sydney", "melbourne"], "Australia"),
-        ]
-        for keys, c in mapping:
-            if any(k in loc for k in keys):
-                return c
-        # last comma chunk fallback
-        if "," in location:
-            return location.split(",")[-1].strip() or "Unknown"
-        return "Unknown"
+        from src.utils.country_inference import infer_country
+        return infer_country(location)
 
     def _strip_html(self, html: str) -> str:
         if not html:
