@@ -42,6 +42,7 @@ MIN_CONFIDENCE = 0.6  # Auto-apply threshold (60%)
 TITLE_MAPPINGS = {
     # Software Engineering Interns - consolidate many variants
     "software engineering intern": "Software Engineer Intern",
+    "software engineering internship": "Software Engineer Intern",
     "swe intern": "Software Engineer Intern",
     "software development intern": "Software Engineer Intern",
     "software developer intern": "Software Engineer Intern",
@@ -50,7 +51,10 @@ TITLE_MAPPINGS = {
     "software development engineer intern": "Software Engineer Intern",
     "simulation software engineer intern": "Software Engineer Intern",
     "engineering intern": "Software Engineer Intern",
+    "engineer intern": "Software Engineer Intern",
     "intern": "Software Engineer Intern",  # Generic intern defaults to SWE
+    "intern - software engineering": "Software Engineer Intern",
+    "intern, software engineering": "Software Engineer Intern",
     
     # Software Engineers (consolidate variants)
     "software engineers": "Software Engineer",
