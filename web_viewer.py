@@ -2793,6 +2793,40 @@ def admin_pipeline_status():
     })
 
 
+# ── Auto-scheduler background thread ─────────────────────────────────────────
+
+def _auto_scheduler_loop() -> None:
+    """Check every 60 s whether a scheduled run is due; launch it if so."""
+    import time as _time
+    from datetime import datetime, timezone as _tz
+    from src.pipeline_monitor import compute_next_run, get_config, get_running_runs, launch_pipeline
+
+    _log = logging.getLogger("auto_scheduler")
+    while True:
+        _time.sleep(60)
+        try:
+            cfg = get_config()
+            now = datetime.now(_tz.utc)
+            for mode in ("ingest-only", "crawl"):
+                nxt = compute_next_run(mode, cfg)
+                if not nxt:
+                    continue
+                nxt_dt = datetime.fromisoformat(nxt.replace("Z", "+00:00"))
+                if nxt_dt.tzinfo is None:
+                    nxt_dt = nxt_dt.replace(tzinfo=_tz.utc)
+                if now >= nxt_dt:
+                    already = [r for r in get_running_runs() if r["mode"] == mode]
+                    if not already:
+                        launch_pipeline(mode, trigger="schedule")
+                        _log.info("Auto-launched %s (was due %s)", mode, nxt_dt.isoformat())
+        except Exception as exc:
+            logging.getLogger("auto_scheduler").error("Scheduler error: %s", exc)
+
+
+_scheduler_thread = Thread(target=_auto_scheduler_loop, daemon=True, name="auto-scheduler")
+_scheduler_thread.start()
+
+
 if __name__ == "__main__":
     if not DB_PATH.exists():
         print(f"\u274c Database not found at: {DB_PATH}")

@@ -167,12 +167,12 @@ def compute_next_run(mode: str, config: dict) -> str | None:
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 
-def launch_pipeline(mode: str, extra_args: list[str] | None = None) -> str:
+def launch_pipeline(mode: str, extra_args: list[str] | None = None, trigger: str = "manual") -> str:
     """
     Spawn the orchestrator as a detached subprocess and return the run_id.
     The subprocess writes its own start/finish records via the same DB.
     """
-    run_id = start_run(mode, trigger="manual")
+    run_id = start_run(mode, trigger=trigger)
     cmd = [sys.executable, "-m", "src.orchestrator", "--mode", mode, "--run-id", run_id]
     if extra_args:
         cmd.extend(extra_args)

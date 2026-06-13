@@ -46,6 +46,7 @@ _RATE_WINDOW = 60.0     # Sliding window in seconds
 _BATCH_SIZE = 100       # Save to DB every N jobs
 _SAVE_INTERVAL = 300    # Also save every 5 minutes
 _LOG_INTERVAL = 10      # Log progress every N pages
+_DUPLICATE_THRESHOLD = 10  # Stop after N consecutive all-duplicate pages
 
 # Global stop event for graceful shutdown
 stop_event = threading.Event()
@@ -399,7 +400,6 @@ class FindworkCrawler(BaseCollector):
         
         jobs_buffer: list[JobRaw] = []
         consecutive_duplicate_pages = 0
-        duplicate_threshold = 3  # Stop after 3 consecutive pages with all duplicates
         total_new_jobs_this_run = 0
         
         while not stop_event.is_set():
@@ -444,11 +444,11 @@ class FindworkCrawler(BaseCollector):
                     consecutive_duplicate_pages += 1
                     logger.info(
                         "[findwork_crawler] Page %d: All %d jobs were duplicates (consecutive: %d/%d)",
-                        current_page, total, consecutive_duplicate_pages, duplicate_threshold
+                        current_page, total, consecutive_duplicate_pages, _DUPLICATE_THRESHOLD
                     )
                     
                     # Stop if we've hit too many consecutive duplicate pages
-                    if consecutive_duplicate_pages >= duplicate_threshold:
+                    if consecutive_duplicate_pages >= _DUPLICATE_THRESHOLD:
                         logger.info(
                             "[findwork_crawler] Stopping: %d consecutive pages with all duplicates. "
                             "Already have recent data from previous run.",
