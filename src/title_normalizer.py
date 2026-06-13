@@ -112,6 +112,10 @@ TITLE_MAPPINGS = {
     "principal machine learning engineer": "Principal Machine Learning Engineer",
     "ai intern": "Machine Learning Engineer Intern",
     "ai research intern": "Machine Learning Engineer Intern",
+    "ai engineer intern": "Machine Learning Engineer Intern",
+    "ai engineering intern": "Machine Learning Engineer Intern",
+    "data science/ai intern": "Machine Learning Engineer Intern",
+    "data science / ai intern": "Machine Learning Engineer Intern",
     
     # Computer Vision (consolidate into ML Engineer)
     "computer vision engineer": "Machine Learning Engineer",
@@ -141,6 +145,7 @@ TITLE_MAPPINGS = {
     "senior product manager": "Senior Product Manager",
     "product management intern": "Product Manager Intern",
     "product manager intern": "Product Manager Intern",
+    "product management internship": "Product Manager Intern",
     "product engineer": "Product Engineer",
     
     # Design roles
@@ -272,6 +277,27 @@ TITLE_MAPPINGS = {
     "sw engineer intern -": "Software Engineer Intern",
     "sw engineer intern": "Software Engineer Intern",
     
+    # Broken single-word results from old over-aggressive location stripping
+    # (post-processing catches pattern-cleaned titles that hit these)
+    "full": "Full Stack Engineer",
+    "full stack": "Full Stack Engineer",
+    "full-stack": "Full Stack Engineer",
+    "full stack software engineer": "Full Stack Engineer",
+    "full-stack software engineer": "Full Stack Engineer",
+    "full stack engineer intern": "Software Engineer Intern",
+    "full-stack intern": "Software Engineer Intern",
+    "full-stack software engineering intern": "Software Engineer Intern",
+    "full stack software engineer intern": "Software Engineer Intern",
+
+    # Student/intern consolidation
+    "software engineering student": "Software Engineer Intern",
+    "computer science student": "Software Engineer Intern",
+    "cs student": "Software Engineer Intern",
+    "student intern": "Software Engineer Intern",
+    "student developer": "Software Engineer Intern",
+    "student software engineer": "Software Engineer Intern",
+    "student data scientist": "Data Scientist Intern",
+
     # Generic catch-all roles
     "multiple roles": "Multiple Roles",
     "engineer iii": "Software Engineer",
@@ -600,11 +626,19 @@ def normalize_title(raw_title: str, use_similarity: bool = False,
     # No votes = use original title (no normalization rule matched)
     if not votes:
         return (raw_title, 0.0)  # 0 confidence = needs manual review
-    
+
     # Winner = title with highest total weight
     winner = max(votes, key=votes.get)
     total_weight = votes[winner]
-    
+
+    # Post-process: apply exact mapping to the winner so pattern-cleaned titles
+    # (e.g. "Software Developer Intern" from "Software Developer Intern - Structural")
+    # can still reach their canonical form via TITLE_MAPPINGS.
+    mapped = TITLE_MAPPINGS.get(winner.lower().strip())
+    if mapped and mapped != winner:
+        winner = mapped
+        total_weight = max(total_weight, WEIGHTS["exact_mapping"])
+
     # Confidence = total weight (capped at 1.0)
     # Multiple methods can stack (e.g., exact + pattern = 1.9 → capped to 1.0)
     confidence = min(total_weight, 1.0)
