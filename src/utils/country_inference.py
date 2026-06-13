@@ -19,6 +19,24 @@ from __future__ import annotations
 
 import re
 
+# ─── Short exact-token overrides (checked before substring table) ────────────
+# Keys are the full lowercased location string after stripping.
+# Used for 2-3 letter abbreviations that would cause false substring matches.
+
+_EXACT_OVERRIDES: dict[str, str] = {
+    "us": "United States",
+    "usa": "United States",
+    "sf": "United States",       # San Francisco
+    "la": "United States",       # Los Angeles
+    "nyc": "United States",
+    "ny": "United States",
+    "dc": "United States",
+    "uk": "United Kingdom",
+    "gb": "United Kingdom",
+    "de": "Germany",
+    "ca": "Canada",              # standalone "CA" = Canada (not California)
+}
+
 # ─── Remote / Global patterns ─────────────────────────────────────────────────
 
 _GLOBAL_TOKENS = {
@@ -83,7 +101,9 @@ _KEYWORD_TABLE: list[tuple[set[str], str]] = [
         "menlo park", "mountain view", "redwood city", "san mateo",
         "santa monica", "burbank", "pasadena", "thousand oaks",
         "ann arbor", "cambridge", "bellevue", "kirkland", "redmond",
-        "rogers",
+        "rogers", "santa clara", "oakland", "topeka", "tysons",
+        "reston", "herndon", "mclean", "arlington", "bethesda",
+        "rockville", "gaithersburg", "silver spring",
     }, "United States"),
 
     # ── United Kingdom ───────────────────────────────────────────────────────
@@ -122,6 +142,11 @@ _KEYWORD_TABLE: list[tuple[set[str], str]] = [
         "darmstadt", "heidelberg", "regensburg", "ingolstadt",
         "würzburg", "ulm", "göttingen", "wolfsburg", "pforzheim",
         "offenbach", "heilbronn", "osnabrück", "trier", "cottbus",
+        "dresden", "neuss", "paderborn", "fürth", "furth",
+        "bamberg", "langenfeld", "landshut", "garching",
+        "siegen", "reutlingen", "salzgitter", "koblenz",
+        "moers", "herne", "bergisch gladbach", "remscheid",
+        "solingen", "iserlohn", "gütersloh", "kaiserslautern",
     }, "Germany"),
 
     # ── India ─────────────────────────────────────────────────────────────────
@@ -401,17 +426,21 @@ def infer_country(location: str) -> str:
 
     loc = location.strip().lower()
 
-    # 1. Remote / global
+    # 1. Exact token override (short abbreviations like "SF", "LA", "US")
+    if loc in _EXACT_OVERRIDES:
+        return _EXACT_OVERRIDES[loc]
+
+    # 2. Remote / global
     for token in _GLOBAL_TOKENS:
         if token in loc:
             return "Global"
 
-    # 2. Keyword table (longer strings matched first within each entry)
+    # 3. Keyword table (longer strings matched first within each entry)
     for keywords, country in _KEYWORD_TABLE:
         if any(kw in loc for kw in keywords):
             return country
 
-    # 3. "City, ST" → US state abbreviation fallback
+    # 4. "City, ST" → US state abbreviation fallback
     m = _CITY_STATE_RE.search(location)  # use original case for the abbreviation
     if m:
         abbr = m.group(1).lower()
