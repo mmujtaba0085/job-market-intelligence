@@ -25,8 +25,8 @@ OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 # ─── Analytics thresholds ─────────────────────────────────────────────────────
-MIN_FREQ: int = int(os.getenv("MIN_FREQ", "5"))
-GROWTH_THRESHOLD: float = float(os.getenv("GROWTH_THRESHOLD", "20.0"))
+MIN_FREQ: int = int(os.getenv("MIN_FREQ", "15"))
+GROWTH_THRESHOLD: float = float(os.getenv("GROWTH_THRESHOLD", "50.0"))
 DECLINING_THRESHOLD: float = float(os.getenv("DECLINING_THRESHOLD", "-15.0"))
 EMERGING_LOOKBACK_WEEKS: int = int(os.getenv("EMERGING_LOOKBACK_WEEKS", "4"))
 

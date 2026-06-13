@@ -604,24 +604,23 @@ def dashboard_trends():
 
 @app.route("/api/dashboard/top-skills")
 def dashboard_top_skills():
-    """Get top 10 skills for current period."""
+    """Get top 10 skills for current period, aggregated across all markets."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    # Get latest week
+
     cursor.execute("""
-        SELECT skill_name, frequency, category
+        SELECT skill_name, category, SUM(frequency) as frequency
         FROM weekly_metrics
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+        GROUP BY skill_name, category
         ORDER BY frequency DESC
         LIMIT 10
     """)
-    
-    skills = [{"skill": row["skill_name"], "count": row["frequency"], "category": row["category"]} 
+
+    skills = [{"skill": row["skill_name"], "count": row["frequency"], "category": row["category"]}
               for row in cursor.fetchall()]
-    
+
     if not skills:
-        # Fallback to all-time top skills
         cursor.execute("""
             SELECT normalized_skill as skill, COUNT(*) as count, category
             FROM skills
@@ -630,7 +629,7 @@ def dashboard_top_skills():
             LIMIT 10
         """)
         skills = [dict(row) for row in cursor.fetchall()]
-    
+
     conn.close()
     return jsonify(skills)
 
@@ -682,49 +681,67 @@ def dashboard_sources():
 
 @app.route("/api/dashboard/emerging")
 def dashboard_emerging():
-    """Get emerging skills."""
+    """Get emerging skills, aggregated across all markets."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
+    cursor.execute("SELECT COUNT(DISTINCT week_start_date) as cnt FROM weekly_metrics")
+    weeks_available = cursor.fetchone()["cnt"]
+    if weeks_available < 3:
+        conn.close()
+        return jsonify({"status": "insufficient_data", "weeks_available": weeks_available, "needed": 3})
+
     cursor.execute("""
-        SELECT skill_name, category, frequency, growth_percentage
+        SELECT skill_name, category,
+               SUM(frequency) as frequency,
+               AVG(growth_percentage) as growth_percentage,
+               MAX(mover_score) as mover_score
         FROM weekly_metrics
-        WHERE emerging_flag = 1
-          AND week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
-          AND frequency >= 10
-        ORDER BY growth_percentage DESC
+        WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+        GROUP BY skill_name, category
+        HAVING MAX(emerging_flag) = 1
+           AND SUM(frequency) >= 15
+        ORDER BY MAX(mover_score) DESC
         LIMIT 10
     """)
-    
-    emerging = [{"skill": row["skill_name"], "category": row["category"], 
-                 "frequency": row["frequency"], "growth": row["growth_percentage"]} 
+
+    emerging = [{"skill": row["skill_name"], "category": row["category"],
+                 "frequency": row["frequency"], "growth": row["growth_percentage"]}
                 for row in cursor.fetchall()]
     conn.close()
-    
     return jsonify(emerging)
 
 
 @app.route("/api/dashboard/declining")
 def dashboard_declining():
-    """Get declining skills."""
+    """Get declining skills, aggregated across all markets."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
+    cursor.execute("SELECT COUNT(DISTINCT week_start_date) as cnt FROM weekly_metrics")
+    weeks_available = cursor.fetchone()["cnt"]
+    if weeks_available < 3:
+        conn.close()
+        return jsonify({"status": "insufficient_data", "weeks_available": weeks_available, "needed": 3})
+
     cursor.execute("""
-        SELECT skill_name, category, frequency, growth_percentage
+        SELECT skill_name, category,
+               SUM(frequency) as frequency,
+               AVG(growth_percentage) as growth_percentage,
+               MIN(mover_score) as mover_score
         FROM weekly_metrics
-        WHERE declining_flag = 1
-          AND week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
-          AND frequency >= 10
-        ORDER BY growth_percentage ASC
+        WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+        GROUP BY skill_name, category
+        HAVING MAX(declining_flag) = 1
+           AND SUM(frequency) >= 15
+        ORDER BY MIN(mover_score) ASC
         LIMIT 10
     """)
-    
-    declining = [{"skill": row["skill_name"], "category": row["category"], 
-                  "frequency": row["frequency"], "growth": row["growth_percentage"]} 
+
+    declining = [{"skill": row["skill_name"], "category": row["category"],
+                  "frequency": row["frequency"], "growth": row["growth_percentage"]}
                  for row in cursor.fetchall()]
     conn.close()
-    
     return jsonify(declining)
 
 
@@ -1827,22 +1844,34 @@ def metrics_overview():
     """)
     weeks = cursor.fetchall()
     
-    # Get emerging skills (latest week)
+    # Get emerging skills (latest week, aggregated across markets)
     cursor.execute("""
-        SELECT skill_name, category, frequency, growth_percentage, week_start_date, market_id
+        SELECT skill_name, category,
+               SUM(frequency) as frequency,
+               AVG(growth_percentage) as growth_percentage,
+               MAX(week_start_date) as week_start_date
         FROM weekly_metrics
-        WHERE emerging_flag = 1
-        ORDER BY week_start_date DESC, growth_percentage DESC
+        WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+        GROUP BY skill_name, category
+        HAVING MAX(emerging_flag) = 1
+           AND SUM(frequency) >= 15
+        ORDER BY MAX(mover_score) DESC
         LIMIT 20
     """)
     emerging = cursor.fetchall()
-    
-    # Get declining skills (latest week)
+
+    # Get declining skills (latest week, aggregated across markets)
     cursor.execute("""
-        SELECT skill_name, category, frequency, growth_percentage, week_start_date, market_id
+        SELECT skill_name, category,
+               SUM(frequency) as frequency,
+               AVG(growth_percentage) as growth_percentage,
+               MAX(week_start_date) as week_start_date
         FROM weekly_metrics
-        WHERE declining_flag = 1
-        ORDER BY week_start_date DESC, growth_percentage ASC
+        WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+        GROUP BY skill_name, category
+        HAVING MAX(declining_flag) = 1
+           AND SUM(frequency) >= 15
+        ORDER BY MIN(mover_score) ASC
         LIMIT 20
     """)
     declining = cursor.fetchall()
