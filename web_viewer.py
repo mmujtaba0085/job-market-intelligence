@@ -612,6 +612,7 @@ def dashboard_top_skills():
         SELECT skill_name, category, SUM(frequency) as frequency
         FROM weekly_metrics
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+          AND category != 'soft_skills'
         GROUP BY skill_name, category
         ORDER BY frequency DESC
         LIMIT 10
@@ -692,6 +693,7 @@ def dashboard_emerging():
                MAX(mover_score) as mover_score
         FROM weekly_metrics
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+          AND category != 'soft_skills'
         GROUP BY skill_name, category
         HAVING MAX(emerging_flag) = 1
            AND SUM(frequency) >= 15
@@ -719,6 +721,7 @@ def dashboard_declining():
                MIN(mover_score) as mover_score
         FROM weekly_metrics
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+          AND category != 'soft_skills'
         GROUP BY skill_name, category
         HAVING MAX(declining_flag) = 1
            AND SUM(frequency) >= 15
@@ -1840,6 +1843,7 @@ def metrics_overview():
                MAX(week_start_date) as week_start_date
         FROM weekly_metrics
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+          AND category != 'soft_skills'
         GROUP BY skill_name, category
         HAVING MAX(emerging_flag) = 1
            AND SUM(frequency) >= 15
@@ -1856,6 +1860,7 @@ def metrics_overview():
                MAX(week_start_date) as week_start_date
         FROM weekly_metrics
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
+          AND category != 'soft_skills'
         GROUP BY skill_name, category
         HAVING MAX(declining_flag) = 1
            AND SUM(frequency) >= 15
