@@ -7,7 +7,7 @@
 
 <div class="card">
     <h3 style="margin-bottom: 1rem; color: #1f2937;">📊 Top 30 Job Titles</h3>
-    <canvas id="titlesChart" style="max-height: 500px;"></canvas>
+    <canvas id="titlesChart"></canvas>
 </div>
 
 <div class="card" style="margin-top: 2rem;">
@@ -95,18 +95,22 @@ function loadTitles() {
 
 function renderTitlesChart(titles) {
     const ctx = document.getElementById('titlesChart').getContext('2d');
-    
+
     if (titlesChart) {
         titlesChart.destroy();
     }
-    
+
+    const top = titles.slice(0, 15);
+    // Size canvas to fit all bars (32px per bar + padding)
+    ctx.canvas.style.height = (top.length * 32 + 60) + 'px';
+
     titlesChart = new Chart(ctx, {
         type: 'bar',
         data: {
-            labels: titles.map(t => t.title.length > 40 ? t.title.substring(0, 37) + '...' : t.title),
+            labels: top.map(t => t.title.length > 40 ? t.title.substring(0, 37) + '...' : t.title),
             datasets: [{
                 label: 'Job Count',
-                data: titles.map(t => t.count),
+                data: top.map(t => t.count),
                 backgroundColor: '#667eea',
                 borderWidth: 0
             }]
@@ -126,7 +130,12 @@ function renderTitlesChart(titles) {
                 }
             },
             scales: {
-                x: { beginAtZero: true }
+                x: { beginAtZero: true },
+                y: {
+                    ticks: {
+                        autoSkip: false
+                    }
+                }
             }
         }
     });

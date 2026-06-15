@@ -1138,13 +1138,15 @@ _SENIORITY_PREFIX_RE = re.compile(
     r'^(?:Senior|Junior|Jr\.?|Sr\.?|Associate|Mid[\s-]Level|Entry[\s-]Level)\s+',
     re.IGNORECASE,
 )
+_SENIORITY_SUFFIX_RE = re.compile(
+    r'\s+(?:Intern|Internship)\s*$',
+    re.IGNORECASE,
+)
 
 def _role_family(title: str) -> str:
-    """Strip seniority/level prefix to get the base role family.
-    'Senior Software Engineer' → 'Software Engineer'
-    'Software Engineer Intern' stays as-is (Intern suffix, not prefix).
-    """
-    return _SENIORITY_PREFIX_RE.sub('', title).strip()
+    t = _SENIORITY_PREFIX_RE.sub('', title).strip()
+    t = _SENIORITY_SUFFIX_RE.sub('', t).strip()
+    return t
 
 
 @app.route("/api/titles/top")
