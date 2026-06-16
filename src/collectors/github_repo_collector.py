@@ -38,6 +38,24 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 20
 _UA = "JobMarketIntelligence/1.0 (research; raw.githubusercontent.com)"
 
+# Tech-relevance filter: titles must contain at least one of these keywords
+# to be kept. Filters out civil/mechanical/HVAC/etc. from broad "Engineer" repos.
+_TECH_TITLE_RE = re.compile(
+    r'\b(?:software|data|machine[\s-]?learning|deep[\s-]?learning|'
+    r'computer(?:\s+science)?|artificial[\s-]?intelligence|'
+    r'\bml\b|\bai\b|web|mobile|\bios\b|android|'
+    r'cloud|devops|dev[\s-]ops|platform|security|cyber|network|infrastructure|\bsre\b|'
+    r'developer|programmer|scientist|'
+    r'database|\bapi\b|backend|front[\s-]?end|full[\s-]?stack|'
+    r'product[\s-](?:manager|management|design)|'
+    r'robotics|automation|firmware|embedded|'
+    r'quantitative|\bquant\b|fintech|blockchain|'
+    r'information[\s-]technology|\bit[\s-]intern|'
+    r'\bux\b|\bui\b|nlp\b|computer[\s-]?vision|'
+    r'python|java(?:script)?|typescript|golang)\b',
+    re.IGNORECASE,
+)
+
 _CACHE_ROOT = Path("data/cache/github")
 _META_FILE = _CACHE_ROOT / "meta.json"
 _RAW_DIR = _CACHE_ROOT / "raw"
@@ -201,7 +219,12 @@ class GitHubRepoCollector(BaseCollector):
                 repo_tag=repo_tag,
                 file_path=f"{branch_used}:{path}",
             )
-            collected.extend(parsed)
+            # Drop non-tech titles (e.g. HVAC, Civil, Mechanical from broad Engineer repos)
+            tech = [j for j in parsed if _TECH_TITLE_RE.search(j.parsed_fields.get("title", ""))]
+            if len(tech) < len(parsed):
+                logger.debug("Tech filter dropped %d/%d jobs from %s:%s",
+                             len(parsed) - len(tech), len(parsed), repo_tag, path)
+            collected.extend(tech)
 
             # Follow internal markdown links if configured
             if spec.follow_md_links and linked_used < spec.max_linked_files:

@@ -133,6 +133,7 @@
           <th style="padding:0.5rem 0.75rem;color:#6b7280">Fetched</th>
           <th style="padding:0.5rem 0.75rem;color:#6b7280">Inserted</th>
           <th style="padding:0.5rem 0.75rem;color:#6b7280">Skills</th>
+          <th style="padding:0.5rem 0.75rem;color:#6b7280">Logs</th>
         </tr></thead>
         <tbody>
         {% for r in runs %}
@@ -156,9 +157,13 @@
           <td style="padding:0.5rem 0.75rem">{{ r.jobs_fetched or '—' }}</td>
           <td style="padding:0.5rem 0.75rem">{{ r.jobs_inserted or '—' }}</td>
           <td style="padding:0.5rem 0.75rem">{{ r.skills_extracted or '—' }}</td>
+          <td style="padding:0.5rem 0.75rem">
+            <a href="/admin/pipeline/logs/{{ r.run_id }}"
+               style="font-size:0.75rem;color:#6366f1;text-decoration:none;">view</a>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="9" style="padding:2rem;text-align:center;color:#9ca3af">No runs recorded yet. Runs will appear here once a pipeline is triggered.</td></tr>
+        <tr><td colspan="10" style="padding:2rem;text-align:center;color:#9ca3af">No runs recorded yet. Runs will appear here once a pipeline is triggered.</td></tr>
         {% endfor %}
         </tbody>
       </table>

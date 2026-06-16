@@ -1385,8 +1385,8 @@ def jobs_list():
     if company_filter:
         base += " AND j.company LIKE ?"; params.append(f"%{company_filter}%")
     if search_query:
-        base += " AND (j.title LIKE ? OR j.company LIKE ?)"
-        params.extend([f"%{search_query}%", f"%{search_query}%"])
+        base += " AND (j.title LIKE ? OR j.company LIKE ? OR j.normalized_title LIKE ?)"
+        params.extend([f"%{search_query}%", f"%{search_query}%", f"%{search_query}%"])
     if date_from:
         base += " AND j.posted_date >= ?"; params.append(date_from)
     if date_to:
@@ -2826,6 +2826,24 @@ def admin_pipeline_status():
         "running": get_running_runs(),
         "recent": get_recent_runs(10),
     })
+
+
+@app.route("/admin/pipeline/logs/<run_id>")
+@require_admin
+def admin_pipeline_logs(run_id: str):
+    from config.settings import LOGS_DIR
+    import re as _re
+    if not _re.fullmatch(r"[a-f0-9\-]{6,36}", run_id):
+        return "Invalid run ID", 400
+    log_path = LOGS_DIR / f"run_{run_id}.log"
+    if not log_path.exists():
+        content = "(Log file not found — this run may have been started before per-run logging was enabled, or the log was cleaned up.)"
+    else:
+        try:
+            content = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            content = f"Error reading log: {e}"
+    return render_template("admin_pipeline_logs.html", run_id=run_id, log_content=content)
 
 
 # ── Auto-scheduler background thread ─────────────────────────────────────────
