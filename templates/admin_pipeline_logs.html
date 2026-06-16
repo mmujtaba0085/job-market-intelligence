@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Run Logs — {{ run_id }} - Admin{% endblock %}
+{% block content %}
+<div class="container" style="max-width:1100px">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+    <div>
+      <h1 style="margin:0">Run Logs</h1>
+      <p style="color:#6b7280;margin:0.25rem 0 0;font-family:monospace;font-size:0.875rem">{{ run_id }}</p>
+    </div>
+    <a href="/admin/pipeline" class="btn" style="background:#f3f4f6;color:#374151;text-decoration:none">← Pipeline</a>
+  </div>
+
+  <div class="card" style="padding:0">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;border-bottom:1px solid #e5e7eb">
+      <span style="font-size:0.8rem;color:#6b7280">Log output — newest lines at bottom</span>
+      <div style="display:flex;gap:0.5rem">
+        <button id="refresh-btn" onclick="refreshLog()"
+          style="background:none;border:1px solid #d1d5db;border-radius:4px;padding:0.25rem 0.75rem;cursor:pointer;font-size:0.8rem;color:#6b7280">
+          Refresh
+        </button>
+        <label style="font-size:0.8rem;color:#6b7280;display:flex;align-items:center;gap:0.35rem;cursor:pointer">
+          <input type="checkbox" id="auto-refresh" onchange="toggleAutoRefresh(this)"> Auto-refresh
+        </label>
+      </div>
+    </div>
+    <pre id="log-content" style="margin:0;padding:1rem;font-size:0.78rem;line-height:1.5;overflow-x:auto;
+         background:#0f172a;color:#e2e8f0;min-height:300px;max-height:70vh;overflow-y:auto;white-space:pre-wrap;word-break:break-all">{{ log_content }}</pre>
+  </div>
+
+</div>
+
+<script>
+let _autoInterval = null;
+const runId = {{ run_id | tojson }};
+
+function refreshLog() {
+  fetch(window.location.href)
+    .then(r => r.text())
+    .then(html => {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const newContent = doc.getElementById('log-content');
+      if (newContent) {
+        const el = document.getElementById('log-content');
+        const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 50;
+        el.textContent = newContent.textContent;
+        if (atBottom) el.scrollTop = el.scrollHeight;
+      }
+    });
+}
+
+function toggleAutoRefresh(cb) {
+  if (cb.checked) {
+    _autoInterval = setInterval(refreshLog, 4000);
+  } else {
+    clearInterval(_autoInterval);
+    _autoInterval = null;
+  }
+}
+
+// Scroll to bottom on load
+window.addEventListener('DOMContentLoaded', () => {
+  const el = document.getElementById('log-content');
+  el.scrollTop = el.scrollHeight;
+});
+</script>
+{% endblock %}

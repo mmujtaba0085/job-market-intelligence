@@ -490,12 +490,17 @@ def run_backfill(start: date, end: date, generate_html: bool = False) -> None:
 # Entry point
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _setup_logging(run_id: str = "", market_id: str = "", week: str = "") -> None:
+def _setup_logging(run_id: str = "", week: str = "") -> None:
     from config.settings import LOGS_DIR
-    log_dir = LOGS_DIR / week if week else LOGS_DIR
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_filename = f"{market_id}_{run_id}.log" if run_id else "pipeline.log"
-    log_path = log_dir / log_filename
+    if run_id:
+        # Per-run log at LOGS_DIR/run_<id>.log — easy for admin UI to find
+        log_dir = LOGS_DIR
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"run_{run_id}.log"
+    else:
+        log_dir = LOGS_DIR / week if week else LOGS_DIR
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "pipeline.log"
 
     logging.basicConfig(
         level=logging.INFO,
@@ -551,12 +556,13 @@ def main() -> None:
 
     week_start = _iso_week_start(date.today())
     week_str = f"{week_start.year}-{week_start.isocalendar()[1]:02d}"
-    _setup_logging(week=week_str)
 
-    # Pipeline monitor: record this run
+    # Determine run_id before logging so the log file is named per-run
     from src.pipeline_monitor import finish_run, start_run
     mode = args.mode if not args.backfill else "backfill"
     run_id = args.run_id if (hasattr(args, "run_id") and args.run_id) else start_run(mode)
+
+    _setup_logging(run_id=run_id, week=week_str)
 
     try:
         stats = _run(args, week_start)
