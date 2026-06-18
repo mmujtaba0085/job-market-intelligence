@@ -16,6 +16,9 @@ services:
       - ${JOBMARKET_HOME:-.}/outputs:/app/outputs
       - ${JOBMARKET_HOME:-.}/logs:/app/logs
       - ${JOBMARKET_HOME:-.}/secrets/google-sa.json:/run/secrets/google-sa.json:ro
+    networks:
+      - default
+      - webproxy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5000/healthz"]
       interval: 30s
@@ -39,3 +42,7 @@ services:
       - ${JOBMARKET_HOME:-.}/secrets/google-sa.json:/run/secrets/google-sa.json:ro
     command: ["python", "-m", "src.orchestrator", "--mode", "ingest-only"]
     restart: "no"
+
+networks:
+  webproxy:
+    external: true
