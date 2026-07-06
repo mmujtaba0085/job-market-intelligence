@@ -99,8 +99,16 @@ class HimalayasCollector(BaseCollector):
                     if keywords and not self._matches_keywords(item, keywords):
                         continue
                     
-                    # Extract URL
-                    url = item.get("link") or item.get("jobUrl") or ""
+                    # Extract URL. The live API exposes the job page as
+                    # "applicationLink" (mirrored in "guid") — "link"/"jobUrl"
+                    # are kept as fallbacks in case the schema changes again.
+                    url = (
+                        item.get("applicationLink")
+                        or item.get("guid")
+                        or item.get("link")
+                        or item.get("jobUrl")
+                        or ""
+                    )
                     if not url:
                         hash_input = f"{item.get('title')}|{item.get('companyName')}|{item.get('pubDate')}"
                         url_hash = hashlib.sha256(hash_input.encode()).hexdigest()[:16]

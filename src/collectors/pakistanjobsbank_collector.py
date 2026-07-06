@@ -127,6 +127,14 @@ class PakistanJobsBankCollector(BaseCollector):
         return 200, self._parse_date_page(resp.text, day)
 
     def _parse_date_page(self, html: str, day: date) -> list[JobRaw]:
+        """
+        One newspaper ad often advertises several distinct roles at once (e.g.
+        one Bureau Veritas ad listing 20 different engineering positions). To
+        keep title/skill analytics meaningful, each position becomes its own
+        JobRaw (its own title, sharing the ad's company/location/newspaper/
+        date) instead of collapsing every role in the ad into one record whose
+        title is just the ad's marketing headline.
+        """
         soup = BeautifulSoup(html, "html.parser")
         jobs: list[JobRaw] = []
 
@@ -141,11 +149,11 @@ class PakistanJobsBankCollector(BaseCollector):
             if not anchor:
                 continue
 
-            title = anchor.get_text(strip=True)
-            if not title:
+            ad_title = anchor.get_text(strip=True)
+            if not ad_title:
                 continue
             href = anchor["href"]
-            url = href if href.startswith("http") else f"{_BASE_URL}{href}"
+            ad_url = href if href.startswith("http") else f"{_BASE_URL}{href}"
 
             # First div looks like: "05-Jul-2026 (Sunday) - Nawa-i-Waqt"
             newspaper = ""
@@ -167,42 +175,59 @@ class PakistanJobsBankCollector(BaseCollector):
                     if text and not (text.startswith("===") and text.endswith("===")):
                         positions.append(text)
 
-            company = self._extract_company(title)
-            description_parts = []
-            if positions:
-                description_parts.append("Positions: " + ", ".join(positions))
+            company = self._extract_company(ad_title)
+
+            # One title per distinct position; ads with no positions list
+            # (rare) fall back to the ad's own headline as a single job.
+            titles = [self._clean_position_title(p) for p in positions] or [ad_title]
+            split = len(titles) > 1
+
+            description_parts = [f"Ad: {ad_title}"]
             if location:
                 description_parts.append(f"Location: {location}")
             if newspaper:
                 description_parts.append(f"Published in {newspaper} on {day.isoformat()}")
-            description = ". ".join(description_parts) or title
+            description = ". ".join(description_parts)
 
-            jobs.append(
-                JobRaw(
-                    source_id=self.source_id,
-                    source_name="Pakistan Jobs Bank",
-                    url=url,
-                    fetched_at=self._now(),
-                    raw_json={
-                        "title": title,
-                        "newspaper": newspaper,
-                        "location": location,
-                        "positions": positions,
-                        "ad_date": day.isoformat(),
-                    },
-                    parsed_fields={
-                        "title": title,
-                        "company": company,
-                        "location": location,
-                        "country": "Pakistan",
-                        "remote_type": "on-site",
-                        "posted_date": day.isoformat(),
-                        "description": description,
-                    },
+            for i, position_title in enumerate(titles, start=1):
+                # The ad page is the only URL available for every position in
+                # it; a fragment keeps each position's url_hash unique so the
+                # dedup layer doesn't collapse them into a single row.
+                url = f"{ad_url}#pos-{i}" if split else ad_url
+
+                jobs.append(
+                    JobRaw(
+                        source_id=self.source_id,
+                        source_name="Pakistan Jobs Bank",
+                        url=url,
+                        fetched_at=self._now(),
+                        raw_json={
+                            "ad_title": ad_title,
+                            "newspaper": newspaper,
+                            "location": location,
+                            "positions": positions,
+                            "ad_date": day.isoformat(),
+                        },
+                        parsed_fields={
+                            "title": position_title,
+                            "company": company,
+                            "location": location,
+                            "country": "Pakistan",
+                            "remote_type": "on-site",
+                            "posted_date": day.isoformat(),
+                            "description": description,
+                        },
+                    )
                 )
-            )
 
         return jobs
+
+    _LEADING_COUNT_RE = re.compile(r"^\d+\s*[-–:]*\s*")
+
+    def _clean_position_title(self, position: str) -> str:
+        """Strip a leading headcount ("03 ", "1500 ") some positions carry."""
+        cleaned = self._LEADING_COUNT_RE.sub("", position).strip()
+        return cleaned or position
 
     def _extract_company(self, title: str) -> str:
         """
