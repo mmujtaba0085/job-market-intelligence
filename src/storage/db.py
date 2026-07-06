@@ -503,10 +503,24 @@ def upsert_job(job: JobNormalized) -> tuple[Optional[int], str]:
         with conn:
             # 1. Check url_hash (fastest - exact same URL)
             row = conn.execute(
-                "SELECT job_id FROM jobs WHERE url_hash = ?", (job.url_hash,)
+                "SELECT job_id, company FROM jobs WHERE url_hash = ?", (job.url_hash,)
             ).fetchone()
             if row:
                 job_id = row["job_id"]
+
+                # Self-heal: some sources (e.g. Himalayas) occasionally stamp
+                # a broken placeholder for company at collection time. Same
+                # URL means same job, so if a later re-crawl carries a real
+                # company for it, fix the stored value instead of leaving it
+                # broken forever - unlike canonical_hash, url_hash doesn't
+                # change when company does, so this reliably finds the row.
+                stored_company = (row["company"] or "").strip()
+                if stored_company.lower() in ("", "name") and job.company and job.company.strip().lower() != "name":
+                    conn.execute(
+                        "UPDATE jobs SET company = ? WHERE job_id = ?", (job.company, job_id)
+                    )
+                    logger.info("[db] Upgraded placeholder company → %s (job_id=%s)", job.company, job_id)
+
                 conn.execute(
                     "UPDATE jobs SET last_seen_at = ? WHERE url_hash = ?",
                     (now, job.url_hash),

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 
 import requests
 
@@ -36,6 +37,29 @@ logger = logging.getLogger(__name__)
 _BASE_URL = "https://himalayas.app/jobs/api"
 _TIMEOUT = 15  # Shorter timeout for responsiveness
 _PAGE_LIMIT = 20  # API max per request
+
+# Himalayas occasionally returns the literal placeholder string "name" for
+# companyName (an upstream data-quality issue on their end — confirmed live,
+# not something wrong in our parsing). companySlug is still present in that
+# case, so recover a real name from it: prefer the properly-cased name in
+# the description's first link to that company's profile page when present
+# (preserves their actual display casing, e.g. "PALTRON GmbH"), falling
+# back to title-casing the slug itself (e.g. "mst-group" -> "Mst Group").
+_BROKEN_COMPANY_VALUES = {"name", ""}
+
+
+def _recover_company_name(item: dict) -> str:
+    slug = item.get("companySlug") or ""
+    if not slug:
+        return ""
+    description = item.get("description") or ""
+    match = re.search(
+        rf'href="https://himalayas\.app/companies/{re.escape(slug)}/?"[^>]*>([^<]+)<',
+        description,
+    )
+    if match:
+        return match.group(1).strip()
+    return slug.replace("-", " ").replace("_", " ").title()
 
 
 class HimalayasCollector(BaseCollector):
@@ -131,7 +155,11 @@ class HimalayasCollector(BaseCollector):
                     # stamping "today" on every collection is only ever
                     # actually stored the first time this job is seen.
                     posted_date = self._now().date().isoformat()
-                    
+
+                    company = item.get("companyName") or ""
+                    if company.strip().lower() in _BROKEN_COMPANY_VALUES:
+                        company = _recover_company_name(item) or company
+
                     results.append(
                         JobRaw(
                             source_id=self.source_id,
@@ -141,7 +169,7 @@ class HimalayasCollector(BaseCollector):
                             raw_json=item,
                             parsed_fields={
                                 "title": item.get("title") or "",
-                                "company": item.get("companyName") or "",
+                                "company": company,
                                 "location": location,
                                 "country": country,
                                 "remote_type": "Remote",  # Himalayas = remote jobs only
