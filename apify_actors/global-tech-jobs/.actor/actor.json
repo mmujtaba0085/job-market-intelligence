@@ -1,0 +1,12 @@
+{
+    "actorSpecification": 1,
+    "name": "global-tech-jobs",
+    "title": "Global Tech Jobs",
+    "description": "AI/ML and Software Engineering job postings from around the world, collected and cleaned by Job Market Intelligence. Everything except the Pakistan-specific feed.",
+    "version": "1.0",
+    "meta": {
+        "templateId": "python-empty"
+    },
+    "input": "./input_schema.json",
+    "dockerfile": "../Dockerfile"
+}
