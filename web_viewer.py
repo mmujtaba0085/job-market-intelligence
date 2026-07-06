@@ -1449,19 +1449,19 @@ def jobs_list():
         for j in jobs:
             j["source_name"] = source_name_map.get(j["source_name"], j["source_name"])
 
-    # Dropdown data — markets as objects with depth+name
-    cursor.execute("""
-        SELECT m.market_id as id, m.name,
-               (LENGTH(m.market_id) - LENGTH(REPLACE(m.market_id,'.','')))/1 as depth
-        FROM markets m ORDER BY m.market_id
-    """)
-    market_rows = cursor.fetchall()
-    if not market_rows:
-        # Fallback: derive from jobs table
-        cursor.execute("SELECT DISTINCT market_id FROM active_jobs WHERE market_id IS NOT NULL ORDER BY market_id")
-        markets = [{"id": r["market_id"], "name": r["market_id"], "depth": 0} for r in cursor.fetchall()]
-    else:
-        markets = [{"id": r["id"], "name": r["name"], "depth": r["depth"]} for r in market_rows]
+    # Dropdown data — derived from the jobs table's own market_id, not the
+    # separate ISCO-taxonomy "markets" lookup table: that table's ids
+    # (it.software, healthcare.clinical, ...) don't correspond to any actual
+    # job's market_id (ai_ml_global, swe_backend_global, pakistan_jobs_all)
+    # until/unless the taxonomy classification is promoted, so filtering by
+    # a taxonomy id here always silently matched zero rows.
+    from config.markets import TARGET_MARKETS
+    market_display_names = {m["market_id"]: m["display_name"] for m in TARGET_MARKETS}
+    cursor.execute("SELECT DISTINCT market_id FROM active_jobs WHERE market_id IS NOT NULL ORDER BY market_id")
+    markets = [
+        {"market_id": r["market_id"], "name": market_display_names.get(r["market_id"], r["market_id"]), "depth": 0}
+        for r in cursor.fetchall()
+    ]
 
     cursor.execute("SELECT DISTINCT remote_type FROM active_jobs WHERE remote_type IS NOT NULL ORDER BY remote_type")
     remote_types = [r["remote_type"] for r in cursor.fetchall()]
