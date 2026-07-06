@@ -1162,6 +1162,12 @@ def titles_analytics():
     return render_template("titles_analytics.html")
 
 
+@app.route("/api/docs")
+def api_docs():
+    """Human-readable API documentation (auth, endpoints, examples)."""
+    return render_template("api_docs.html")
+
+
 _SENIORITY_PREFIX_RE = re.compile(
     r'^(?:Senior|Junior|Jr\.?|Sr\.?|Associate|Mid[\s-]Level|Entry[\s-]Level)\s+',
     re.IGNORECASE,

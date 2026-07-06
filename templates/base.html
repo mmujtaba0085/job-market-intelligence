@@ -356,6 +356,7 @@
                     <a href="/skills/intelligence" {% if request.path.startswith('/skills') %}class="active"{% endif %}>Skills</a>
                     <a href="/companies/intelligence" {% if request.path.startswith('/companies') %}class="active"{% endif %}>Companies</a>
                     <a href="/titles/analytics" {% if request.path.startswith('/titles') %}class="active"{% endif %}>Titles</a>
+                    <a href="/api/docs" {% if request.path.startswith('/api/docs') %}class="active"{% endif %}>API</a>
                     {% if g.current_user and g.current_user.get('role') == 'admin' %}
                     <a href="/admin"    {% if request.path.startswith('/admin') %}class="active"{% endif %}>⚙️ Admin</a>
                     {% endif %}
