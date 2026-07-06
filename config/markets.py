@@ -119,6 +119,37 @@ TARGET_MARKETS: list[dict] = [
         "max_jobs_per_source": 500,
     },
 
+    {
+        # ── Identity ─────────────────────────────────────────────────────────
+        "market_id": "pakistan_jobs_all",
+        "display_name": "Pakistan Jobs (All Categories)",
+
+        # No keyword filter — this market intentionally captures every job
+        # category from the source (government, banking, medical, teaching,
+        # etc.), not just tech roles.
+        "keywords": [],
+        "crawl_keywords": [],
+
+        # ── Geography ─────────────────────────────────────────────────────────
+        "countries": ["Pakistan"],
+
+        # ── Filters ───────────────────────────────────────────────────────────
+        "remote_filter": False,
+        "experience_levels": ["entry", "mid", "senior"],
+        "salary_required": False,
+
+        # ── Collection limits (per source per run) ────────────────────────────
+        # Effectively unbounded — PakistanJobsBankCollector paces itself via its
+        # own per-run date-page budget (see _MAX_DATES_PER_RUN), not this cap.
+        "max_jobs_per_source": 1_000_000,
+
+        # ── Restrict this market to just this source ─────────────────────────
+        # Without this, every other registered collector (Remotive, Arbeitnow,
+        # JSearch, ...) would also run against this market, which makes no
+        # sense for a Pakistan-specific, all-category archive.
+        "source_allowlist": ["pakistanjobsbank"],
+    },
+
     # ── Future market template (commented out) ────────────────────────────────
     # {
     #     "market_id": "devops_remote",

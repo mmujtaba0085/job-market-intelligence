@@ -38,6 +38,7 @@ data/cache/
 data/backups/
 data/sqlite_backups/
 data/findwork_crawler_state.json
+data/pakistanjobsbank_state.json
 data/.fuse_hidden*
 logs/
 outputs/
