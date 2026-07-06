@@ -357,6 +357,25 @@ ALLOWED_SOURCES: list[dict] = [
         ],
     },
 
+    {
+        "source_id": "pakistanjobsbank",
+        "display_name": "Pakistan Jobs Bank",
+        "source_type": "HTML",
+        "base_url": "https://www.pakistanjobsbank.com",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # verified: robots.txt only disallows /cgi-bin/
+        "requires_auth": False,
+        "tos_note": (
+            "Public archive of Pakistani newspaper job classifieds (Jang, Dawn, "
+            "Express, Nawa-i-Waqt, The News, The Nation), organized by publication "
+            "date. No API; scraped one date-archive page at a time "
+            "(/Jobs-in-Pakistan/YYYY-MM-DD/), each listing every ad for that day. "
+            "robots.txt disallows only /cgi-bin/. No login required, no ToS page "
+            "restricting automated access found."
+        ),
+        "enabled": True,
+    },
+
     # ── Future sources (add below, keep disabled until vetted) ────────────────
 ]
 

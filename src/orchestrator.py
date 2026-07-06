@@ -56,6 +56,7 @@ from src.collectors.hireweb3_collector import HireWeb3Collector
 from src.collectors.adzuna_collector import AdzunaCollector
 from src.collectors.findwork_collector import FindworkCollector
 from src.collectors.jooble_collector import JoobleCollector
+from src.collectors.pakistanjobsbank_collector import PakistanJobsBankCollector
 from src.collectors.github_repo_collector import (
     GitHubSimplify2026Collector,
     GitHubVansh2026Collector,
@@ -112,6 +113,7 @@ _COLLECTOR_CLASSES = [
     AdzunaCollector,
     FindworkCollector,
     JoobleCollector,
+    PakistanJobsBankCollector,
     GitHubSimplify2026Collector,
     GitHubVansh2026Collector,
     GitHubSpeedyApply2026Collector,
@@ -142,7 +144,14 @@ def run_ingestion(market: dict, run: RunContext) -> None:
     all_jobs_raw = []
 
     # 1. Collect - track per source
+    source_allowlist = market.get("source_allowlist")
     for collector in COLLECTORS:
+        # A market may restrict itself to a subset of sources (e.g. a
+        # single-source, all-categories market like pakistan_jobs_all).
+        # Absent = run every registered collector, as before.
+        if source_allowlist is not None and collector.source_id not in source_allowlist:
+            continue
+
         # Track attempt
         run.record_source_attempted()
         
