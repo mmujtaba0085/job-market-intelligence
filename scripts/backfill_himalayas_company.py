@@ -8,7 +8,7 @@ so normal re-crawl dedup can't self-heal these in place - it would insert a
 fresh duplicate instead of updating the broken row. This script updates the
 existing rows directly.
 
-Two passes:
+Three passes:
   1. Rows that already got a real himalayas.app URL from the URL self-heal
      (upsert_job) but still have the broken company: the company slug is
      right there in the URL path, no HTTP request needed.
@@ -16,7 +16,14 @@ Two passes:
      recover a slug from): paginate the live API and match by exact title,
      recovering both url and company together when a match is found. Bounded
      to a fixed number of pages - jobs that have since expired/rotated off
-     the live feed simply won't be found, same limitation as the URL fix.
+     the live feed simply won't be found there.
+  3. Whatever's still broken after passes 1-2: we already have the job's
+     own description text stored locally (raw_description) from when it
+     was first collected - no need for the live listing to still exist.
+     Himalayas' description template links to the company's own profile
+     page near the top ("The mission of <a href=.../companies/x>X</a> is
+     ..."), so pull the first such link's anchor text directly, without
+     needing to already know the slug.
 
 Usage:
     python scripts/backfill_himalayas_company.py
@@ -35,6 +42,7 @@ _UA = "Mozilla/5.0 (compatible; JobMarketIntelligenceBot/1.0; +research)"
 _PAGE_LIMIT = 20
 _MAX_PAGES_PASS2 = 500  # ~10,000 most-recent live listings
 _URL_SLUG_RE = re.compile(r"/companies/([^/]+)/jobs/")
+_DESC_COMPANY_LINK_RE = re.compile(r'href="https://himalayas\.app/companies/[^/"]+/?"[^>]*>([^<]+)<')
 
 
 def _slug_to_name(slug: str) -> str:
@@ -127,12 +135,35 @@ def backfill_pass2(conn: sqlite3.Connection) -> int:
     return fixed
 
 
+def backfill_pass3(conn: sqlite3.Connection) -> int:
+    """Whatever's still broken: recover from our own already-stored description."""
+    cur = conn.execute(
+        "SELECT job_id, raw_description FROM jobs WHERE source_name='Himalayas' "
+        "AND lower(trim(company))='name'"
+    )
+    rows = cur.fetchall()
+    fixed = 0
+    for job_id, description in rows:
+        match = _DESC_COMPANY_LINK_RE.search(description or "")
+        if not match:
+            continue
+        name = match.group(1).strip()
+        if not name:
+            continue
+        conn.execute("UPDATE jobs SET company=? WHERE job_id=?", (name, job_id))
+        fixed += 1
+    conn.commit()
+    print(f"Pass 3 (stored description): fixed {fixed}/{len(rows)}")
+    return fixed
+
+
 def main() -> None:
     conn = sqlite3.connect(str(DB_PATH))
     try:
         f1 = backfill_pass1(conn)
         f2 = backfill_pass2(conn)
-        print(f"Total fixed: {f1 + f2}")
+        f3 = backfill_pass3(conn)
+        print(f"Total fixed: {f1 + f2 + f3}")
     finally:
         conn.close()
 
