@@ -12,15 +12,23 @@ directly in <tr class="job-ad"> rows — individual job detail pages don't need
 to be fetched to get title/newspaper/location/positions.
 
 Crawl strategy (persisted to data/pakistanjobsbank_state.json so it survives
-restarts and spreads across many daily runs):
-  - Phase 1 (backfill): walk backward day-by-day from the oldest date crawled
-    so far, until _CONSECUTIVE_404_THRESHOLD consecutive HTTP 404s confirm the
-    start of the archive has been reached.
-  - Phase 2 (incremental): once backfill is complete, walk forward from the
+restarts and spreads across many daily runs). Two frontiers advance every
+call, so recent postings are never stuck waiting behind the historical
+backfill:
+  - Forward frontier (checked first, every call): walks forward from the
     newest date crawled so far up to today, picking up new daily postings.
-  - Each call advances by at most _MAX_DATES_PER_RUN dates so a single run
-    (invoked daily via `--mode ingest-only`) stays bounded; the rest of the
-    history is picked up automatically on subsequent runs.
+    Cheap in steady state — usually just the single new day since the last
+    run.
+  - Backward frontier (uses whatever budget is left): walks backward
+    day-by-day from the oldest date crawled so far, until either
+    _BACKFILL_WINDOW_DAYS of history has been covered or
+    _CONSECUTIVE_404_THRESHOLD consecutive HTTP 404s confirm the archive's
+    start has been reached first (only relevant if the window is ever
+    widened past the site's actual history). Once either condition hits,
+    "backfill_complete" is set and this frontier stops advancing.
+  - Each call processes at most _MAX_DATES_PER_RUN dates total (across both
+    frontiers) so a single run (invoked daily via `--mode ingest-only`)
+    stays bounded.
 
 This source deliberately covers every job category (government, banking,
 medical, teaching, driving, ...), not just tech — see market
@@ -48,6 +56,7 @@ logger = logging.getLogger(__name__)
 _BASE_URL = "https://www.pakistanjobsbank.com"
 _TIMEOUT = 15
 _MAX_DATES_PER_RUN = 200
+_BACKFILL_WINDOW_DAYS = 270  # ~9 months of history; older ads are past relevance for this market
 _CONSECUTIVE_404_THRESHOLD = 30
 _EARLIEST_SAFETY_FLOOR = date(2010, 1, 1)  # hard stop in case 404 detection ever misfires
 _STATE_FILE = Path("data/pakistanjobsbank_state.json")
@@ -222,18 +231,44 @@ class PakistanJobsBankCollector(BaseCollector):
         max_jobs = market.get("max_jobs_per_source")
         results: list[JobRaw] = []
         dates_crawled = 0
+        budget = _MAX_DATES_PER_RUN
 
-        if not state["backfill_complete"]:
-            cursor = (
-                date.fromisoformat(state["oldest_date_crawled"]) - timedelta(days=1)
-                if state["oldest_date_crawled"]
-                else date.today()
-            )
+        # ── Forward frontier: always catch up on newly published dates first ──
+        if state.get("newest_date_crawled"):
+            cursor = date.fromisoformat(state["newest_date_crawled"]) + timedelta(days=1)
+            today = date.today()
 
-            while dates_crawled < _MAX_DATES_PER_RUN and cursor >= _EARLIEST_SAFETY_FLOOR:
+            while budget > 0 and cursor <= today:
                 self._wait()
                 status, jobs = self._fetch_date_page(cursor)
                 dates_crawled += 1
+                budget -= 1
+
+                if status == 404:
+                    # Not yet published for that date — stop advancing for now.
+                    break
+
+                state["newest_date_crawled"] = cursor.isoformat()
+                results.extend(jobs)
+                cursor += timedelta(days=1)
+
+        # ── Backward frontier: bounded backfill within the recent window ──
+        if not state["backfill_complete"] and budget > 0:
+            floor_date = max(
+                date.today() - timedelta(days=_BACKFILL_WINDOW_DAYS),
+                _EARLIEST_SAFETY_FLOOR,
+            )
+            cursor = (
+                date.fromisoformat(state["oldest_date_crawled"]) - timedelta(days=1)
+                if state.get("oldest_date_crawled")
+                else date.today()
+            )
+
+            while budget > 0 and cursor >= floor_date:
+                self._wait()
+                status, jobs = self._fetch_date_page(cursor)
+                dates_crawled += 1
+                budget -= 1
 
                 if status == 404:
                     state["consecutive_404"] = state.get("consecutive_404", 0) + 1
@@ -247,29 +282,23 @@ class PakistanJobsBankCollector(BaseCollector):
                 if state["consecutive_404"] >= _CONSECUTIVE_404_THRESHOLD:
                     state["backfill_complete"] = True
                     logger.info(
-                        "[pakistanjobsbank] Backfill complete: reached archive start near %s",
-                        cursor,
+                        "[pakistanjobsbank] Backfill complete: hit %d consecutive 404s near %s",
+                        _CONSECUTIVE_404_THRESHOLD, cursor,
                     )
                     break
 
                 cursor -= timedelta(days=1)
 
-        else:
-            cursor = date.fromisoformat(state["newest_date_crawled"]) + timedelta(days=1)
-            today = date.today()
-
-            while dates_crawled < _MAX_DATES_PER_RUN and cursor <= today:
-                self._wait()
-                status, jobs = self._fetch_date_page(cursor)
-                dates_crawled += 1
-
-                if status == 404:
-                    # Not yet published for that date — stop advancing for now.
-                    break
-
-                state["newest_date_crawled"] = cursor.isoformat()
-                results.extend(jobs)
-                cursor += timedelta(days=1)
+            if (
+                not state["backfill_complete"]
+                and state.get("oldest_date_crawled")
+                and date.fromisoformat(state["oldest_date_crawled"]) <= floor_date
+            ):
+                state["backfill_complete"] = True
+                logger.info(
+                    "[pakistanjobsbank] Backfill complete: reached %d-day window floor (%s)",
+                    _BACKFILL_WINDOW_DAYS, floor_date,
+                )
 
         if max_jobs is not None and len(results) > max_jobs:
             results = results[:max_jobs]
