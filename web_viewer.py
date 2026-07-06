@@ -1553,20 +1553,67 @@ def jobs_quality_review():
 
 @app.route("/api/jobs")
 def api_jobs_list():
-    """JSON list of jobs — requires jobs:read scope for API keys."""
+    """
+    JSON list of jobs — requires jobs:read scope for API keys.
+
+    Query params:
+      limit    max rows to return (default 50, capped at 200)
+      offset   pagination offset
+      market   filter to one market_id (e.g. pakistan_jobs_all, ai_ml_global,
+               swe_backend_global) - omit for all markets
+      exclude_market  filter OUT one market_id - the inverse of `market`,
+               e.g. exclude_market=pakistan_jobs_all for "everything else"
+
+    Sorted by posted_date (the job's own listing date) descending, not
+    ingestion time - a job we only just discovered via a historical
+    backfill shouldn't jump to the front of a "most recent" feed just
+    because we collected it a minute ago. Jobs with no posted_date (~41%
+    of the catalog, an inherent source data-quality gap) sort after every
+    dated job, ranked among themselves by ingestion recency instead of
+    disappearing to page one thousand.
+    """
     try:
         limit = min(int(request.args.get("limit", 50)), 200)
         offset = int(request.args.get("offset", 0))
     except ValueError:
         return jsonify({"error": "limit and offset must be integers"}), 400
+
+    market_filter = request.args.get("market", "")
+    exclude_market = request.args.get("exclude_market", "")
+
     conn = get_db_connection()
     try:
-        rows = conn.execute(
-            "SELECT job_id, title, company, location, country, remote_type, "
-            "posted_date, source_name, url FROM active_jobs ORDER BY ingested_at DESC, job_id DESC LIMIT ? OFFSET ?",
-            (limit, offset),
-        ).fetchall()
-        return jsonify({"jobs": [dict(r) for r in rows], "limit": limit, "offset": offset})
+        cursor = conn.cursor()
+        where = ["1=1"]
+        params: list = []
+        if market_filter:
+            where.append("market_id = ?")
+            params.append(market_filter)
+        if exclude_market:
+            where.append("market_id != ?")
+            params.append(exclude_market)
+
+        cursor.execute(
+            f"""
+            SELECT job_id, title, company, location, country, remote_type,
+                   posted_date, source_name, market_id, url
+            FROM active_jobs
+            WHERE {' AND '.join(where)}
+            ORDER BY (posted_date IS NULL), posted_date DESC, ingested_at DESC, job_id DESC
+            LIMIT ? OFFSET ?
+            """,
+            params + [limit, offset],
+        )
+        rows = cursor.fetchall()
+
+        jobs = [dict(r) for r in rows]
+        if not show_source_names():
+            cursor.execute("SELECT DISTINCT source_name FROM active_jobs")
+            name_map = obscure_source_map([r["source_name"] for r in cursor.fetchall()])
+            for j in jobs:
+                j["source_name"] = name_map.get(j["source_name"], j["source_name"])
+
+        return jsonify({"jobs": jobs, "limit": limit, "offset": offset})
     finally:
         conn.close()
 
