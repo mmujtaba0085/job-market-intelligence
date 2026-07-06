@@ -17,6 +17,7 @@ Public API:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import sqlite3
@@ -296,6 +297,94 @@ def _ensure_column(conn: sqlite3.Connection, table_name: str, column_name: str, 
     if column_name not in existing:
         conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_sql}")
         logger.info("[db] Added column %s.%s", table_name, column_name)
+
+
+def _ensure_warehouse_schema(conn: sqlite3.Connection) -> None:
+    """
+    Create the schema scripts/warehouse_rollout.py classifies jobs into, and
+    (re)seed the "markets" ISCO-taxonomy lookup table from config/job_markets.py.
+
+    Called on a shadow copy of the live database (see build_shadow()), never
+    on the live DB directly — the taxonomy classification is only meant to
+    take effect via an explicit, checked promotion.
+    """
+    from config.job_markets import JOB_MARKETS
+
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS markets (
+            market_id  TEXT PRIMARY KEY,
+            name       TEXT NOT NULL,
+            parent_id  TEXT,
+            isco       TEXT,
+            keywords   TEXT NOT NULL DEFAULT '[]'
+        );
+
+        CREATE TABLE IF NOT EXISTS job_market_assignments (
+            job_id          INTEGER NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+            market_id       TEXT NOT NULL,
+            assignment_type TEXT NOT NULL,   -- 'primary' | 'tag'
+            confidence      REAL,
+            method          TEXT,
+            evidence_json   TEXT,
+            assigned_at     TEXT NOT NULL,
+            PRIMARY KEY (job_id, market_id, assignment_type)
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_market_assignments_job    ON job_market_assignments(job_id);
+        CREATE INDEX IF NOT EXISTS idx_job_market_assignments_market ON job_market_assignments(market_id);
+
+        CREATE TABLE IF NOT EXISTS source_records (
+            source_record_pk  INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id         TEXT NOT NULL,
+            source_record_id  TEXT NOT NULL,
+            source_url        TEXT,
+            payload_hash      TEXT,
+            first_seen_at     TEXT NOT NULL,
+            last_seen_at      TEXT NOT NULL,
+            listing_status    TEXT NOT NULL DEFAULT 'unverified',
+            UNIQUE(source_id, source_record_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS job_source_links (
+            job_id            INTEGER NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+            source_record_pk  INTEGER NOT NULL REFERENCES source_records(source_record_pk) ON DELETE CASCADE,
+            linked_at         TEXT NOT NULL,
+            match_method      TEXT NOT NULL,
+            match_confidence  REAL,
+            PRIMARY KEY (job_id, source_record_pk)
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_source_links_job ON job_source_links(job_id);
+
+        CREATE TABLE IF NOT EXISTS enrichment_events (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id         INTEGER NOT NULL REFERENCES jobs(job_id) ON DELETE CASCADE,
+            field_name     TEXT NOT NULL,
+            old_value      TEXT,
+            new_value      TEXT,
+            confidence     REAL,
+            method         TEXT,
+            evidence_json  TEXT,
+            applied        INTEGER NOT NULL DEFAULT 0,
+            created_at     TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_enrichment_events_job ON enrichment_events(job_id);
+        """
+    )
+
+    _ensure_column(conn, "jobs", "classification_confidence", "classification_confidence REAL")
+    _ensure_column(conn, "jobs", "classification_method", "classification_method TEXT")
+    _ensure_column(conn, "jobs", "status_reason", "status_reason TEXT")
+    _ensure_column(conn, "jobs", "last_verified_at", "last_verified_at TEXT")
+
+    for market in JOB_MARKETS:
+        conn.execute(
+            """INSERT OR REPLACE INTO markets (market_id, name, parent_id, isco, keywords)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                market["market_id"], market["name"], market["parent_id"],
+                market["isco"], json.dumps(market["keywords"]),
+            ),
+        )
 
 
 def _ensure_dynamic_sheet_targets(conn: sqlite3.Connection) -> None:
