@@ -12,6 +12,19 @@ from config.job_markets import LEAF_MARKETS
 
 _TOKEN_RE = re.compile(r"[a-z0-9+#.]+")
 
+# Seniority/employment-type noise that dilutes matching and — worse — creates
+# false fuzzy-similarity ties across categories (e.g. "IT Intern" vs "AI Intern"
+# vs "Data Intern" all look near-identical to SequenceMatcher once you ignore
+# the one word that actually carries the domain signal). Stripped from the
+# title before matching so the real domain word decides the category.
+_NOISE_RE = re.compile(
+    r"\b(?:intern(?:ship)?s?|co-?op|senior|sr|junior|jr|lead|principal|staff)\b"
+)
+
+
+def _strip_noise(text: str) -> str:
+    return re.sub(r"\s+", " ", _NOISE_RE.sub(" ", text)).strip()
+
 
 @dataclass(frozen=True)
 class MarketMatch:
@@ -28,7 +41,7 @@ def _tokens(text: str) -> set[str]:
 
 def classify_job(title: str, description: str = "", source_tags: list[str] | None = None) -> MarketMatch:
     """Return a primary leaf and related leaf tags; low-confidence jobs stay unclassified."""
-    title_lower = (title or "").lower()
+    title_lower = _strip_noise((title or "").lower())
     desc_lower = (description or "")[:4000].lower()
     source_text = " ".join(source_tags or []).lower()
     title_tokens = _tokens(title_lower)
