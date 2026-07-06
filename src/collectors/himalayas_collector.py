@@ -11,13 +11,14 @@ Query params:
 Response fields used:
   - title (job title)
   - companyName
-  - link or jobUrl (apply URL)
+  - applicationLink or guid (apply URL; link/jobUrl kept as fallbacks)
   - description or html (job description)
-  - pubDate/postedAt/updatedAt (posted date)
   - location/country restrictions
   - totalCount (for pagination)
 
-All jobs from Himalayas are remote positions.
+All jobs from Himalayas are remote positions. posted_date is NOT read from
+the source (see _fetch_raw for why) — it's stamped with the date we first
+collect the job.
 """
 
 from __future__ import annotations
@@ -121,10 +122,15 @@ class HimalayasCollector(BaseCollector):
                     # Extract description
                     description = item.get("description") or item.get("html") or ""
                     
-                    # Extract date
-                    posted_date = self._parse_date(
-                        item.get("pubDate") or item.get("postedAt") or item.get("updatedAt")
-                    )
+                    # posted_date = the date *we* first saw this job, not the
+                    # source's own timestamp. Himalayas' "pubDate" is a Unix
+                    # timestamp (int) that silently failed to parse here
+                    # (always ended up blank), and per-source posting dates
+                    # are unreliable for a listings feed like this anyway —
+                    # dedup only ever sets posted_date on first insert, so
+                    # stamping "today" on every collection is only ever
+                    # actually stored the first time this job is seen.
+                    posted_date = self._now().date().isoformat()
                     
                     results.append(
                         JobRaw(
@@ -198,14 +204,3 @@ class HimalayasCollector(BaseCollector):
             return "Global"
         
         return "Global"  # Default for remote jobs
-
-    def _parse_date(self, date_str: str | None) -> str:
-        """Parse date to YYYY-MM-DD."""
-        if not date_str:
-            return ""
-        
-        try:
-            # Handle ISO format
-            return date_str.split("T")[0]
-        except Exception:
-            return ""
