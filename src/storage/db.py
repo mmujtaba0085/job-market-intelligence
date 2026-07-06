@@ -430,13 +430,33 @@ def upsert_job(job: JobNormalized) -> tuple[Optional[int], str]:
 
             # 2. Check canonical_hash (same job, different URL or location)
             row = conn.execute(
-                "SELECT job_id, job_group_id FROM jobs WHERE canonical_hash = ?",
+                "SELECT job_id, job_group_id, url FROM jobs WHERE canonical_hash = ?",
                 (job.canonical_hash,),
             ).fetchone()
             if row:
                 job_id = row["job_id"]
                 job_group_id = row["job_group_id"]
-                
+
+                # Self-heal: some collectors fall back to a synthetic
+                # "source://hash" URL when a real one isn't available at
+                # collection time. If a later re-crawl of the same job turns up
+                # a real http(s) URL, upgrade the stored placeholder instead of
+                # leaving it broken forever (canonical dedup never otherwise
+                # touches url/url_hash again).
+                stored_url = row["url"] or ""
+                if (
+                    stored_url
+                    and not stored_url.startswith(("http://", "https://"))
+                    and job.url.startswith(("http://", "https://"))
+                ):
+                    conn.execute(
+                        "UPDATE jobs SET url = ?, url_hash = ? WHERE job_id = ?",
+                        (job.url, job.url_hash, job_id),
+                    )
+                    logger.info(
+                        "[db] Upgraded placeholder URL → %s (job_id=%s)", job.url, job_id,
+                    )
+
                 # Determine locations to check/insert
                 locations_to_process = []
                 if job.all_locations and len(job.all_locations) > 0:
