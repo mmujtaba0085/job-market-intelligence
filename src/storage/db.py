@@ -260,6 +260,7 @@ def run_migrations() -> None:
             ("crawl_max_runtime_minutes",   "30"),
             ("weekly_day",                  "Sunday"),
             ("weekly_time",                 "03:00"),
+            ("show_source_names",           "true"),
         ]
         for key, value in defaults:
             conn.execute(

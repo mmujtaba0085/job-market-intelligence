@@ -150,6 +150,30 @@ def get_db_connection():
     raise sqlite3.OperationalError(f"Cannot open any DB: {last_err}")
 
 
+def show_source_names() -> bool:
+    """
+    Admins always see real source names (they need them to operate the
+    pipeline). Everyone else depends on the "show_source_names" admin
+    toggle — off by default is not the goal here, the toggle just lets an
+    admin hide the source list from regular/API-key viewers without
+    touching the underlying data.
+    """
+    user = getattr(g, "current_user", None)
+    if user and user.get("role") == "admin":
+        return True
+    from src.pipeline_monitor import get_config
+    return get_config().get("show_source_names", "true") != "false"
+
+
+def obscure_source_map(names) -> dict:
+    """Deterministic real-name -> "Source A"/"Source B"/... label mapping."""
+    uniq = sorted({n for n in names if n})
+    mapping = {}
+    for i, name in enumerate(uniq):
+        mapping[name] = f"Source {chr(65 + i)}" if i < 26 else f"Source {i + 1}"
+    return mapping
+
+
 COUNTRY_ALIASES = {
     "uk": "United Kingdom",
     "u.k": "United Kingdom",
@@ -672,11 +696,15 @@ def dashboard_sources():
         GROUP BY source_name
         ORDER BY count DESC
     """)
-    
-    sources = [{"source": row["source_name"], "count": row["count"]} 
-               for row in cursor.fetchall()]
+    rows = cursor.fetchall()
     conn.close()
-    
+
+    if show_source_names():
+        sources = [{"source": row["source_name"], "count": row["count"]} for row in rows]
+    else:
+        name_map = obscure_source_map([row["source_name"] for row in rows])
+        sources = [{"source": name_map[row["source_name"]], "count": row["count"]} for row in rows]
+
     return jsonify(sources)
 
 
@@ -1270,11 +1298,15 @@ def get_sources_filter():
         GROUP BY source_name
         ORDER BY count DESC
     """)
-    
-    sources = [{"source": row["source_name"], "count": row["count"]} 
-               for row in cursor.fetchall()]
+    rows = cursor.fetchall()
     conn.close()
-    
+
+    if show_source_names():
+        sources = [{"source": row["source_name"], "count": row["count"]} for row in rows]
+    else:
+        name_map = obscure_source_map([row["source_name"] for row in rows])
+        sources = [{"source": name_map[row["source_name"]], "count": row["count"]} for row in rows]
+
     return jsonify(sources)
 
 
@@ -1357,6 +1389,12 @@ def jobs_list():
     except (ValueError, TypeError):
         page = 1
 
+    show_names = show_source_names()
+    cursor.execute("SELECT DISTINCT source_name FROM active_jobs ORDER BY source_name")
+    all_sources = [r["source_name"] for r in cursor.fetchall()]
+    source_name_map = {} if show_names else obscure_source_map(all_sources)
+    source_reverse_map = {v: k for k, v in source_name_map.items()}
+
     base = """
         SELECT DISTINCT j.job_id, j.title, j.company, j.location, j.country,
                j.remote_type, j.posted_date, j.source_name, j.market_id, j.location_count
@@ -1381,7 +1419,8 @@ def jobs_list():
     if country_filter:
         base += " AND j.country = ?"; params.append(country_filter)
     if source_filter:
-        base += " AND j.source_name = ?"; params.append(source_filter)
+        real_source = source_filter if show_names else source_reverse_map.get(source_filter, source_filter)
+        base += " AND j.source_name = ?"; params.append(real_source)
     if company_filter:
         base += " AND j.company LIKE ?"; params.append(f"%{company_filter}%")
     if search_query:
@@ -1405,6 +1444,10 @@ def jobs_list():
     cursor.execute(base + " ORDER BY j.posted_date DESC, j.ingested_at DESC LIMIT ? OFFSET ?",
                    params + [PER_PAGE, offset])
     jobs = cursor.fetchall()
+    if not show_names:
+        jobs = [dict(j) for j in jobs]
+        for j in jobs:
+            j["source_name"] = source_name_map.get(j["source_name"], j["source_name"])
 
     # Dropdown data — markets as objects with depth+name
     cursor.execute("""
@@ -1426,8 +1469,7 @@ def jobs_list():
     cursor.execute("SELECT DISTINCT country FROM active_jobs WHERE country IS NOT NULL AND country != '' ORDER BY country")
     countries = [r["country"] for r in cursor.fetchall()]
 
-    cursor.execute("SELECT DISTINCT source_name FROM active_jobs ORDER BY source_name")
-    sources = [r["source_name"] for r in cursor.fetchall()]
+    sources = all_sources if show_names else [source_name_map[n] for n in all_sources]
 
     conn.close()
 
@@ -1775,8 +1817,14 @@ def job_detail(job_id):
         """, (job["job_group_id"],))
         locations = cursor.fetchall()
     
+    if not show_source_names():
+        cursor.execute("SELECT DISTINCT source_name FROM active_jobs ORDER BY source_name")
+        name_map = obscure_source_map([r["source_name"] for r in cursor.fetchall()])
+        job = dict(job)
+        job["source_name"] = name_map.get(job["source_name"], job["source_name"])
+
     conn.close()
-    
+
     return render_template(
         "job_detail.html",
         job=job,
@@ -1929,21 +1977,30 @@ def export_jobs():
     """)
     
     jobs = cursor.fetchall()
+
+    name_map = None
+    if not show_source_names():
+        cursor.execute("SELECT DISTINCT source_name FROM active_jobs ORDER BY source_name")
+        name_map = obscure_source_map([r["source_name"] for r in cursor.fetchall()])
+
     conn.close()
-    
+
     # Create CSV
     output = io.StringIO()
     writer = csv.writer(output)
-    
+
     # Header
-    writer.writerow(['Job ID', 'Title', 'Company', 'Location', 'Country', 'Remote Type', 
+    writer.writerow(['Job ID', 'Title', 'Company', 'Location', 'Country', 'Remote Type',
                      'Posted Date', 'Source', 'Salary Min', 'Salary Max', 'Currency'])
-    
+
     # Data
     for job in jobs:
+        source = job['source_name']
+        if name_map is not None:
+            source = name_map.get(source, source)
         writer.writerow([
             job['job_id'], job['title'], job['company'], job['location'],
-            job['country'], job['remote_type'], job['posted_date'], job['source_name'],
+            job['country'], job['remote_type'], job['posted_date'], source,
             job['salary_min'], job['salary_max'], job['currency']
         ])
     
@@ -2422,15 +2479,19 @@ def admin_dashboard():
         WHERE normalization_confidence > 0.0 AND normalization_confidence < 0.6
     """)
     low_conf_titles = cursor.fetchone()["count"]
-    
+
     conn.close()
-    
+
+    from src.pipeline_monitor import get_config
+    current_show_source_names = get_config().get("show_source_names", "true") != "false"
+
     return render_template(
         "admin_dashboard.html",
         total_jobs=total_jobs,
         unknown_countries=unknown_countries,
         normalized_titles=normalized_titles,
-        low_conf_titles=low_conf_titles
+        low_conf_titles=low_conf_titles,
+        show_source_names=current_show_source_names,
     )
 
 
@@ -2816,6 +2877,15 @@ def admin_pipeline_config():
             set_config(key, val)
             updated.append(key)
     return jsonify({"updated": updated})
+
+
+@app.route("/admin/display-settings", methods=["POST"])
+@require_admin
+def admin_display_settings():
+    """Admin-only toggles controlling what non-admin viewers see (e.g. source names)."""
+    from src.pipeline_monitor import set_config
+    set_config("show_source_names", "true" if request.form.get("show_source_names") == "on" else "false")
+    return jsonify({"updated": ["show_source_names"]})
 
 
 @app.route("/admin/pipeline/status")
