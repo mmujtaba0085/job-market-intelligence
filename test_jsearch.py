@@ -1,7 +1,17 @@
 """Quick test script for JSearch API"""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import requests
 
-API_KEY = "***REMOVED-LEAKED-KEY***"
+from config.settings import JSEARCH_API_KEY
+
+if not JSEARCH_API_KEY:
+    raise SystemExit("JSEARCH_API_KEY not set. Copy .env.example to .env and add your RapidAPI key.")
+
+API_KEY = JSEARCH_API_KEY
 
 headers = {
     "X-RapidAPI-Key": API_KEY,
