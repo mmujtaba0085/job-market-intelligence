@@ -1,8 +1,8 @@
 """
-Run this once to reset the admin password.
+Run this once to reset the admin password to a freshly-generated random value.
 Usage:  python reset_admin.py
 """
-import os, sys
+import os, secrets, sys
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.auth.models import init_auth_db, list_users, change_password, get_auth_db
 
-NEW_PASSWORD = "***REMOVED-LEAKED-PASSWORD***"
+NEW_PASSWORD = secrets.token_urlsafe(16)
 
 init_auth_db()
 
