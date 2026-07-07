@@ -105,7 +105,7 @@ def main():
     
     print("\nRe-normalization complete!")
     print("Next steps:")
-    print("1. Run: python scripts/backfill_normalized_titles.py  # Update sheets_staging")
+    print("1. Run: python archive/backfill_normalized_titles.py  # Update sheets_staging")
     print("2. Check the staging UI: http://localhost:5000/admin/sheets_staging")
     print("3. Upload to Google Sheets to see consolidated tabs")
 

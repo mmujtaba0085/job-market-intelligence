@@ -74,25 +74,25 @@ def _build_checks(py: str) -> list[tuple[str, str, list[str]]]:
 
         # Collectors
         ("collectors", "adzuna setup test", [py, "archive/test_adzuna.py"]),
-        ("collectors", "arbeitnow api test", [py, "scripts/test_arbeitnow_api.py"]),
-        ("collectors", "arbeitnow fix test", [py, "scripts/test_arbeitnow_fix.py"]),
+        ("collectors", "arbeitnow api test", [py, "archive/test_arbeitnow_api.py"]),
+        ("collectors", "arbeitnow fix test", [py, "archive/test_arbeitnow_fix.py"]),
 
         # Normalization and titles
-        ("normalization", "check confidence", [py, "scripts/check_confidence.py"]),
-        ("normalization", "check unknown titles", [py, "scripts/check_unknown_titles.py"]),
-        ("normalization", "check titles", [py, "scripts/check_titles.py"]),
-        ("normalization", "backfill normalized titles dry run", [py, "scripts/backfill_normalized_titles.py", "--dry-run"]),
-        ("normalization", "backfill confidence dry run", [py, "scripts/backfill_normalization_confidence.py", "--dry-run"]),
+        ("normalization", "check confidence", [py, "archive/check_confidence.py"]),
+        ("normalization", "check unknown titles", [py, "archive/check_unknown_titles.py"]),
+        ("normalization", "check titles", [py, "archive/check_titles.py"]),
+        ("normalization", "backfill normalized titles dry run", [py, "archive/backfill_normalized_titles.py", "--dry-run"]),
+        ("normalization", "backfill confidence dry run", [py, "archive/backfill_normalization_confidence.py", "--dry-run"]),
 
         # Dates and parsing
-        ("dates", "test current date parsing", [py, "scripts/test_current_date_parsing.py"]),
-        ("dates", "check missing dates", [py, "scripts/check_missing_dates.py"]),
-        ("dates", "check arbeitnow dates", [py, "scripts/check_arbeitnow_dates.py"]),
-        ("dates", "diagnose arbeitnow", [py, "scripts/diagnose_arbeitnow.py"]),
+        ("dates", "test current date parsing", [py, "archive/test_current_date_parsing.py"]),
+        ("dates", "check missing dates", [py, "archive/check_missing_dates.py"]),
+        ("dates", "check arbeitnow dates", [py, "archive/check_arbeitnow_dates.py"]),
+        ("dates", "diagnose arbeitnow", [py, "archive/diagnose_arbeitnow.py"]),
 
         # Web and Sheets
-        ("web", "test sheets routes", [py, "scripts/test_sheets_routes.py"]),
-        ("web", "test title admin", [py, "scripts/test_title_admin.py"]),
+        ("web", "test sheets routes", [py, "archive/test_sheets_routes.py"]),
+        ("web", "test title admin", [py, "archive/test_title_admin.py"]),
 
         # Storage and migration
         ("storage", "run migrations", [py, "scripts/run_migrations.py"]),
@@ -100,8 +100,8 @@ def _build_checks(py: str) -> list[tuple[str, str, list[str]]]:
         ("storage", "inspect db", [py, "archive/inspect_db.py"]),
 
         # Analytics reporting checks
-        ("analytics", "check data coverage", [py, "scripts/check_data_coverage.py"]),
-        ("analytics", "confidence summary", [py, "scripts/confidence_summary.py"]),
+        ("analytics", "check data coverage", [py, "archive/check_data_coverage.py"]),
+        ("analytics", "confidence summary", [py, "archive/confidence_summary.py"]),
         ("analytics", "analytics query test", [py, "archive/test_analytics_query.py"]),
 
         # Country detector and clicks
@@ -169,11 +169,11 @@ def main() -> int:
     checks = _build_checks(py)
 
     skipped = [
-        "scripts/delete_arbeitnow_jobs.py (destructive delete)",
+        "archive/delete_arbeitnow_jobs.py (destructive delete)",
         "scripts/reupload_all_staged.py (clear-and-replace Sheets upload)",
         "scripts/restore_from_backup.py (interactive + writes to Sheets)",
         "scripts/restage_uploaded_jobs.py (interactive DB update)",
-        "scripts/test_staging_population.py (clears sheets_staging table)",
+        "archive/test_staging_population.py (clears sheets_staging table)",
         "clear_db.py (destructive)",
         "delete_github_data.py (destructive)",
         "archive/test_single_normalization.py (updates jobs table)",
