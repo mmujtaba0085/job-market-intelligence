@@ -4,12 +4,14 @@ src/auth/routes.py
 Blueprint: login, logout, my-keys (user's own API keys), change-password.
 """
 
+import logging
 import secrets
 from flask import (
     Blueprint, flash, g, jsonify, redirect,
     render_template, request, session, url_for,
 )
 
+from config.settings import GOOGLE_OAUTH_ENABLED, WEB_VIEWER_URL
 from .middleware import (
     get_current_user, require_auth, validate_csrf,
     csrf_token, is_safe_redirect_url,
@@ -18,9 +20,12 @@ from .models import (
     authenticate_user, change_password, generate_api_key,
     get_user_by_id, list_api_keys, revoke_api_key,
     login_is_rate_limited, record_login_attempt,
+    get_user_by_google_id, get_user_by_email, create_google_user,
+    link_google_account, touch_last_login,
 )
 
 auth_bp = Blueprint("auth", __name__, template_folder="../../templates/auth")
+logger = logging.getLogger(__name__)
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
@@ -28,7 +33,7 @@ def login():
     if get_current_user():
         return redirect(url_for("dashboard"))
 
-    error = None
+    error = request.args.get("oauth_error") or None
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
@@ -51,13 +56,70 @@ def login():
 
     # Ensure CSRF token exists for the form
     csrf_token()
-    return render_template("auth/login.html", error=error)
+    return render_template("auth/login.html", error=error, google_oauth_enabled=GOOGLE_OAUTH_ENABLED)
 
 
 @auth_bp.route("/logout")
 def logout():
     session.clear()
     return redirect(url_for("auth.login"))
+
+
+@auth_bp.route("/google")
+def google_login():
+    if not GOOGLE_OAUTH_ENABLED:
+        return "Google sign-in is not configured.", 404
+    from .oauth_google import oauth
+
+    next_url = request.args.get("next", "")
+    session["_post_login_next"] = next_url if is_safe_redirect_url(next_url) else ""
+
+    redirect_uri = f"{WEB_VIEWER_URL.rstrip('/')}/auth/google/callback"
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
+@auth_bp.route("/google/callback")
+def google_callback():
+    if not GOOGLE_OAUTH_ENABLED:
+        return "Google sign-in is not configured.", 404
+    from .oauth_google import oauth
+
+    try:
+        token = oauth.google.authorize_access_token()
+        userinfo = token.get("userinfo") or {}
+    except Exception as exc:  # noqa: BLE001 — any OAuth/network failure lands here
+        logger.warning("[auth] Google OAuth callback failed: %s", exc)
+        return redirect(url_for("auth.login", oauth_error="Google sign-in failed. Please try again."))
+
+    email = (userinfo.get("email") or "").strip().lower()
+    google_id = userinfo.get("sub")
+    if not email or not google_id or not userinfo.get("email_verified", True):
+        return redirect(url_for("auth.login", oauth_error="Your Google account's email must be verified."))
+
+    user = get_user_by_google_id(google_id)
+    if not user:
+        existing = get_user_by_email(email)
+        if existing:
+            link_google_account(existing["id"], google_id)
+            user = existing
+        else:
+            try:
+                user = create_google_user(google_id, email, userinfo.get("name") or "")
+            except ValueError as exc:
+                return redirect(url_for("auth.login", oauth_error=str(exc)))
+
+    if not user.get("active", 1):
+        return redirect(url_for("auth.login", oauth_error="Your account has been disabled."))
+
+    touch_last_login(user["id"])
+    session.clear()
+    session["user_id"] = user["id"]
+    session.permanent = True
+
+    next_url = session.pop("_post_login_next", "")
+    if next_url and is_safe_redirect_url(next_url):
+        return redirect(next_url)
+    return redirect(url_for("dashboard"))
 
 
 @auth_bp.route("/me/keys")

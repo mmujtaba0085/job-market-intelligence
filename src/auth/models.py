@@ -87,6 +87,12 @@ def init_auth_db():
         cols = {r[1] for r in conn.execute("PRAGMA table_info(api_keys)")}
         if "scopes" not in cols:
             conn.execute("ALTER TABLE api_keys ADD COLUMN scopes TEXT NOT NULL DEFAULT 'jobs:read,exports:read,analytics:read,sources:read,markets:read'")
+        user_cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+        if "google_id" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN google_id TEXT")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id)")
+        if "auth_provider" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN auth_provider TEXT NOT NULL DEFAULT 'local'")
         retention = max(1, int(os.getenv("ACCESS_LOG_RETENTION_DAYS", "90")))
         conn.execute("DELETE FROM access_logs WHERE ts < datetime('now', ?)", (f"-{retention} days",))
         conn.execute("DELETE FROM login_attempts WHERE ts < datetime('now', '-1 day')")
@@ -196,6 +202,76 @@ def create_user(username, email, password, role="viewer") -> dict:
         raise ValueError("Username or email already exists.")
     finally:
         conn.close()
+
+
+def get_user_by_google_id(google_id: str):
+    conn = get_auth_db()
+    try:
+        row = conn.execute("SELECT * FROM users WHERE google_id=?", (google_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_user_by_email(email: str):
+    conn = get_auth_db()
+    try:
+        row = conn.execute("SELECT * FROM users WHERE email=?", (email.strip().lower(),)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def create_google_user(google_id: str, email: str, name: str) -> dict:
+    """First-time 'Continue with Google' sign-in — auto-creates a viewer account.
+
+    password_hash is filled with a random, never-shared value so the NOT NULL
+    constraint is satisfied but username/password login can never match it.
+    """
+    conn = get_auth_db()
+    try:
+        username = _unique_username_from(conn, name or email.split("@")[0])
+        cur = conn.execute(
+            "INSERT INTO users (username, email, password_hash, role, google_id, auth_provider) "
+            "VALUES (?,?,?,?,?,?)",
+            (username, email.strip().lower(), _hash_password(secrets.token_urlsafe(32)), "viewer", google_id, "google"),
+        )
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone())
+    except sqlite3.IntegrityError:
+        raise ValueError("An account with that email already exists.")
+    finally:
+        conn.close()
+
+
+def link_google_account(user_id: int, google_id: str) -> None:
+    """Attach a Google identity to an existing local account (matched by email)."""
+    conn = get_auth_db()
+    try:
+        conn.execute("UPDATE users SET google_id=? WHERE id=?", (google_id, user_id))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def touch_last_login(user_id: int) -> None:
+    conn = get_auth_db()
+    try:
+        conn.execute("UPDATE users SET last_login=datetime('now') WHERE id=?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _unique_username_from(conn, seed: str) -> str:
+    base = "".join(c for c in seed.strip().lower().replace(" ", "_") if c.isalnum() or c == "_") or "user"
+    base = base[:40]
+    candidate = base
+    n = 1
+    while conn.execute("SELECT 1 FROM users WHERE username=?", (candidate,)).fetchone():
+        n += 1
+        candidate = f"{base}{n}"
+    return candidate
 
 
 def update_user(user_id: int, **fields) -> bool:

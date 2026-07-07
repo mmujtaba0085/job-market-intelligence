@@ -98,6 +98,12 @@ ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "change-me-now")
 SESSION_COOKIE_SECURE: bool = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
 TRUST_PROXY_HEADERS: bool = os.getenv("TRUST_PROXY_HEADERS", "false").lower() == "true"
 
+# "Continue with Google" sign-in. Unset either var and the button/routes stay
+# hidden — no code change needed to disable it.
+GOOGLE_OAUTH_CLIENT_ID: str | None = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+GOOGLE_OAUTH_CLIENT_SECRET: str | None = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+GOOGLE_OAUTH_ENABLED: bool = bool(GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET)
+
 # Three separate spreadsheets (one per country)
 # Private/edit IDs
 SHEETS_CANADA_ID: str = os.getenv("SHEETS_CANADA_ID", "")

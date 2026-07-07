@@ -34,6 +34,9 @@ flask>=3.0
 # Auth (session management — werkzeug already ships with flask)
 # No extra deps needed; hashlib + secrets are stdlib
 
+# Google OAuth ("Continue with Google")
+Authlib>=1.3
+
 # Geocoding for country detection
 geopy>=2.4
 

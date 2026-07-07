@@ -37,6 +37,7 @@ from src.auth.middleware import (
 )
 from src.auth.routes import auth_bp
 from src.auth.admin_routes import admin_auth_bp
+from src.auth.oauth_google import init_oauth
 
 # Google Sheets integration
 from src.sheets_routes import register_sheets_routes
@@ -57,6 +58,7 @@ _run_migrations()
 # ── Register auth blueprints ──────────────────────────────────────────────────
 app.register_blueprint(auth_bp, url_prefix="/auth")
 app.register_blueprint(admin_auth_bp)
+init_oauth(app)
 
 # ── Auth hooks ────────────────────────────────────────────────────────────────
 app.before_request(load_logged_in_user)
@@ -70,7 +72,7 @@ def inject_current_user():
 
 
 # ── Global auth gate ──────────────────────────────────────────────────────────
-_PUBLIC_PATHS = {"/healthz", "/auth/login", "/auth/logout"}
+_PUBLIC_PATHS = {"/healthz", "/auth/login", "/auth/logout", "/auth/google", "/auth/google/callback"}
 _PUBLIC_PREFIXES = ("/static/",)
 
 
