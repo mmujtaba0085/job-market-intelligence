@@ -9,8 +9,11 @@ Usage:
 """
 
 import logging
+import sys
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.markets import TARGET_MARKETS
 from src.storage.db import get_connection, get_weekly_metrics, get_remote_ratio

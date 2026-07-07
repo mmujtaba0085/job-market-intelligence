@@ -73,7 +73,7 @@ def _build_checks(py: str) -> list[tuple[str, str, list[str]]]:
         ("core", "pytest system diagnostics", [py, "-m", "pytest", "tests/test_system_diagnostics.py", "-v"]),
 
         # Collectors
-        ("collectors", "adzuna setup test", [py, "test_adzuna.py"]),
+        ("collectors", "adzuna setup test", [py, "archive/test_adzuna.py"]),
         ("collectors", "arbeitnow api test", [py, "scripts/test_arbeitnow_api.py"]),
         ("collectors", "arbeitnow fix test", [py, "scripts/test_arbeitnow_fix.py"]),
 
@@ -96,21 +96,21 @@ def _build_checks(py: str) -> list[tuple[str, str, list[str]]]:
 
         # Storage and migration
         ("storage", "run migrations", [py, "scripts/run_migrations.py"]),
-        ("storage", "check db", [py, "check_db.py"]),
-        ("storage", "inspect db", [py, "inspect_db.py"]),
+        ("storage", "check db", [py, "archive/check_db.py"]),
+        ("storage", "inspect db", [py, "archive/inspect_db.py"]),
 
         # Analytics reporting checks
         ("analytics", "check data coverage", [py, "scripts/check_data_coverage.py"]),
         ("analytics", "confidence summary", [py, "scripts/confidence_summary.py"]),
-        ("analytics", "analytics query test", [py, "test_analytics_query.py"]),
+        ("analytics", "analytics query test", [py, "archive/test_analytics_query.py"]),
 
         # Country detector and clicks
-        ("country", "country detector test", [py, "test_detector.py"]),
-        ("tracking", "click tracking test", [py, "test_click_tracking.py"]),
-        ("tracking", "job click tracking test", [py, "test_job_click_tracking.py"]),
+        ("country", "country detector test", [py, "archive/test_detector.py"]),
+        ("tracking", "click tracking test", [py, "archive/test_click_tracking.py"]),
+        ("tracking", "job click tracking test", [py, "archive/test_job_click_tracking.py"]),
 
         # Config/source visibility
-        ("config", "show sources", [py, "show_sources.py"]),
+        ("config", "show sources", [py, "archive/show_sources.py"]),
     ]
 
 
@@ -176,7 +176,7 @@ def main() -> int:
         "scripts/test_staging_population.py (clears sheets_staging table)",
         "clear_db.py (destructive)",
         "delete_github_data.py (destructive)",
-        "test_single_normalization.py (updates jobs table)",
+        "archive/test_single_normalization.py (updates jobs table)",
     ]
 
     results: list[CheckResult] = []

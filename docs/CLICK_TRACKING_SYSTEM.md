@@ -1,5 +1,114 @@
 # Click Tracking System - Complete Integration Guide
 
+## Quick Start (10 minutes)
+
+### Step 1: Deploy Apps Script (5 min)
+
+1. **Open Tracker spreadsheet:**
+   https://docs.google.com/spreadsheets/d/1_T9MOTutM_ZJCSkHLmns2Tc5SDVabE25MviGDESaxn8/edit
+
+2. **Extensions > Apps Script**
+
+3. **Copy code:**
+   - Open `google_apps_script/Code.gs`
+   - Select all, copy
+   - Paste into Apps Script editor
+   - Save (Ctrl+S)
+
+4. **Set secret token:**
+   - Settings (⚙️) > Script Properties
+   - Add property:
+     - Key: `TRACKER_TOKEN`
+     - Value: (generate random 32+ char string, e.g. `openssl rand -hex 32`)
+   - Save
+
+5. **Deploy:**
+   - Deploy > New deployment
+   - Type: Web app
+   - Execute as: Me
+   - Who has access: Anyone
+   - Deploy
+   - Copy the URL (ends with `/exec`)
+
+### Step 2: Configure Python (2 min)
+
+Add to your `.env` file:
+
+```bash
+TRACKER_SPREADSHEET_ID=1_T9MOTutM_ZJCSkHLmns2Tc5SDVabE25MviGDESaxn8
+TRACKER_DEPLOYMENT_BASE_URL=<PASTE_DEPLOYMENT_URL_HERE>
+TRACKER_TOKEN=<PASTE_SAME_TOKEN_HERE>
+```
+
+⚠️ **CRITICAL:** Token must match exactly between Apps Script and .env
+
+### Step 3: Create Tracker Tabs (2 min)
+
+In the Tracker spreadsheet, create these tabs:
+
+**Tab 1: "Docs"**
+```
+doc_key | spreadsheet_id                                    | country_name
+--------|---------------------------------------------------|----------------
+ca      | 1ZaDLm-ffJ62-WojQtRrzk4YRqgDC65vbegJNZO8tBEw   | Canada
+uk      | 1YeM_Fqvqm7qc2DvunsHuCt27wpv3sgQgEdaPCg41TrY   | United Kingdom
+us      | 1GEzzNMEG0sjAyFlmiXZY7F_62n2Rxmvb09AQopw8R90   | United States
+```
+
+**Tab 2: "Clicks"**
+```
+ts | doc_key | country | tab_name | link_id | apply_url | user_agent
+[empty rows - will be auto-filled]
+```
+
+**Tab 3: "CountryTotals"**
+```
+country | total_clicks | last_updated
+[empty rows - will be auto-filled]
+```
+
+📝 **Note:** Directory tab will be auto-created by Python
+
+### Step 4: Test (1 min)
+
+```bash
+# Run the pipeline
+python -m src.orchestrator --mode weekly
+```
+
+Check logs for:
+```
+[tracker_directory] Successfully exported 455 jobs to Directory tab
+[orchestrator]   Canada: 16 jobs
+[orchestrator]   United Kingdom: 58 jobs
+[orchestrator]   United States: 381 jobs
+```
+
+### Step 5: Verify (Optional)
+
+1. Open Tracker spreadsheet
+2. Check Directory tab exists with data
+3. Open Canada spreadsheet
+4. Find a job row
+5. Click the tracking_url
+6. You should:
+   - Redirect to job posting ✓
+   - See clicks column increment ✓
+   - See new row in Tracker->Clicks tab ✓
+   - See CountryTotals update ✓
+
+### Common Issues
+
+**"TRACKER_TOKEN not set"** — Forgot to add token to Apps Script Script Properties. Settings > Script Properties > Add `TRACKER_TOKEN`.
+
+**"Unauthorized" when clicking link** — Token mismatch between `.env` and Apps Script. Copy token from Apps Script to `.env` (exact match, case-sensitive).
+
+**Directory tab empty** — Tracker config missing in `.env`. Add all 3 `TRACKER_*` variables.
+
+**"Configuration Error: Docs tab not found"** — Missing Docs tab in Tracker spreadsheet. Create Docs tab with headers and country rows.
+
+For the full system design, setup, testing, and troubleshooting reference, continue reading below.
+
 ## Overview
 
 This system implements secure, centralized click tracking across 3 separate Google Sheets (Canada, UK, US) using a Google Apps Script web app and Python integration.
@@ -314,7 +423,6 @@ Token length: 64 characters
 
 ```bash
 # Run tracker export manually
-cd "d:\vs code\Job Market Intelligence"
 python src/reports/tracker_directory_export.py
 
 # Expected output:
@@ -484,4 +592,4 @@ For issues:
 2. Verify all tabs exist in Tracker spreadsheet
 3. Test tracking URL manually
 4. Check token matches in both places
-5. Review this README's Troubleshooting section
+5. Review this doc's Troubleshooting section

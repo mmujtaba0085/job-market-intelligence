@@ -1,4 +1,8 @@
 import sqlite3
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from src.country_detector import detect_country, should_auto_apply
 
 conn = sqlite3.connect('data/jobs.sqlite')

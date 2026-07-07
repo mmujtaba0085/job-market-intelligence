@@ -1,4 +1,8 @@
 """Display current source configuration."""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from config.sources import SOURCES_BY_ID, ENABLED_SOURCES
 
 print("=" * 80)

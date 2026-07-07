@@ -1,4 +1,7 @@
 import sqlite3
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 conn = sqlite3.connect('data/jobs.sqlite')
 conn.row_factory = sqlite3.Row

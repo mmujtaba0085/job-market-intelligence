@@ -1,6 +1,7 @@
 """Quick test to verify country detector works from web viewer context"""
 import sys
-sys.path.insert(0, '.')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.country_detector import detect_country, should_auto_apply, GEOPY_AVAILABLE
 

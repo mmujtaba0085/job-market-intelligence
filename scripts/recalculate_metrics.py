@@ -12,8 +12,11 @@ This script:
 """
 
 import sqlite3
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.analytics.weekly_metrics import compute_weekly_metrics
 from config.markets import TARGET_MARKETS
@@ -78,7 +81,7 @@ def main():
     
     if not week_data:
         print("\n❌ No week_id data found in jobs table!")
-        print("   Run fix_week_ids.py first to populate week_id column.")
+        print("   Run archive/fix_week_ids.py first to populate week_id column.")
         return
     
     print(f"\n📊 Found {len(week_data)} market-week combinations")
