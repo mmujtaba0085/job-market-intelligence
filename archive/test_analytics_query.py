@@ -1,6 +1,9 @@
 """Test analytics query to see if data displays correctly."""
 import sys
 import traceback
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from src.storage.db import get_connection
 from datetime import datetime, timedelta
 

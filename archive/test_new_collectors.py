@@ -2,6 +2,9 @@
 Quick test script to verify new collectors are properly registered.
 Run: python test_new_collectors.py
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from config.sources import SOURCES_BY_ID, ALLOWED_SOURCES
 from config.markets import TARGET_MARKETS

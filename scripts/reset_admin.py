@@ -6,10 +6,10 @@ import os, secrets, sys
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 os.environ.setdefault("AUTH_DB_PATH", "data/auth.sqlite")
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.auth.models import init_auth_db, list_users, change_password, get_auth_db
 

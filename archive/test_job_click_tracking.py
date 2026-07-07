@@ -7,6 +7,8 @@ This script tests:
 3. Tracking URLs include tracker doc/id/token parameters
 """
 import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.stdout.reconfigure(encoding='utf-8')
 
 from src.reports.google_sheets_export import format_job_row, JOB_COLUMNS
