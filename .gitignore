@@ -58,3 +58,8 @@ Thumbs.db
 
 # Local git bundle backups
 .git-backups/
+
+# ----------------------------
+# Apify actors (kept locally, not tracked)
+# ----------------------------
+apify_actors/
