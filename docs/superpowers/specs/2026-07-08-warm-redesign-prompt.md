@@ -1,6 +1,7 @@
 # Project brief: warm redesign of public-facing pages (Job Market Intelligence)
 
-You have access to `templates/` (all subfolders). Here's the context you need.
+You have access to `templates/` (all subfolders), `static/`, `web_viewer.py`, and
+`src/auth/routes.py`. Here's the context you need.
 
 ## What this product is
 
@@ -15,27 +16,15 @@ below).
 
 Unlike an earlier design pass, this is not a blank-slate color decision. The shared
 layout, `templates/base.html`, has **already been updated** with a warm
-amber/terracotta palette — read its `:root` and `[data-theme="dark"]` CSS blocks
-before doing anything else. Every page you touch must use these exact custom
-properties (`var(--accent)`, `var(--bg-surface)`, etc.) — do not invent new color
-variables or hardcode hex values that duplicate what these already provide:
+amber/terracotta palette (warm ivory/terracotta in light mode, warm brown-black/amber
+in dark mode, toggled via the `jmi_theme` cookie and a header button that already
+works). Read its `:root` and `[data-theme="dark"]` CSS blocks directly — that's the
+live, authoritative source, not this prompt — before doing anything else.
 
-**Light mode** (`:root`): `--bg-base: #FBF6EF` (warm ivory), `--bg-surface: #FFFDF9`,
-`--bg-elevated: #F5EBDD`, `--bg-hover: #F0E4D0`, `--border: #E8D9C3`,
-`--text-primary: #3D2B1F` (warm brown, not black), `--text-secondary: #7A6A58`,
-`--text-muted: #A69885`, `--accent: #C1552C` (terracotta), `--accent-hover: #A6431F`,
-`--success: #4C7A3D` (warm sage), `--warning: #A6740A` (gold), `--danger: #C0392B`
-(warm brick red), `--purple: #8B5A83` (muted plum, used sparingly), `--header-bg` is
-a `linear-gradient(135deg, #C1552C 0%, #E08E4F 100%)` terracotta→amber gradient.
-
-**Dark mode** (`[data-theme="dark"]`, toggled via the `jmi_theme` cookie and a
-header button that already works): warm brown-black `--bg-base: #211812`, cream text
-`--text-primary: #F5E9DC`, brighter amber `--accent: #E08E4F` for contrast — same
-variable names, warm-shifted values.
-
-Your job on every page: use `var(--whatever)`, never hardcode a hex value that
-duplicates one of these. If a page needs a color that doesn't map to any existing
-variable, that's a signal to ask rather than invent one silently.
+Every page you touch must use these exact custom properties (`var(--accent)`,
+`var(--bg-surface)`, etc.) — never hardcode a hex value that duplicates one of these,
+and never invent a new color variable. If a page needs a color that doesn't map to
+any existing variable, that's a signal to ask rather than invent one silently.
 
 ## The task
 
@@ -43,7 +32,9 @@ Redesign these 13 templates so their content areas match the warm identity
 `base.html`'s header/nav already establishes:
 
 - `dashboard.html` — main BI dashboard (KPI cards, trend charts, geo/source breakdowns)
-- `jobs_list.html` — searchable/filterable job listings
+- `jobs_list.html` — searchable/filterable job listings, plus a sort toggle
+  (Diverse / Most Recent) that only appears in the page's default unfiltered view —
+  new since this prompt was first drafted, see scope note 3 below
 - `job_detail.html` — single job detail page
 - `skills.html` — skills list
 - `skills_intelligence.html` — skill drill-down (trends, co-occurrence, companies)
@@ -58,7 +49,7 @@ Redesign these 13 templates so their content areas match the warm identity
   `/dashboard` in Python) — theme it for consistency in case it's ever revived, but
   it's not currently visitor-facing, so treat it as lowest priority of the 13
 
-**Two scope notes:**
+**Three scope notes:**
 
 1. `auth/login.html` is the one page in this list that does **not** extend
    `base.html` — it's a standalone file with its own copy of the theme variables
@@ -70,6 +61,15 @@ Redesign these 13 templates so their content areas match the warm identity
    `{% extends "base.html" %}` and already inherits the new warm header/nav
    automatically — you're only touching each page's `{% block content %}` (and
    `{% block extra_styles %}` for page-specific CSS), not the shared header/footer.
+3. `jobs_list.html` has a sort toggle that was added after this prompt was first
+   drafted — a real, already-shipped feature, not a mockup. The route
+   (`web_viewer.py`'s `jobs_list()`) passes two template variables: `show_sort_toggle`
+   (bool — whether to show the toggle at all; it's only true in the page's default,
+   unfiltered, `status=active` view) and `current_sort` (`"diverse"` or `"recent"`).
+   The toggle itself is two links: `/jobs?sort=diverse` and `/jobs?sort=recent`. Both
+   variable names and both URL query values are read by the backend — rework the
+   toggle's visual presentation however fits the redesign, but don't rename the
+   variables or change what the two links point at.
 
 **Do not touch** any template outside this list of 13 — admin/pipeline/data-quality
 tooling is intentionally staying in its current dense, utilitarian style.
@@ -129,10 +129,20 @@ Warmth extends to wording, not just visuals, but selectively:
   needed. Don't introduce React/Vue/npm/webpack/Tailwind CDN/etc.
 - Use the CSS custom properties already defined in `base.html` (see above) — don't
   hardcode colors that duplicate them
-- Preserve every existing Jinja block structure, route-supplied template variable
-  (anything referenced as `{{ variable_name }}`), form field `name=` attributes, and
-  `id=` attributes that JavaScript in the page currently targets — you're
-  restyling, not changing what data flows in or what the backend receives back
+- **This is a full rework, not a restyle-only pass** — you have complete freedom to
+  rewrite markup, CSS, and JS structure on every page however the redesign calls for
+  it. But three things are the seams connecting to backend code you can't see, and
+  must not change on any page:
+  1. The Jinja `{% extends %}`/`{% block %}` scaffolding (`{% block title %}`,
+     `{% block extra_styles %}`, `{% block content %}`, `{% block extra_scripts %}`)
+     — this is what lets a page render inside `base.html`'s shared layout at all
+  2. Every route-supplied template variable name — anything referenced as
+     `{{ variable_name }}` is passed in from a Python route (mostly in
+     `web_viewer.py`; the three `auth/*.html` pages are routed from
+     `src/auth/routes.py`) and can't be renamed without also changing that Python
+     code, which is out of scope here
+  3. Every form field `name=` attribute and every `id=` attribute that JavaScript
+     (in the page or in `static/js/`) currently targets
 - Mobile-responsive — match or improve on the current responsiveness, don't regress it
 
 ## Deliverable
