@@ -39,6 +39,29 @@
             --header-border: rgba(255,255,255,0.15);
         }
 
+        [data-theme="dark"] {
+            --bg-base:      #211812;
+            --bg-surface:   #2C2119;
+            --bg-elevated:  #382A1F;
+            --bg-hover:     #443423;
+            --border:       #4A392C;
+            --border-subtle:#443423;
+            --text-primary: #F5E9DC;
+            --text-secondary:#C4AD97;
+            --text-muted:   #8A7862;
+            --accent:       #E08E4F;
+            --accent-hover: #EDA968;
+            --accent-bg:    rgba(224,142,79,0.12);
+            --success:      #8FB37A;
+            --success-bg:   rgba(143,179,122,0.12);
+            --warning:      #D9A441;
+            --warning-bg:   rgba(217,164,65,0.12);
+            --danger:       #E0685A;
+            --danger-bg:    rgba(224,104,90,0.12);
+            --purple:       #C99BC0;
+            --purple-bg:    rgba(201,155,192,0.12);
+        }
+
         /* ─── Reset & Base ────────────────────────────────────────────── */
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -127,8 +150,7 @@
             gap: 8px;
         }
 
-        /* (theme toggle removed) */
-        .theme-toggle-unused {
+        .theme-toggle {
             width: 36px; height: 36px;
             border: 1px solid var(--header-border);
             border-radius: 8px;
@@ -363,6 +385,7 @@
                 </nav>
 
                 <div class="header-actions">
+                    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark theme">🌙</button>
                     {% if g.current_user %}
                     <div class="user-chip">
                         <div class="avatar">{{ g.current_user.username[0].upper() }}</div>
@@ -418,6 +441,23 @@
             localizeTimestamps();
         }
     })();
+    </script>
+    <script>
+    (function(){
+        const saved = document.cookie.match(/jmi_theme=([^;]+)/)?.[1];
+        if (saved) document.documentElement.setAttribute("data-theme", saved);
+        const btn = document.getElementById("themeToggle");
+        if (btn) btn.textContent = document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
+    })();
+
+    window.toggleTheme = function(){
+        const html = document.documentElement;
+        const next = html.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        html.setAttribute("data-theme", next);
+        document.cookie = `jmi_theme=${next};path=/;max-age=31536000;SameSite=Lax`;
+        const btn = document.getElementById("themeToggle");
+        if (btn) btn.textContent = next === "dark" ? "☀️" : "🌙";
+    };
     </script>
     {% block extra_scripts %}{% endblock %}
 </body>
