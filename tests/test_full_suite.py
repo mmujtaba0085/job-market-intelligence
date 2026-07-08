@@ -161,14 +161,26 @@ def test_auth_db_path_restored_even_if_setup_fails():
     teardown_method — so without this fix, the just-saved original
     AUTH_DB_PATH would never be restored, and it would leak pointing at the
     unusable temp path.
+
+    The mock below mirrors _fresh_auth_db's real failure mode: it mutates
+    AUTH_DB_PATH first, exactly like the real function does, then raises —
+    simulating init_auth_db() failing *after* the mutation already happened.
+    A mock that just raises immediately (skipping the mutation) would pass
+    on both fixed and unfixed code, since the thing being guarded against
+    never happens — this one actually discriminates between them.
     """
     import src.auth.models as m
+    from pathlib import Path
     from unittest.mock import patch
 
     original = m.AUTH_DB_PATH
 
+    def _mutate_then_raise():
+        m.AUTH_DB_PATH = Path("/nonexistent/bogus/path.sqlite")
+        raise RuntimeError("simulated setup failure after AUTH_DB_PATH mutation")
+
     instance = TestAuthModels()
-    with patch("tests.test_full_suite._fresh_auth_db", side_effect=RuntimeError("simulated setup failure")):
+    with patch("tests.test_full_suite._fresh_auth_db", side_effect=_mutate_then_raise):
         try:
             instance.setup_method()
         except RuntimeError:
