@@ -189,9 +189,19 @@
 
 {% block content %}
 <h2 style="margin-bottom: 1.5rem; color: var(--text-primary);">Jobs ({{ total_jobs | number_format }})</h2>
-<div style="margin-top: -0.75rem; margin-bottom: 1rem;">
-    {% if g.current_user and g.current_user.get('role') == 'admin' %}
-    <a href="/jobs/quality" class="btn" style="padding: 0.4rem 0.9rem; font-size: 0.85rem;">🛠️ Open Data Quality Review</a>
+<div style="margin-top: -0.75rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+    <div>
+        {% if g.current_user and g.current_user.get('role') == 'admin' %}
+        <a href="/jobs/quality" class="btn" style="padding: 0.4rem 0.9rem; font-size: 0.85rem;">🛠️ Open Data Quality Review</a>
+        {% endif %}
+    </div>
+    {% if show_sort_toggle %}
+    <div class="text-muted text-sm">
+        Sort:
+        <a href="/jobs?sort=diverse" {% if current_sort == 'diverse' %}style="font-weight: 600; color: var(--text-primary);"{% endif %}>Diverse</a>
+        &middot;
+        <a href="/jobs?sort=recent" {% if current_sort == 'recent' %}style="font-weight: 600; color: var(--text-primary);"{% endif %}>Most Recent</a>
+    </div>
     {% endif %}
 </div>
 

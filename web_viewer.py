@@ -1393,6 +1393,17 @@ def jobs_list():
     date_from      = request.args.get("date_from", "")
     date_to        = request.args.get("date_to", "")
     current_status = request.args.get("status", "active")
+    sort_param     = request.args.get("sort", "diverse")
+
+    # Diversity ordering only means anything against the exact population it
+    # was computed for: status=active, zero other filters. Any deviation from
+    # that baseline falls back to plain recency, same as before this feature.
+    no_filters_active = not any([
+        market_filter, remote_filter, search_query, country_filter,
+        source_filter, company_filter, skills_filter, date_from, date_to,
+    ])
+    show_sort_toggle = no_filters_active and current_status == "active"
+    use_diversity = show_sort_toggle and sort_param != "recent"
     try:
         page = max(1, int(request.args.get("page", 1)))
     except (ValueError, TypeError):
@@ -1450,8 +1461,12 @@ def jobs_list():
     page = min(page, total_pages)
     offset = (page - 1) * PER_PAGE
 
-    cursor.execute(base + " ORDER BY j.posted_date DESC, j.ingested_at DESC LIMIT ? OFFSET ?",
-                   params + [PER_PAGE, offset])
+    if use_diversity:
+        order_clause = " ORDER BY (j.diversity_rank IS NULL), j.diversity_rank ASC, j.posted_date DESC LIMIT ? OFFSET ?"
+    else:
+        order_clause = " ORDER BY j.posted_date DESC, j.ingested_at DESC LIMIT ? OFFSET ?"
+
+    cursor.execute(base + order_clause, params + [PER_PAGE, offset])
     jobs = cursor.fetchall()
     if not show_names:
         jobs = [dict(j) for j in jobs]
@@ -1510,6 +1525,8 @@ def jobs_list():
         total_pages=total_pages,
         prev_url=page_url(page - 1) if page > 1 else None,
         next_url=page_url(page + 1) if page < total_pages else None,
+        show_sort_toggle=show_sort_toggle,
+        current_sort=sort_param if use_diversity else "recent",
     )
 
 
