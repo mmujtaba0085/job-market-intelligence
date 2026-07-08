@@ -69,3 +69,28 @@ class TestMainCallsRecompute:
         orchestrator.main()
 
         assert called["count"] == 0
+
+    def test_recompute_failure_does_not_fail_the_run(self, monkeypatch):
+        import src.orchestrator as orchestrator
+
+        monkeypatch.setattr(orchestrator, "_parse_args", lambda: _args(mode="ingest-only"))
+        monkeypatch.setattr(orchestrator, "run_migrations", lambda: None)
+        monkeypatch.setattr(orchestrator, "_run", lambda args, week_start: {})
+        monkeypatch.setattr(orchestrator, "_setup_logging", lambda run_id="", week="": None)
+        monkeypatch.setattr("src.pipeline_monitor.start_run", lambda mode, trigger="schedule": "test-run-id")
+
+        finish_calls = []
+        monkeypatch.setattr(
+            "src.pipeline_monitor.finish_run",
+            lambda run_id, **kwargs: finish_calls.append(kwargs),
+        )
+
+        def _raise():
+            raise RuntimeError("simulated recompute failure")
+
+        monkeypatch.setattr(orchestrator, "recompute_diversity_ranks", _raise)
+
+        orchestrator.main()  # must not raise, despite the recompute failure
+
+        assert len(finish_calls) == 1
+        assert finish_calls[0]["status"] == "success"

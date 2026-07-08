@@ -583,12 +583,17 @@ def main() -> None:
 
     try:
         stats = _run(args, week_start)
-        if _should_recompute_diversity(args):
-            recompute_diversity_ranks()
-        finish_run(run_id, status="success", **stats)
     except Exception as exc:
         finish_run(run_id, status="failed", error=str(exc))
         raise
+
+    if _should_recompute_diversity(args):
+        try:
+            recompute_diversity_ranks()
+        except Exception:
+            logger.exception("[diversity_rank] recompute failed; leaving ranks stale until next run")
+
+    finish_run(run_id, status="success", **stats)
 
 
 def _run(args, week_start) -> dict:
