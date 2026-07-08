@@ -49,7 +49,7 @@ Redesign these 13 templates so their content areas match the warm identity
   `/dashboard` in Python) — theme it for consistency in case it's ever revived, but
   it's not currently visitor-facing, so treat it as lowest priority of the 13
 
-**Three scope notes:**
+**Four scope notes:**
 
 1. `auth/login.html` is the one page in this list that does **not** extend
    `base.html` — it's a standalone file with its own copy of the theme variables
@@ -70,6 +70,12 @@ Redesign these 13 templates so their content areas match the warm identity
    variable names and both URL query values are read by the backend — rework the
    toggle's visual presentation however fits the redesign, but don't rename the
    variables or change what the two links point at.
+4. `login.html` currently shows an "API Access" info box below the login form
+   (`X-API-Key` / `Authorization: Bearer` header examples, with a note that keys can
+   be generated after signing in). Remove it — it's developer-facing detail that
+   doesn't belong on a first-impression login page, and it's not a data dependency
+   (nothing server-side reads or requires it); the same information already lives on
+   `api_docs.html` for anyone who needs it.
 
 **Do not touch** any template outside this list of 13 — admin/pipeline/data-quality
 tooling is intentionally staying in its current dense, utilitarian style.
