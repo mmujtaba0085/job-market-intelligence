@@ -85,6 +85,26 @@ limited to that). Show the proposed mark applied in your redesign of `login.html
 and describe precisely enough (SVG source, or exact emoji/character) that it can be
 copied into `base.html`'s single shared instance afterward.
 
+## Icons
+
+Beyond the header's brand mark, these 13 pages lean heavily on emoji as ad-hoc icons
+throughout — section headers, buttons, and status indicators (a non-exhaustive
+sample: 📈/📉 for trend direction, 🌍/🏢 for geography/companies, 🔍 for search,
+🔗 for links, 💼 for jobs, 📋 for lists, 🔒 for security, 💡/🧠 for insights, plus
+several more scattered across `dashboard.html` and `skills_intelligence.html`
+alone). This reads inconsistent and a little unpolished — emoji render differently
+across OS/browser, so the same page looks different depending on who's viewing it.
+
+Replace this pattern with something more practical and consistent. Given the "no
+build step" constraint below, small inline SVG icons matching the palette are the
+natural fit — an icon font or library would need an npm package or CDN link, neither
+of which is available here. You don't need a 1:1 replacement for every emoji removed;
+consolidate similar meanings (e.g. one consistent "trend" icon that flips for
+up/down, rather than two unrelated-looking emoji) rather than mechanically swapping
+each one. Where an emoji is purely decorative and conveys no real meaning — not a
+status, category, or direction — it's fine to just drop it instead of replacing it
+with an icon.
+
 ## Copy tone
 
 Warmth extends to wording, not just visuals, but selectively:
@@ -117,5 +137,8 @@ Warmth extends to wording, not just visuals, but selectively:
 
 ## Deliverable
 
-13 redesigned template files, plus a brand-mark proposal (shown applied in
-`login.html`, described precisely enough to copy into `base.html`).
+13 redesigned template files, a brand-mark proposal (shown applied in `login.html`,
+described precisely enough to copy into `base.html`), and whatever icon set replaces
+the emoji throughout — described precisely enough (SVG source, or a short list of
+the icons used and where) that it can be reused consistently if we extend this
+redesign to other pages later.
