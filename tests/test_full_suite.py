@@ -47,7 +47,11 @@ class TestAuthModels:
     def setup_method(self):
         import src.auth.models as m
         self._original_auth_db_path = m.AUTH_DB_PATH
-        self.conn, self.tmp, self.m = _fresh_auth_db()
+        try:
+            self.conn, self.tmp, self.m = _fresh_auth_db()
+        except Exception:
+            m.AUTH_DB_PATH = self._original_auth_db_path
+            raise
 
     def teardown_method(self):
         self.m.AUTH_DB_PATH = self._original_auth_db_path
@@ -145,6 +149,30 @@ def test_auth_db_path_restored_after_test_auth_models_teardown():
     instance.setup_method()
     assert m.AUTH_DB_PATH != original  # sanity: setup really did redirect it
     instance.teardown_method()
+
+    assert m.AUTH_DB_PATH == original
+
+
+def test_auth_db_path_restored_even_if_setup_fails():
+    """
+    Regression test for a narrower edge case the main fix didn't originally
+    cover: if _fresh_auth_db() raises partway through setup_method (e.g. a
+    permission error opening the temp auth DB), pytest never calls
+    teardown_method — so without this fix, the just-saved original
+    AUTH_DB_PATH would never be restored, and it would leak pointing at the
+    unusable temp path.
+    """
+    import src.auth.models as m
+    from unittest.mock import patch
+
+    original = m.AUTH_DB_PATH
+
+    instance = TestAuthModels()
+    with patch("tests.test_full_suite._fresh_auth_db", side_effect=RuntimeError("simulated setup failure")):
+        try:
+            instance.setup_method()
+        except RuntimeError:
+            pass  # expected — we're only checking that AUTH_DB_PATH didn't leak
 
     assert m.AUTH_DB_PATH == original
 
