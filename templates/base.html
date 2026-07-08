@@ -1,9 +1,17 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light"{% if dark_mode_locked %} data-theme-locked{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Job Market Intelligence{% endblock %}</title>
+
+    <script>
+    (function(){
+        if (document.documentElement.hasAttribute('data-theme-locked')) return;
+        var saved = document.cookie.match(/jmi_theme=([^;]+)/);
+        if (saved) document.documentElement.setAttribute('data-theme', saved[1]);
+    })();
+    </script>
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -385,7 +393,9 @@
                 </nav>
 
                 <div class="header-actions">
+                    {% if not dark_mode_locked %}
                     <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark theme">🌙</button>
+                    {% endif %}
                     {% if g.current_user %}
                     <div class="user-chip">
                         <div class="avatar">{{ g.current_user.username[0].upper() }}</div>
@@ -444,13 +454,12 @@
     </script>
     <script>
     (function(){
-        const saved = document.cookie.match(/jmi_theme=([^;]+)/)?.[1];
-        if (saved) document.documentElement.setAttribute("data-theme", saved);
         const btn = document.getElementById("themeToggle");
         if (btn) btn.textContent = document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
     })();
 
     window.toggleTheme = function(){
+        if (document.documentElement.hasAttribute('data-theme-locked')) return;
         const html = document.documentElement;
         const next = html.getAttribute("data-theme") === "dark" ? "light" : "dark";
         html.setAttribute("data-theme", next);
