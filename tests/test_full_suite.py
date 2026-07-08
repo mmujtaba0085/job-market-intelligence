@@ -45,9 +45,12 @@ def _fresh_auth_db():
 # ===========================================================================
 class TestAuthModels:
     def setup_method(self):
+        import src.auth.models as m
+        self._original_auth_db_path = m.AUTH_DB_PATH
         self.conn, self.tmp, self.m = _fresh_auth_db()
 
     def teardown_method(self):
+        self.m.AUTH_DB_PATH = self._original_auth_db_path
         self.conn.close()
         try: os.unlink(self.tmp)
         except Exception: pass
@@ -124,6 +127,26 @@ class TestAuthModels:
     def test_check_password(self):
         h = self.m._hash_password("secret")
         assert self.m._check_password("secret", h) and not self.m._check_password("wrong", h)
+
+
+def test_auth_db_path_restored_after_test_auth_models_teardown():
+    """
+    Regression test for a real leak: TestAuthModels.setup_method used to
+    overwrite the module-global AUTH_DB_PATH permanently (raw assignment,
+    no restore), and teardown_method deleted the temp file without ever
+    putting the original path back — leaving a dangling path for whatever
+    test ran next in the same pytest session. Proves the fix actually
+    restores it, rather than trusting the reorder by inspection.
+    """
+    import src.auth.models as m
+    original = m.AUTH_DB_PATH
+
+    instance = TestAuthModels()
+    instance.setup_method()
+    assert m.AUTH_DB_PATH != original  # sanity: setup really did redirect it
+    instance.teardown_method()
+
+    assert m.AUTH_DB_PATH == original
 
 
 # ===========================================================================

@@ -9,7 +9,7 @@ import pytest
 def secured_app(tmp_path, monkeypatch):
     import src.auth.models as models
 
-    models.AUTH_DB_PATH = Path(tmp_path) / "auth.sqlite"
+    monkeypatch.setattr(models, "AUTH_DB_PATH", Path(tmp_path) / "auth.sqlite")
     monkeypatch.setenv("ADMIN_PASSWORD", "admin-pass-123")
     models.init_auth_db()
 
