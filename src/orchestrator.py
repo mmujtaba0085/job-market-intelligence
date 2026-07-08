@@ -40,6 +40,7 @@ from config.settings import EMERGING_LOOKBACK_WEEKS, OUTPUTS_DIR
 from src.analytics.category_analytics import compute_category_stats
 from src.analytics.co_occurrence import compute_co_occurrence
 from src.analytics.coverage_metrics import compute_coverage_stats
+from src.analytics.diversity_rank import recompute_diversity_ranks
 from src.analytics.temporal_trends import compute_trend_stats
 from src.analytics.title_analytics import compute_title_stats
 from src.analytics.weekly_metrics import compute_weekly_metrics
@@ -557,6 +558,13 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _should_recompute_diversity(args: argparse.Namespace) -> bool:
+    """Diversity rank recompute runs after any mode that actually fetches new job data."""
+    if args.backfill:
+        return False
+    return args.mode != "report-only"
+
+
 def main() -> None:
     args = _parse_args()
 
@@ -575,6 +583,8 @@ def main() -> None:
 
     try:
         stats = _run(args, week_start)
+        if _should_recompute_diversity(args):
+            recompute_diversity_ranks()
         finish_run(run_id, status="success", **stats)
     except Exception as exc:
         finish_run(run_id, status="failed", error=str(exc))
