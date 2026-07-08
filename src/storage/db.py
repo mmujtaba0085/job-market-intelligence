@@ -276,6 +276,15 @@ def run_migrations() -> None:
             " SELECT * FROM jobs WHERE listing_status != 'hidden'"
         )
 
+        # Migration 010: diversity_rank — per-source recency rank, powers the
+        # /jobs page's default round-robin sort (see src/analytics/diversity_rank.py)
+        _ensure_column(conn, "jobs", "diversity_rank", "diversity_rank INTEGER")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_diversity_rank ON jobs(diversity_rank)")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_source_posted "
+            "ON jobs(source_name, posted_date DESC, ingested_at DESC)"
+        )
+
     conn.close()
 
 
