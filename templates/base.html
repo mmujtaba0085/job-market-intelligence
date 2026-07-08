@@ -1,9 +1,17 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light"{% if dark_mode_locked %} data-theme-locked{% endif %}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Job Market Intelligence{% endblock %}</title>
+
+    <script>
+    (function(){
+        if (document.documentElement.hasAttribute('data-theme-locked')) return;
+        var saved = document.cookie.match(/jmi_theme=([^;]+)/);
+        if (saved) document.documentElement.setAttribute('data-theme', saved[1]);
+    })();
+    </script>
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,31 +20,54 @@
     <style>
         /* ─── Theme variables ─────────────────────────────────────────── */
         :root {
-            --bg-base:      #f6f8fa;
-            --bg-surface:   #ffffff;
-            --bg-elevated:  #f0f3f7;
-            --bg-hover:     #e8ecf1;
-            --border:       #d0d7de;
-            --border-subtle:#e8ecf1;
-            --text-primary: #1f2328;
-            --text-secondary:#57606a;
-            --text-muted:   #8c959f;
-            --accent:       #0969da;
-            --accent-hover: #0550ae;
-            --accent-bg:    rgba(9,105,218,0.07);
-            --success:      #1a7f37;
-            --success-bg:   rgba(26,127,55,0.08);
-            --warning:      #9a6700;
-            --warning-bg:   rgba(154,103,0,0.08);
-            --danger:       #cf222e;
-            --danger-bg:    rgba(207,34,46,0.08);
-            --purple:       #8250df;
-            --purple-bg:    rgba(130,80,223,0.08);
+            --bg-base:      #FBF6EF;
+            --bg-surface:   #FFFDF9;
+            --bg-elevated:  #F5EBDD;
+            --bg-hover:     #F0E4D0;
+            --border:       #E8D9C3;
+            --border-subtle:#F0E4D0;
+            --text-primary: #3D2B1F;
+            --text-secondary:#7A6A58;
+            --text-muted:   #A69885;
+            --accent:       #C1552C;
+            --accent-hover: #A6431F;
+            --accent-bg:    rgba(193,85,44,0.08);
+            --success:      #4C7A3D;
+            --success-bg:   rgba(76,122,61,0.08);
+            --warning:      #A6740A;
+            --warning-bg:   rgba(166,116,10,0.08);
+            --danger:       #C0392B;
+            --danger-bg:    rgba(192,57,43,0.08);
+            --purple:       #8B5A83;
+            --purple-bg:    rgba(139,90,131,0.08);
             --shadow-sm:    0 1px 3px rgba(31,35,40,0.12);
             --shadow-md:    0 4px 12px rgba(31,35,40,0.12);
             --shadow-lg:    0 8px 24px rgba(31,35,40,0.12);
-            --header-bg:    linear-gradient(135deg, #0550ae 0%, #0969da 100%);
+            --header-bg:    linear-gradient(135deg, #C1552C 0%, #E08E4F 100%);
             --header-border: rgba(255,255,255,0.15);
+        }
+
+        [data-theme="dark"] {
+            --bg-base:      #211812;
+            --bg-surface:   #2C2119;
+            --bg-elevated:  #382A1F;
+            --bg-hover:     #443423;
+            --border:       #4A392C;
+            --border-subtle:#443423;
+            --text-primary: #F5E9DC;
+            --text-secondary:#C4AD97;
+            --text-muted:   #8A7862;
+            --accent:       #E08E4F;
+            --accent-hover: #EDA968;
+            --accent-bg:    rgba(224,142,79,0.12);
+            --success:      #8FB37A;
+            --success-bg:   rgba(143,179,122,0.12);
+            --warning:      #D9A441;
+            --warning-bg:   rgba(217,164,65,0.12);
+            --danger:       #E0685A;
+            --danger-bg:    rgba(224,104,90,0.12);
+            --purple:       #C99BC0;
+            --purple-bg:    rgba(201,155,192,0.12);
         }
 
         /* ─── Reset & Base ────────────────────────────────────────────── */
@@ -127,8 +158,7 @@
             gap: 8px;
         }
 
-        /* (theme toggle removed) */
-        .theme-toggle-unused {
+        .theme-toggle {
             width: 36px; height: 36px;
             border: 1px solid var(--header-border);
             border-radius: 8px;
@@ -363,6 +393,9 @@
                 </nav>
 
                 <div class="header-actions">
+                    {% if not dark_mode_locked %}
+                    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" title="Toggle light/dark theme">🌙</button>
+                    {% endif %}
                     {% if g.current_user %}
                     <div class="user-chip">
                         <div class="avatar">{{ g.current_user.username[0].upper() }}</div>
@@ -418,6 +451,22 @@
             localizeTimestamps();
         }
     })();
+    </script>
+    <script>
+    (function(){
+        const btn = document.getElementById("themeToggle");
+        if (btn) btn.textContent = document.documentElement.getAttribute("data-theme") === "dark" ? "☀️" : "🌙";
+    })();
+
+    window.toggleTheme = function(){
+        if (document.documentElement.hasAttribute('data-theme-locked')) return;
+        const html = document.documentElement;
+        const next = html.getAttribute("data-theme") === "dark" ? "light" : "dark";
+        html.setAttribute("data-theme", next);
+        document.cookie = `jmi_theme=${next};path=/;max-age=31536000;SameSite=Lax`;
+        const btn = document.getElementById("themeToggle");
+        if (btn) btn.textContent = next === "dark" ? "☀️" : "🌙";
+    };
     </script>
     {% block extra_scripts %}{% endblock %}
 </body>

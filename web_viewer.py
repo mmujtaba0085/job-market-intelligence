@@ -68,7 +68,8 @@ app.after_request(log_request_access)
 @app.context_processor
 def inject_current_user():
     from src.auth.middleware import csrf_token as _csrf_token
-    return {"current_user": get_current_user(), "csrf_token": _csrf_token}
+    dark_mode_locked = request.path.startswith("/admin") or request.path == "/jobs/quality"
+    return {"current_user": get_current_user(), "csrf_token": _csrf_token, "dark_mode_locked": dark_mode_locked}
 
 
 # ── Global auth gate ──────────────────────────────────────────────────────────
