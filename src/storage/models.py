@@ -85,6 +85,7 @@ class JobNormalized:
     
     # ── Multi-location support ────────────────────────────────────────────────
     all_locations: Optional[list[str]] = None  # All locations if job has multiple
+    newspaper: Optional[str] = None  # Publication the ad ran in (Pakistan Jobs Bank only)
     source_id: str = ""
     source_record_id: Optional[str] = None
     listing_status: str = "active"

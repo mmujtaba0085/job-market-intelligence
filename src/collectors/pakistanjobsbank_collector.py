@@ -185,8 +185,6 @@ class PakistanJobsBankCollector(BaseCollector):
             description_parts = [f"Ad: {ad_title}"]
             if location:
                 description_parts.append(f"Location: {location}")
-            if newspaper:
-                description_parts.append(f"Published in {newspaper} on {day.isoformat()}")
             description = ". ".join(description_parts)
 
             for i, position_title in enumerate(titles, start=1):
@@ -216,6 +214,7 @@ class PakistanJobsBankCollector(BaseCollector):
                             "remote_type": "on-site",
                             "posted_date": day.isoformat(),
                             "description": description,
+                            "newspaper": newspaper,
                         },
                     )
                 )

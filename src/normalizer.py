@@ -54,6 +54,7 @@ def normalize(job_raw: JobRaw, market_id: str) -> Optional[JobNormalized]:
     company = _clean(pf.get("company", ""))
     location = _clean(pf.get("location", ""))
     all_locations = pf.get("all_locations")  # Optional list of all locations (for GitHub sources)
+    newspaper = _clean(pf.get("newspaper", "")) or None
     country = _clean(pf.get("country", ""))
     description = _clean(pf.get("description", ""))
 
@@ -103,6 +104,7 @@ def normalize(job_raw: JobRaw, market_id: str) -> Optional[JobNormalized]:
         country=country,
         location=location,
         all_locations=all_locations,
+        newspaper=newspaper,
         remote_type=remote_type,
         posted_date=posted_date,
         salary_min=salary_min,

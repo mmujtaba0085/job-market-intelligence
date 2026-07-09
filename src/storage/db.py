@@ -285,6 +285,11 @@ def run_migrations() -> None:
             "ON jobs(source_name, posted_date DESC, ingested_at DESC)"
         )
 
+        # Migration 011: newspaper — the publication a Pakistan Jobs Bank ad
+        # ran in (Jang, Dawn, Express, ...). Previously only embedded in
+        # raw_description free text; now its own queryable column.
+        _ensure_column(conn, "jobs", "newspaper", "newspaper TEXT")
+
     conn.close()
 
 
@@ -667,13 +672,13 @@ def upsert_job(job: JobNormalized) -> tuple[Optional[int], str]:
                     url_hash, canonical_hash, description_hash, job_group_id,
                     title, normalized_title, normalization_confidence, company, country, location, remote_type,
                     posted_date, salary_min, salary_max, currency,
-                    raw_description, location_count, week_id,
+                    raw_description, newspaper, location_count, week_id,
                     first_seen_at, last_seen_at, ingested_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?,
-                    ?, ?, ?,
+                    ?, ?, ?, ?,
                     ?, ?, ?
                 )
                 """,
@@ -683,7 +688,7 @@ def upsert_job(job: JobNormalized) -> tuple[Optional[int], str]:
                     job.title, job.normalized_title, job.normalization_confidence, job.company, job.country, job.location, job.remote_type,
                     job.posted_date.isoformat() if job.posted_date else None,
                     job.salary_min, job.salary_max, job.currency,
-                    job.description_text,
+                    job.description_text, job.newspaper,
                     location_count,
                     week_id,
                     now, now, now,
