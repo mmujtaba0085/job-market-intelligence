@@ -290,6 +290,18 @@ def run_migrations() -> None:
         # raw_description free text; now its own queryable column.
         _ensure_column(conn, "jobs", "newspaper", "newspaper TEXT")
 
+        # Migration 012: ad_image_url / apply_url — Pakistan Jobs Bank ads are
+        # scanned newspaper clippings (a per-ad image, not text); apply_url is
+        # the source ad's own external "how to apply" link when it has one.
+        _ensure_column(conn, "jobs", "ad_image_url", "ad_image_url TEXT")
+        _ensure_column(conn, "jobs", "apply_url", "apply_url TEXT")
+
+        # Migration 013: salary_period — distinguishes hourly rates (common
+        # for internship listings, e.g. "$62/hr") from annual figures, so
+        # salary_min/salary_max are never silently misread as one or the
+        # other by anything comparing/sorting on them.
+        _ensure_column(conn, "jobs", "salary_period", "salary_period TEXT")
+
     conn.close()
 
 
@@ -671,14 +683,14 @@ def upsert_job(job: JobNormalized) -> tuple[Optional[int], str]:
                     market_id, source_name, url,
                     url_hash, canonical_hash, description_hash, job_group_id,
                     title, normalized_title, normalization_confidence, company, country, location, remote_type,
-                    posted_date, salary_min, salary_max, currency,
-                    raw_description, newspaper, location_count, week_id,
+                    posted_date, salary_min, salary_max, currency, salary_period,
+                    raw_description, newspaper, ad_image_url, apply_url, location_count, week_id,
                     first_seen_at, last_seen_at, ingested_at
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?,
-                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?,
                     ?, ?, ?
                 )
                 """,
@@ -687,8 +699,8 @@ def upsert_job(job: JobNormalized) -> tuple[Optional[int], str]:
                     job.url_hash, job.canonical_hash, job.description_hash, job.job_group_id,
                     job.title, job.normalized_title, job.normalization_confidence, job.company, job.country, job.location, job.remote_type,
                     job.posted_date.isoformat() if job.posted_date else None,
-                    job.salary_min, job.salary_max, job.currency,
-                    job.description_text, job.newspaper,
+                    job.salary_min, job.salary_max, job.currency, job.salary_period,
+                    job.description_text, job.newspaper, job.ad_image_url, job.apply_url,
                     location_count,
                     week_id,
                     now, now, now,

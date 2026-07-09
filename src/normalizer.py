@@ -55,6 +55,8 @@ def normalize(job_raw: JobRaw, market_id: str) -> Optional[JobNormalized]:
     location = _clean(pf.get("location", ""))
     all_locations = pf.get("all_locations")  # Optional list of all locations (for GitHub sources)
     newspaper = _clean(pf.get("newspaper", "")) or None
+    ad_image_url = _clean(pf.get("ad_image_url", "")) or None
+    apply_url = _clean(pf.get("apply_url", "")) or None
     country = _clean(pf.get("country", ""))
     description = _clean(pf.get("description", ""))
 
@@ -75,6 +77,7 @@ def normalize(job_raw: JobRaw, market_id: str) -> Optional[JobNormalized]:
     salary_min = _to_float(pf.get("salary_min"))
     salary_max = _to_float(pf.get("salary_max"))
     currency = _clean(pf.get("currency", "")) or None
+    salary_period = _clean(pf.get("salary_period", "")) or None
 
     # ── Hashes ────────────────────────────────────────────────────────────────
     url_hash = _sha256(job_raw.source_id + url)
@@ -105,11 +108,14 @@ def normalize(job_raw: JobRaw, market_id: str) -> Optional[JobNormalized]:
         location=location,
         all_locations=all_locations,
         newspaper=newspaper,
+        ad_image_url=ad_image_url,
+        apply_url=apply_url,
         remote_type=remote_type,
         posted_date=posted_date,
         salary_min=salary_min,
         salary_max=salary_max,
         currency=currency,
+        salary_period=salary_period,
         description_text=description,
         url=url,
     )

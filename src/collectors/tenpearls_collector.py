@@ -35,7 +35,6 @@ migrations/003_multi_location_support.sql for the existing mechanism).
 
 from __future__ import annotations
 
-import html
 import json
 import logging
 import re
@@ -139,11 +138,23 @@ class TenPearlsCollector(BaseCollector):
                 return data
         return None
 
-    def _strip_html_to_text(self, raw_html: str) -> str:
-        text = BeautifulSoup(html.unescape(raw_html or ""), "html.parser").get_text("\n")
-        text = re.sub(r"[^\S\n]+", " ", text)   # collapse runs of any whitespace (incl. unicode spaces), keep newlines
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text.strip()
+    def _clean_description_html(self, raw_html: str) -> str:
+        """
+        Keep real HTML structure (paragraphs, bullet lists, bold text)
+        instead of flattening to plain text. job_detail.html already
+        renders raw_description via `| safe` and this is exactly how
+        Remotive/Arbeitnow descriptions get their formatting today — a
+        plain-text version would just collapse to one line anyway, since
+        normalizer.py's field cleanup strips newlines from every field.
+        Only strips genuinely unsafe/empty content, not the formatting.
+        """
+        soup = BeautifulSoup(raw_html or "", "html.parser")
+        for tag in soup.find_all(["script", "style"]):
+            tag.decompose()
+        for p in soup.find_all(["p", "li"]):
+            if not p.get_text(strip=True):
+                p.decompose()
+        return str(soup).strip()
 
     # ── Location cleanup ─────────────────────────────────────────────────────
 
@@ -233,7 +244,7 @@ class TenPearlsCollector(BaseCollector):
 
         if job_ld:
             title = job_ld.get("title") or row["listing_title"]
-            description = self._strip_html_to_text(job_ld.get("description") or "")
+            description = self._clean_description_html(job_ld.get("description") or "")
             posted_date = job_ld.get("datePosted") or row["row_posted_date"]
             code = job_ld.get("uniqueJobCode") or row["detail_url"].rstrip("/").rsplit("/", 1)[-1]
 
@@ -248,7 +259,7 @@ class TenPearlsCollector(BaseCollector):
             desc_el = soup.select_one("div.job_description")
 
             title = title_el.get_text(strip=True) if title_el else row["listing_title"]
-            description = self._strip_html_to_text(str(desc_el)) if desc_el else ""
+            description = self._clean_description_html(desc_el.decode_contents()) if desc_el else ""
             posted_date = row["row_posted_date"]
             code = row["detail_url"].rstrip("/").rsplit("/", 1)[-1]
             location_source = row["listing_location_raw"]

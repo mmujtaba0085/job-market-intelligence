@@ -8,8 +8,16 @@ The News, The Nation).
 No API is exposed; jobs are scraped from date-archive pages:
     https://www.pakistanjobsbank.com/Jobs-in-Pakistan/YYYY-MM-DD/
 Each date page lists every ad published that day, across all newspapers,
-directly in <tr class="job-ad"> rows — individual job detail pages don't need
-to be fetched to get title/newspaper/location/positions.
+directly in <tr class="job-ad"> rows — title/newspaper/location/positions
+all come from that one page, no per-ad request needed for those fields.
+
+Two things aren't on the date-archive page and do need one request per ad
+(not per position — a single ad can list several positions, e.g. "Control
+Room Operator" + "Mali" from the same ad): the ad is a scanned newspaper
+clipping (an image, #Contents_AdImage on the ad's own detail page), and
+some ads separately include an external "how to apply" link (inside
+td.job-information on that same detail page) — see _fetch_ad_detail().
+Both are attached identically to every position parsed from that ad.
 
 Crawl strategy (persisted to data/pakistanjobsbank_state.json so it survives
 restarts and spreads across many daily runs). Two frontiers advance every
@@ -126,6 +134,43 @@ class PakistanJobsBankCollector(BaseCollector):
 
         return 200, self._parse_date_page(resp.text, day)
 
+    def _fetch_ad_detail(self, ad_url: str) -> tuple[str | None, str | None]:
+        """
+        Visit one ad's own detail page for the two things the date-archive
+        listing doesn't expose: the scanned ad image, and an external "how
+        to apply" link (present only on some ads — the rest are applied to
+        via whatever's written inside the image itself, e.g. an email or a
+        government portal). Returns (ad_image_url, apply_url); either may
+        be None on a failed fetch or when the source simply doesn't have it.
+        """
+        try:
+            resp = requests.get(ad_url, headers={"User-Agent": _UA}, timeout=_TIMEOUT)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            logger.warning("[pakistanjobsbank] Failed to fetch ad detail %s: %s", ad_url, exc)
+            return None, None
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        ad_image_url = None
+        img = soup.select_one("#Contents_AdImage")
+        if img and img.get("src"):
+            src = img["src"]
+            ad_image_url = src if src.startswith("http") else f"{_BASE_URL}{src}"
+
+        # The "how to apply" link (when present) lives in a dedicated text
+        # block, separate from the share-icon links elsewhere on the page.
+        apply_url = None
+        info_block = soup.select_one("td.job-information")
+        if info_block:
+            for a in info_block.select("a[href]"):
+                href = a["href"]
+                if href.startswith("http") and _BASE_URL not in href:
+                    apply_url = href
+                    break
+
+        return ad_image_url, apply_url
+
     def _parse_date_page(self, html: str, day: date) -> list[JobRaw]:
         """
         One newspaper ad often advertises several distinct roles at once (e.g.
@@ -187,6 +232,9 @@ class PakistanJobsBankCollector(BaseCollector):
                 description_parts.append(f"Location: {location}")
             description = ". ".join(description_parts)
 
+            self._wait()
+            ad_image_url, apply_url = self._fetch_ad_detail(ad_url)
+
             for i, position_title in enumerate(titles, start=1):
                 # The ad page is the only URL available for every position in
                 # it; a fragment keeps each position's url_hash unique so the
@@ -205,6 +253,8 @@ class PakistanJobsBankCollector(BaseCollector):
                             "location": location,
                             "positions": positions,
                             "ad_date": day.isoformat(),
+                            "ad_image_url": ad_image_url,
+                            "apply_url": apply_url,
                         },
                         parsed_fields={
                             "title": position_title,
@@ -215,6 +265,8 @@ class PakistanJobsBankCollector(BaseCollector):
                             "posted_date": day.isoformat(),
                             "description": description,
                             "newspaper": newspaper,
+                            "ad_image_url": ad_image_url,
+                            "apply_url": apply_url,
                         },
                     )
                 )

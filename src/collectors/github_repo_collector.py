@@ -56,6 +56,15 @@ _TECH_TITLE_RE = re.compile(
     re.IGNORECASE,
 )
 
+_MD_LINK_RE = re.compile(r'\[([^\]]*)\]\(([^)]+)\)')
+
+# Salary column parsing (e.g. SpeedyApply's "$62/hr" internship rates).
+# Hourly is checked first since it's the specific case - a plain range/single
+# check would otherwise misread "$62/hr" as a single annual figure of $62.
+_SALARY_HOURLY_RE = re.compile(r"\$?\s*([\d,]+(?:\.\d+)?)\s*/\s*(?:hr|hour)", re.IGNORECASE)
+_SALARY_RANGE_RE = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)\s*(k)?\s*-\s*\$?\s*([\d,]+(?:\.\d+)?)\s*(k)?", re.IGNORECASE)
+_SALARY_SINGLE_RE = re.compile(r"\$\s*([\d,]+(?:\.\d+)?)\s*(k)?", re.IGNORECASE)
+
 _CACHE_ROOT = Path("data/cache/github")
 _META_FILE = _CACHE_ROOT / "meta.json"
 _RAW_DIR = _CACHE_ROOT / "raw"
@@ -240,6 +249,42 @@ class GitHubRepoCollector(BaseCollector):
 
         return collected[:max_jobs]
 
+    def _extract_internal_md_paths(
+        self, content: str, base_path: str, repo_owner: str, repo_name: str
+    ) -> list[str]:
+        """
+        Find markdown links to other .md files within this repo (e.g.
+        SpeedyApply's README indexes separate category files like
+        NEW_GRAD_USA.md, NEW_GRAD_INTL.md, INTERN_INTL.md via root-relative
+        links such as "[New Graduate](/NEW_GRAD_USA.md)" rather than listing
+        every category in one table) and resolves them to repo-relative
+        paths so _collect_repo's queue can fetch and parse them too.
+        External links, non-.md links, and in-file anchors are ignored.
+        """
+        base_dir = base_path.rsplit("/", 1)[0] if "/" in base_path else ""
+        paths: list[str] = []
+
+        for _text, link in _MD_LINK_RE.findall(content):
+            link = link.strip()
+            if link.startswith(("http://", "https://")):
+                continue
+            link = link.split("#", 1)[0]  # drop in-file anchor
+            if not link.lower().endswith(".md"):
+                continue
+
+            if link.startswith("/"):
+                resolved = link.lstrip("/")
+            elif base_dir:
+                resolved = f"{base_dir}/{link}"
+            else:
+                resolved = link
+
+            resolved = self._normalize_path(resolved)
+            if resolved and resolved not in paths:
+                paths.append(resolved)
+
+        return paths
+
     # ------------------------- Fetch with caching -------------------------
 
     def _fetch_markdown(self, repo_tag: str, spec: RepoSpec, path: str) -> tuple[str, Optional[str]]:
@@ -378,6 +423,7 @@ class GitHubRepoCollector(BaseCollector):
             idx_location = self._col_index(header_cells, ["location", "city", "region", "where"])
             idx_apply = self._col_index(header_cells, ["apply", "application", "link", "url"])
             idx_date = self._col_index(header_cells, ["date", "posted", "date posted", "age"])
+            idx_salary = self._col_index(header_cells, ["salary", "pay", "compensation"])
 
             i += 2  # move to first data row
             prev_company = ""
@@ -407,6 +453,7 @@ class GitHubRepoCollector(BaseCollector):
 
                 apply_cell = self._clean_cell(cells, idx_apply) if idx_apply != -1 else ""
                 date_cell = self._clean_cell(cells, idx_date) if idx_date != -1 else ""
+                salary_cell = self._clean_cell(cells, idx_salary) if idx_salary != -1 else ""
 
                 url = self._extract_url(apply_cell) or self._extract_url(row) or ""
                 if not url:
@@ -417,6 +464,7 @@ class GitHubRepoCollector(BaseCollector):
                     continue
 
                 posted_date = self._parse_any_date(date_cell)
+                salary_min, salary_max, currency, salary_period = self._parse_salary_cell(salary_cell)
                 remote_type = self._infer_remote_type(location)
                 country = self._infer_country(location)
 
@@ -437,6 +485,10 @@ class GitHubRepoCollector(BaseCollector):
                             "description": f"{title} at {company} ({location})",
                             "source_repo": repo_tag,
                             "source_file": file_path,
+                            "salary_min": salary_min,
+                            "salary_max": salary_max,
+                            "currency": currency,
+                            "salary_period": salary_period,
                         },
                     )
                 )
@@ -663,8 +715,41 @@ class GitHubRepoCollector(BaseCollector):
         # Don't forget the last cell
         if current_cell:
             cells.append(''.join(current_cell).strip())
-        
+
         return cells
+
+    @staticmethod
+    def _parse_salary_cell(cell: str) -> tuple[Optional[float], Optional[float], Optional[str], Optional[str]]:
+        """
+        Parse a markdown table Salary cell into (salary_min, salary_max,
+        currency, salary_period). Handles hourly rates ("$62/hr" - common
+        for internship listings) and simple annual ranges/single values
+        ("$95K - $110K", "$95,000"). Returns all-None for anything else
+        rather than guessing - an hourly rate stored without salary_period
+        would look like a nonsensical annual figure everywhere else in the
+        app that assumes salary_min/max are annual.
+        """
+        cell = (cell or "").strip()
+        if not cell or "$" not in cell:
+            return None, None, None, None
+
+        m = _SALARY_HOURLY_RE.search(cell)
+        if m:
+            value = float(m.group(1).replace(",", ""))
+            return value, value, "USD", "hourly"
+
+        m = _SALARY_RANGE_RE.search(cell)
+        if m:
+            lo = float(m.group(1).replace(",", "")) * (1000 if m.group(2) else 1)
+            hi = float(m.group(3).replace(",", "")) * (1000 if m.group(4) else 1)
+            return lo, hi, "USD", "annual"
+
+        m = _SALARY_SINGLE_RE.search(cell)
+        if m:
+            value = float(m.group(1).replace(",", "")) * (1000 if m.group(2) else 1)
+            return value, value, "USD", "annual"
+
+        return None, None, None, None
 
     @staticmethod
     def _col_index(headers: list[str], options: list[str]) -> int:
@@ -945,7 +1030,12 @@ class GitHubRepoCollector(BaseCollector):
                         location = metadata.get("locations", "Unknown")
                         remote_type = self._infer_remote_type(location)
                         country = self._infer_country(location)
-                        
+
+                        description = f"{job_title} at {company} ({location})"
+                        notes = metadata.get("notes", "")
+                        if notes:
+                            description = f"{description}. {notes}"
+
                         # Create job
                         jobs.append(
                             JobRaw(
@@ -961,7 +1051,7 @@ class GitHubRepoCollector(BaseCollector):
                                     "country": country,
                                     "remote_type": remote_type,
                                     "posted_date": "",
-                                    "description": f"{job_title} at {company} ({location})",
+                                    "description": description,
                                     "source_repo": repo_tag,
                                     "source_file": file_path,
                                     "website": metadata.get("website", ""),

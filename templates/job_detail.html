@@ -118,6 +118,18 @@
             <th>URL</th>
             <td><a href="{{ job.url }}" target="_blank" style="color: #667eea; text-decoration: none;">{{ job.url }}</a></td>
         </tr>
+        {% if job.newspaper %}
+        <tr>
+            <th>Apply</th>
+            <td>
+                {% if job.apply_url %}
+                <a href="{{ job.apply_url }}" target="_blank" style="color: #667eea; text-decoration: none;">{{ job.apply_url }}</a>
+                {% else %}
+                <span style="color: #6b7280;">Not provided</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% endif %}
         {% if job.salary_min or job.salary_max %}
         <tr>
             <th>Salary</th>
@@ -129,6 +141,7 @@
                 {% else %}
                 {{ job.currency or '$' }} Up to {{ '{:,.0f}'.format(job.salary_max) }}
                 {% endif %}
+                {% if job.salary_period == 'hourly' %}/hr{% endif %}
             </td>
         </tr>
         {% endif %}
@@ -215,6 +228,15 @@
     </div>
     {% endif %}
 </div>
+
+{% if job.ad_image_url %}
+<div class="card">
+    <h3 style="margin-bottom: 1rem; color: #1f2937;">Original Newspaper Ad{% if job.newspaper %} ({{ job.newspaper }}){% endif %}</h3>
+    <a href="{{ job.ad_image_url }}" target="_blank">
+        <img src="{{ job.ad_image_url }}" alt="Original newspaper advertisement" style="max-width: 100%; border-radius: 8px; border: 1px solid #e5e7eb;">
+    </a>
+</div>
+{% endif %}
 
 <div class="card">
     <h3 style="margin-bottom: 1rem; color: #1f2937;">Job Description</h3>

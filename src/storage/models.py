@@ -86,6 +86,8 @@ class JobNormalized:
     # ── Multi-location support ────────────────────────────────────────────────
     all_locations: Optional[list[str]] = None  # All locations if job has multiple
     newspaper: Optional[str] = None  # Publication the ad ran in (Pakistan Jobs Bank only)
+    ad_image_url: Optional[str] = None  # Scanned ad image URL (Pakistan Jobs Bank only)
+    apply_url: Optional[str] = None  # External "how to apply" link, when the source ad has one
     source_id: str = ""
     source_record_id: Optional[str] = None
     listing_status: str = "active"
