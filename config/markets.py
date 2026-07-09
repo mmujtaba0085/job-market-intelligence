@@ -150,6 +150,37 @@ TARGET_MARKETS: list[dict] = [
         "source_allowlist": ["pakistanjobsbank"],
     },
 
+    {
+        # ── Identity ─────────────────────────────────────────────────────────
+        "market_id": "tenpearls_jobs",
+        "display_name": "10Pearls Careers",
+
+        # No keyword filter — 10Pearls' own careers board is a small,
+        # finite, single-company catalogue that mixes tech and non-tech
+        # roles (Solutions Architect alongside Account Manager, Talent
+        # Acquisition, ...). Capturing everything is the point of tracking
+        # this specific company, not just its roles that happen to match
+        # generic global tech keywords.
+        "keywords": [],
+        "crawl_keywords": [],
+
+        # ── Geography ─────────────────────────────────────────────────────────
+        "countries": ["Pakistan", "United Kingdom"],
+
+        # ── Filters ───────────────────────────────────────────────────────────
+        "remote_filter": False,
+        "experience_levels": ["entry", "mid", "senior"],
+        "salary_required": False,
+
+        # ── Collection limits (per source per run) ────────────────────────────
+        # Effectively unbounded — the whole board is one page, currently ~70
+        # jobs; TenPearlsCollector always fetches everything currently listed.
+        "max_jobs_per_source": 1_000,
+
+        # ── Restrict this market to just this source ─────────────────────────
+        "source_allowlist": ["tenpearls"],
+    },
+
     # ── Future market template (commented out) ────────────────────────────────
     # {
     #     "market_id": "devops_remote",

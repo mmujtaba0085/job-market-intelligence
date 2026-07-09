@@ -58,6 +58,7 @@ from src.collectors.adzuna_collector import AdzunaCollector
 from src.collectors.findwork_collector import FindworkCollector
 from src.collectors.jooble_collector import JoobleCollector
 from src.collectors.pakistanjobsbank_collector import PakistanJobsBankCollector
+from src.collectors.tenpearls_collector import TenPearlsCollector
 from src.collectors.github_repo_collector import (
     GitHubSimplify2026Collector,
     GitHubVansh2026Collector,
@@ -115,6 +116,7 @@ _COLLECTOR_CLASSES = [
     FindworkCollector,
     JoobleCollector,
     PakistanJobsBankCollector,
+    TenPearlsCollector,
     GitHubSimplify2026Collector,
     GitHubVansh2026Collector,
     GitHubSpeedyApply2026Collector,

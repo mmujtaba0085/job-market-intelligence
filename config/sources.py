@@ -376,6 +376,24 @@ ALLOWED_SOURCES: list[dict] = [
         "enabled": True,
     },
 
+    {
+        "source_id": "tenpearls",
+        "display_name": "10Pearls Careers (JazzHR)",
+        "source_type": "HTML",
+        "base_url": "https://10pearls.applytojob.com/apply/jobs",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # verified: robots.txt only disallows /cb, blocks no general UA
+        "requires_auth": False,
+        "tos_note": (
+            "Public JazzHR-hosted careers board for 10Pearls. No API; scraped from "
+            "the single job-listing page plus each job's detail page (both public, "
+            "no login). robots.txt permits general crawling and publishes Google "
+            "Jobs XML sitemaps, confirming the board is meant to be indexed/crawled. "
+            "No ToS page restricting automated access found."
+        ),
+        "enabled": True,
+    },
+
     # ── Future sources (add below, keep disabled until vetted) ────────────────
 ]
 
