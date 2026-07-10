@@ -67,7 +67,12 @@ scheduled pipeline do write), not because it's load-bearing at this scale.
   scale (300 users/week, zero public writes), and far too large a change
   for a launch that's days away.
 - Removing the `/api/*` surface — the user is deferring this decision,
-  not asking for it now.
+  not asking for it now. Direction as of this writing: the API will stay
+  live but public/self-service access will be disabled, leaving it
+  available only to a curated few request-based grantees — not
+  implemented here, just noted since it further reinforces why `/api/*`
+  caching is deferred rather than bundled into this pass (low, trusted
+  traffic volume either way).
 - Switching from password to Google-only auth, or granting admin access
   via a Google account — explicitly future work per the user.
 - Rate limiting / abuse protection beyond what already exists — not asked
