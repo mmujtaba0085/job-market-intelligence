@@ -66,13 +66,20 @@ def _role_aware_cache_key() -> str:
     (query_string defaults to False - confirmed by reading the library's
     source) - request.full_path is used explicitly here so that e.g.
     /jobs?market=ai_ml_global and /jobs?market=swe_backend_global get
-    separate cache entries instead of colliding into one. The role prefix
-    (admin vs. everyone else) keeps an admin session's cached response
-    (which includes extra UI like the "Data Quality Review" link) from
-    ever being served to a regular viewer, or vice versa.
+    separate cache entries instead of colliding into one.
+
+    Keyed per-user, not per-role: every cached page's shared base.html
+    nav renders the logged-in user's own username, not just role-gated
+    UI. A role-only key (e.g. "viewer") would serve the first viewer's
+    username to every other viewer hitting the same cached page - a real
+    cross-user identity leak, caught in final review before this shipped.
+    Keying by user id means every user still gets the caching benefit on
+    their own repeat visits, and automatically separates admin from
+    viewer too (different users, different ids), without ever sharing an
+    entry with a different user.
     """
-    role = "admin" if (g.current_user and g.current_user.get("role") == "admin") else "viewer"
-    return f"{role}:{request.full_path}"
+    user_id = g.current_user.get("id") if g.current_user else "anon"
+    return f"{user_id}:{request.full_path}"
 
 # Run DB migrations on startup so the web app is never behind
 from src.storage.db import run_migrations as _run_migrations

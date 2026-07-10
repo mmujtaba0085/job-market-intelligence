@@ -21,7 +21,10 @@ def _build_test_app():
 
     @app.before_request
     def _set_role():
-        g.current_user = {"role": "admin"} if request.headers.get("X-Test-Admin") == "1" else {"role": "viewer"}
+        if request.headers.get("X-Test-Admin") == "1":
+            g.current_user = {"id": 2, "role": "admin"}
+        else:
+            g.current_user = {"id": 1, "role": "viewer"}
 
     @app.route("/thing")
     @cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
