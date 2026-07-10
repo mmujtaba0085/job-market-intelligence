@@ -181,6 +181,42 @@ TARGET_MARKETS: list[dict] = [
         "source_allowlist": ["tenpearls"],
     },
 
+    {
+        # ── Identity ─────────────────────────────────────────────────────────
+        "market_id": "pakistan_company_boards",
+        "display_name": "Pakistan Company Career Boards",
+
+        # No keyword filter — same reasoning as tenpearls_jobs: these are
+        # curated single-company catalogues (PMCL/Jazz alone spans sales,
+        # finance, and marketing roles alongside tech), not a generic
+        # keyword-matched search. A few of these companies (Motive, S&P
+        # Global, Veeam, Software Finder) are large global employers whose
+        # collectors already filter down to Pakistan-relevant postings
+        # before returning results, so no additional filtering belongs here.
+        "keywords": [],
+        "crawl_keywords": [],
+
+        # ── Geography ─────────────────────────────────────────────────────────
+        "countries": ["Pakistan"],
+
+        # ── Filters ───────────────────────────────────────────────────────────
+        "remote_filter": False,
+        "experience_levels": ["entry", "mid", "senior"],
+        "salary_required": False,
+
+        # ── Collection limits (per source per run) ────────────────────────────
+        # Contour is the largest single board at ~108 jobs; comfortably
+        # under this per-source cap with room to grow.
+        "max_jobs_per_source": 500,
+
+        # ── Restrict this market to just these sources ────────────────────────
+        "source_allowlist": [
+            "devsinc", "pmcl", "vyro", "kodifly", "veeam", "motive",
+            "spglobal", "contour", "venturedive", "carbonteq",
+            "softwarefinder", "dpl", "xgrid",
+        ],
+    },
+
     # ── Future market template (commented out) ────────────────────────────────
     # {
     #     "market_id": "devops_remote",

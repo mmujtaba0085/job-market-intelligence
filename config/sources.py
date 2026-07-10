@@ -394,6 +394,217 @@ ALLOWED_SOURCES: list[dict] = [
         "enabled": True,
     },
 
+    {
+        "source_id": "devsinc",
+        "display_name": "Devsinc (Workable)",
+        "source_type": "API",
+        "base_url": "https://apply.workable.com/api/v1/widget/accounts/devsinc-17",
+        "rate_limit_per_minute": 40,
+        "robots_txt_allowed": True,   # verified: apply.workable.com robots.txt has no Disallow at all
+        "requires_auth": False,
+        "tos_note": (
+            "Public Workable applicant widget API, no auth. Job board is designed "
+            "for candidate-facing consumption; robots.txt places no restriction on "
+            "any path."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "pmcl",
+        "display_name": "JazzWorld / Pakistan Mobile Communication Limited (Workable)",
+        "source_type": "API",
+        "base_url": "https://apply.workable.com/api/v1/widget/accounts/pakistan-mobile-communication-limited-pmcl",
+        "rate_limit_per_minute": 40,
+        "robots_txt_allowed": True,   # verified: apply.workable.com robots.txt has no Disallow at all
+        "requires_auth": False,
+        "tos_note": (
+            "Same public Workable applicant widget API as Devsinc, different "
+            "account. Branded 'JazzWorld' on the account's own page; legal entity "
+            "is Pakistan Mobile Communication Limited (Jazz)."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "vyro",
+        "display_name": "Vyro / ImagineArt (Ashby)",
+        "source_type": "API",
+        "base_url": "https://api.ashbyhq.com/posting-api/job-board/imagineart",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # api.ashbyhq.com serves no robots.txt (401 on the file itself, not the API) - this is Ashby's documented public job-board widget endpoint, meant for exactly this kind of consumption
+        "requires_auth": False,
+        "tos_note": (
+            "Ashby's public posting-api/job-board endpoint - the same JSON this "
+            "company's own careers-page widget calls client-side, no auth. Board "
+            "slug 'imagineart' is the product brand; parent company is Vyro."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "kodifly",
+        "display_name": "Kodifly (Ashby)",
+        "source_type": "API",
+        "base_url": "https://api.ashbyhq.com/posting-api/job-board/kodifly",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # see vyro entry above - same host/endpoint family
+        "requires_auth": False,
+        "tos_note": "Same public Ashby posting-api/job-board endpoint as Vyro, different org slug.",
+        "enabled": True,
+    },
+
+    {
+        "source_id": "veeam",
+        "display_name": "Veeam Software (Greenhouse)",
+        "source_type": "API",
+        "base_url": "https://boards-api.greenhouse.io/v1/boards/veeamsoftware/jobs",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # verified: boards-api.greenhouse.io robots.txt only disallows /embed/
+        "requires_auth": False,
+        "tos_note": (
+            "Greenhouse's public Job Board API (boards-api.greenhouse.io), no "
+            "auth - the standard, documented way third parties read a Greenhouse "
+            "board. Collector filters to Pakistan-office postings only."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "motive",
+        "display_name": "Motive (Greenhouse)",
+        "source_type": "API",
+        "base_url": "https://boards-api.greenhouse.io/v1/boards/gomotive/jobs",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # verified: boards-api.greenhouse.io robots.txt only disallows /embed/
+        "requires_auth": False,
+        "tos_note": (
+            "Same public Greenhouse Job Board API as Veeam, different board token. "
+            "Formerly KeepTruckin. Collector filters to Pakistan-relevant "
+            "postings only (a small fraction of this company's full global board)."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "spglobal",
+        "display_name": "S&P Global (Workday)",
+        "source_type": "API",
+        "base_url": "https://spgi.wd5.myworkdayjobs.com/wday/cxs/spgi/SPGI_Careers/jobs",
+        "rate_limit_per_minute": 20,
+        "robots_txt_allowed": True,   # verified: spgi.wd5.myworkdayjobs.com robots.txt explicitly Allows /SPGI_Careers/
+        "requires_auth": False,
+        "tos_note": (
+            "Workday's public CXS (Candidate Experience Site) JSON API, no auth - "
+            "the same requests the public careers page itself makes. A huge "
+            "global company; collector applies a Location_Country facet filter "
+            "so only the small Pakistan-relevant subset is fetched, not the full "
+            "board."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "contour",
+        "display_name": "Contour Software (Workday, proxied)",
+        "source_type": "API",
+        "base_url": "https://contour-software.com/service.php",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # verified: contour-software.com robots.txt only disallows /wp-admin/ (and explicitly allows admin-ajax.php)
+        "requires_auth": False,
+        "tos_note": (
+            "Contour's own site proxies Workday's CXS API through "
+            "service.php (same JSON shape as a direct Workday host) for its "
+            "public careers page - this is the same data the page itself loads "
+            "client-side, no auth. A single Pakistan-based company; every "
+            "posting is relevant, no filter needed."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "venturedive",
+        "display_name": "VentureDive (JazzHR)",
+        "source_type": "HTML",
+        "base_url": "https://venturedive.applytojob.com/apply/jobs",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # verified: robots.txt only disallows /cb, same JazzHR platform pattern as 10Pearls
+        "requires_auth": False,
+        "tos_note": (
+            "Same JazzHR/ApplyToJob platform as 10Pearls. No API; scraped from "
+            "the public job-listing page plus each job's detail page. robots.txt "
+            "permits general crawling."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "carbonteq",
+        "display_name": "Carbonteq (JazzHR)",
+        "source_type": "API",
+        "base_url": "https://api.resumatorapi.com/v1/jobs/status/open",
+        "rate_limit_per_minute": 20,
+        "robots_txt_allowed": True,   # verified: www.carbonteq.com robots.txt has no Disallow at all; api.resumatorapi.com is JazzHR's own API host, not fetched from a page path
+        "requires_auth": True,   # apikey query param, but the key is shipped in Carbonteq's own public page JS (not a secret) - fetched fresh each run, see collector docstring
+        "tos_note": (
+            "JazzHR's legacy 'TheResumator' JSON API (api.resumatorapi.com), same "
+            "ATS family as 10Pearls/VentureDive but reached as a clean API here. "
+            "The apikey is embedded in Carbonteq's own public careers-page "
+            "JavaScript (shipped to every visitor's browser, not a guarded "
+            "secret) and is fetched fresh on every collector run rather than "
+            "hardcoded."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "softwarefinder",
+        "display_name": "Software Finder (Teamtailor)",
+        "source_type": "API",
+        "base_url": "https://softwarefinder.na.teamtailor.com/jobs.json",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # verified: robots.txt only blocks /app/, /messages/, /messenger/, /facebook/tab/ - jobs.json and jobs.rss are unrestricted
+        "requires_auth": False,
+        "tos_note": (
+            "Teamtailor's public jobs.json (JSON Feed) and jobs.rss static feeds - "
+            "both return the complete current job list in one request each, no "
+            "auth, no need to reverse-engineer the page's 'Show more' JS."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "dpl",
+        "display_name": "DPL (Zoho Recruit)",
+        "source_type": "HTML",
+        "base_url": "https://dplit.zohorecruit.com/jobs/Careers",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # verified: dplit.zohorecruit.com robots.txt explicitly Allows /jobs, /jobs/, /jobs/* despite a blanket Disallow: / otherwise
+        "requires_auth": False,
+        "tos_note": (
+            "Public Zoho Recruit careers board. No separate API; job data is "
+            "embedded inline in the listing and detail page HTML (a hidden input "
+            "on the listing page, a JS variable on detail pages), both "
+            "explicitly allowed by robots.txt."
+        ),
+        "enabled": True,
+    },
+
+    {
+        "source_id": "xgrid",
+        "display_name": "Xgrid (Freshteam)",
+        "source_type": "HTML",
+        "base_url": "https://xgrid.freshteam.com/jobs",
+        "rate_limit_per_minute": 30,
+        "robots_txt_allowed": True,   # verified: xgrid.freshteam.com robots.txt explicitly Allows /jobs
+        "requires_auth": False,
+        "tos_note": (
+            "Public Freshteam careers board, plain server-rendered HTML (no JS-"
+            "rendering workaround needed). robots.txt explicitly allows /jobs."
+        ),
+        "enabled": True,
+    },
+
     # ── Future sources (add below, keep disabled until vetted) ────────────────
 ]
 

@@ -59,6 +59,15 @@ from src.collectors.findwork_collector import FindworkCollector
 from src.collectors.jooble_collector import JoobleCollector
 from src.collectors.pakistanjobsbank_collector import PakistanJobsBankCollector
 from src.collectors.tenpearls_collector import TenPearlsCollector
+from src.collectors.workable_collector import DevsincCollector, PMCLCollector
+from src.collectors.ashby_collector import VyroCollector, KodiflyCollector
+from src.collectors.greenhouse_collector import VeeamCollector, MotiveCollector
+from src.collectors.workday_collector import SPGlobalCollector, ContourCollector
+from src.collectors.venturedive_collector import VentureDiveCollector
+from src.collectors.carbonteq_collector import CarbonteqCollector
+from src.collectors.softwarefinder_collector import SoftwareFinderCollector
+from src.collectors.dpl_collector import DPLCollector
+from src.collectors.xgrid_collector import XgridCollector
 from src.collectors.github_repo_collector import (
     GitHubSimplify2026Collector,
     GitHubVansh2026Collector,
@@ -117,6 +126,19 @@ _COLLECTOR_CLASSES = [
     JoobleCollector,
     PakistanJobsBankCollector,
     TenPearlsCollector,
+    DevsincCollector,
+    PMCLCollector,
+    VyroCollector,
+    KodiflyCollector,
+    VeeamCollector,
+    MotiveCollector,
+    SPGlobalCollector,
+    ContourCollector,
+    VentureDiveCollector,
+    CarbonteqCollector,
+    SoftwareFinderCollector,
+    DPLCollector,
+    XgridCollector,
     GitHubSimplify2026Collector,
     GitHubVansh2026Collector,
     GitHubSpeedyApply2026Collector,
