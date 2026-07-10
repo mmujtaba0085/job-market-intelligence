@@ -1,6 +1,7 @@
 bind = "0.0.0.0:5000"
-workers = 1
-threads = 2
+worker_class = "gthread"
+workers = 4
+threads = 4
 timeout = 120
 graceful_timeout = 30
 keepalive = 5
