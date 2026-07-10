@@ -48,8 +48,31 @@ app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=2)
 app.config["SESSION_REFRESH_EACH_REQUEST"] = True   # slide the 2h window on every request
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["CACHE_TYPE"] = "FileSystemCache"
+app.config["CACHE_DIR"] = "data/cache"
+app.config["CACHE_DEFAULT_TIMEOUT"] = 900  # 15 minutes
 DB_PATH = SETTINGS_DB_PATH
 logger = logging.getLogger(__name__)
+
+from flask_caching import Cache
+cache = Cache(app)
+
+
+def _role_aware_cache_key() -> str:
+    """
+    Cache key for @cache.cached(key_prefix=_role_aware_cache_key).
+
+    Flask-Caching's default key does NOT include the query string
+    (query_string defaults to False - confirmed by reading the library's
+    source) - request.full_path is used explicitly here so that e.g.
+    /jobs?market=ai_ml_global and /jobs?market=swe_backend_global get
+    separate cache entries instead of colliding into one. The role prefix
+    (admin vs. everyone else) keeps an admin session's cached response
+    (which includes extra UI like the "Data Quality Review" link) from
+    ever being served to a regular viewer, or vice versa.
+    """
+    role = "admin" if (g.current_user and g.current_user.get("role") == "admin") else "viewer"
+    return f"{role}:{request.full_path}"
 
 # Run DB migrations on startup so the web app is never behind
 from src.storage.db import run_migrations as _run_migrations
