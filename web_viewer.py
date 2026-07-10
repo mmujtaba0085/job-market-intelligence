@@ -508,6 +508,7 @@ def index():
 
 
 @app.route("/dashboard")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def dashboard():
     """BI Dashboard with interactive widgets."""
     return render_template("dashboard.html")
@@ -844,6 +845,7 @@ def dashboard_location_diversity():
 
 
 @app.route("/skills/intelligence")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def skills_intelligence():
     """Skills Intelligence Page with detailed analytics."""
     return render_template("skills_intelligence.html")
@@ -1053,6 +1055,7 @@ def skill_combinations():
 
 
 @app.route("/companies/intelligence")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def companies_intelligence():
     """Company Intelligence Page."""
     return render_template("companies_intelligence.html")
@@ -1183,6 +1186,7 @@ def company_locations(company):
 
 
 @app.route("/titles/analytics")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def titles_analytics():
     """Job Titles Analytics Page."""
     return render_template("titles_analytics.html")
@@ -1398,6 +1402,7 @@ def get_categories_filter():
 
 
 @app.route("/jobs")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def jobs_list():
     """List jobs with filters, status selector, and pagination."""
     conn = get_db_connection()
@@ -1877,6 +1882,7 @@ def api_jobs_quality_apply():
 
 
 @app.route("/jobs/<int:job_id>")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def job_detail(job_id):
     """Show full job details including description and all locations."""
     conn = get_db_connection()
@@ -1960,6 +1966,7 @@ def job_locations_api(job_id):
 
 
 @app.route("/skills")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def skills_overview():
     """Overview of all detected skills."""
     conn = get_db_connection()
@@ -2000,6 +2007,7 @@ def skills_overview():
 
 
 @app.route("/metrics")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def metrics_overview():
     """Weekly metrics and trends."""
     conn = get_db_connection()
