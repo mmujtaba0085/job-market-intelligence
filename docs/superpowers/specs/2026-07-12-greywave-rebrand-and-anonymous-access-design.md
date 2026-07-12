@@ -45,7 +45,9 @@ assumed.
 ## Goals
 
 1. Ship the GreyWave rebrand (name, wordmark, icons, copy, favicon) across
-   the 13 templates the package covers.
+   the 13 templates the package covers, plus `base.html` (the shared
+   layout every page extends — see section 1 for why this is needed
+   despite the package's own README saying otherwise).
 2. Make six pages (dashboard, jobs list, job detail, skills intelligence,
    companies intelligence, titles analytics) genuinely viewable by
    anonymous visitors, with a teaser experience that funnels them toward
@@ -82,9 +84,6 @@ assumed.
   `{{ url_for('auth.google_login', next=request.path) }}` resolves
   correctly (it does — verified against `src/auth/routes.py`, no changes
   needed there).
-- Rebuilding `base.html` — the package's own README notes it's already
-  live with the warm palette from earlier work and isn't part of this
-  redesign's 13 pages.
 
 ## Design
 
@@ -95,15 +94,42 @@ Copy the package's `templates/`, `static/css/filters.css`,
 partials (`_brand.html`, `_icons.html`, `_gating.html`) into the real
 app's `templates/` and `static/`, preserving paths exactly as the
 package's own README lays out. `static/js/filters.js` is included in the
-package but is a byte-for-byte copy of what's already live (per the
-package's own notes) — diff before copying to confirm, skip the copy if
-identical.
+package but is confirmed byte-for-byte identical to what's already
+live (diffed directly) — skip that copy.
 
-No `web_viewer.py` changes are needed for this section alone — every
-template still reads the same route-supplied variables, form field names,
-and JS-targeted ids as today (verified against the package's own
-file-by-file notes and spot-checked directly for the six gated pages
-during design).
+**`base.html` also needs replacing, despite the package's own README
+claiming otherwise.** The README states it's "already-live... included
+for reference/context only, not part of this redesign's 13 pages" — that
+claim doesn't hold up under direct verification (likely stale, carried
+over from an earlier round of this same redesign effort; this is package
+revision 3). Diffed directly: the reference copy has a completely
+different color palette (`--bg-base: #FBFBF9`, neutral off-white with a
+forest-green accent) from what's actually live (`--bg-base: #FBF6EF`,
+warm cream/tan) — and since the 12 other redesigned templates only ever
+reference `var(--bg-base)` etc. without redefining them, those variables
+have to change in `base.html` itself for the rebrand to have any visual
+effect at all on colors. The header/nav wordmark (`{{ brand.wordmark(19)
+}}`, imported via `{% import "_brand.html" as brand %}`) and the favicon
+link also only exist in `base.html`, not in any child template — without
+updating it, the shared header would still read "Job Market Intelligence"
+with no wordmark on every single page, redesigned or not.
+
+Verified safe to replace wholesale (not just patch a few lines):
+extracted every Jinja construct (`{% ... %}` and `{{ ... }}`) from both
+versions and diffed the two sets directly. Everything in the live
+version exists in the reference version — nothing is lost. The reference
+version adds exactly three new constructs on top: the `_brand.html`
+import, the `brand.wordmark(19)` call, and the favicon `url_for()` call.
+Every block child templates override, every variable reference
+(`g.current_user`, `dark_mode_locked`, `csrf_token`, etc.) is preserved
+identically. Safe to copy in the same way as the other 13 templates.
+
+No `web_viewer.py` changes are needed for this section — every template
+still reads the same route-supplied variables, form field names, and
+JS-targeted ids as today (verified against the package's own
+file-by-file notes, spot-checked directly for the six gated pages during
+design, and confirmed structurally for `base.html` via the Jinja-construct
+diff above).
 
 ### 2. Backend access control for six pages
 
