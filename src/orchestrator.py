@@ -41,6 +41,7 @@ from src.analytics.category_analytics import compute_category_stats
 from src.analytics.co_occurrence import compute_co_occurrence
 from src.analytics.coverage_metrics import compute_coverage_stats
 from src.analytics.diversity_rank import recompute_diversity_ranks
+from src.analytics.precomputed_summaries import recompute_skill_combinations, recompute_top_titles
 from src.analytics.temporal_trends import compute_trend_stats
 from src.analytics.title_analytics import compute_title_stats
 from src.analytics.weekly_metrics import compute_weekly_metrics
@@ -616,6 +617,11 @@ def main() -> None:
             recompute_diversity_ranks()
         except Exception:
             logger.exception("[diversity_rank] recompute failed; leaving ranks stale until next run")
+        try:
+            recompute_skill_combinations()
+            recompute_top_titles()
+        except Exception:
+            logger.exception("[precomputed_summaries] recompute failed; leaving summaries stale until next run")
 
     finish_run(run_id, status="success", **stats)
 

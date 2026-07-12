@@ -42,6 +42,8 @@ from src.auth.oauth_google import init_oauth
 # Google Sheets integration
 from src.sheets_routes import register_sheets_routes
 
+from src.analytics.precomputed_summaries import _role_family
+
 app = Flask(__name__)
 app.secret_key = FLASK_SECRET_KEY
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=2)
@@ -106,6 +108,21 @@ def inject_current_user():
 _PUBLIC_PATHS = {"/healthz", "/auth/login", "/auth/logout", "/auth/google", "/auth/google/callback"}
 _PUBLIC_PREFIXES = ("/static/",)
 
+# Reachable without a login, but NOT a full bypass like _PUBLIC_PATHS above -
+# g.current_user still populates normally from an existing session/API key,
+# and (critically) API-key scope enforcement further down in
+# global_auth_gate() still applies. See that function for exactly where
+# this is consulted and why the placement matters.
+_PUBLIC_VIEWABLE_ENDPOINTS = {
+    "dashboard", "jobs_list", "job_detail",
+    "skills_intelligence", "companies_intelligence", "titles_analytics",
+}
+_PUBLIC_API_READS = {
+    "/api/dashboard/kpis", "/api/dashboard/companies", "/api/dashboard/location-diversity",
+    "/api/skills/search", "/api/skills/combinations",
+    "/api/companies/list", "/api/titles/top", "/api/filters/skills",
+}
+
 
 _ADMIN_PREFIXES = ("/admin",)
 _MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -133,9 +150,15 @@ def global_auth_gate():
     user = getattr(g, "current_user", None)
     auth_type = getattr(g, "auth_type", None)
 
+    is_public_viewable = (
+        request.endpoint in _PUBLIC_VIEWABLE_ENDPOINTS or path in _PUBLIC_API_READS
+    )
+
     if not user:
         if auth_type == "api_key_rate_limited":
             return jsonify({"error": "Rate limit exceeded"}), 429
+        if is_public_viewable:
+            return  # anonymous visitor: g.current_user stays None, template/endpoint decides what to show
         if _is_api_request():
             return jsonify({"error": "Unauthorized",
                             "hint": "Provide X-API-Key or Authorization: Bearer header"}), 401
@@ -1040,24 +1063,21 @@ def skill_locations(skill_name):
 
 @app.route("/api/skills/combinations")
 def skill_combinations():
-    """Get top skill pairs/combinations."""
+    """Get top skill pairs/combinations (precomputed - see
+    src/analytics/precomputed_summaries.py for why)."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT s1.normalized_skill as skill_a, s2.normalized_skill as skill_b, COUNT(*) as co_count
-        FROM skills s1
-        JOIN skills s2 ON s1.job_id = s2.job_id
-        WHERE s1.normalized_skill < s2.normalized_skill
-        GROUP BY s1.normalized_skill, s2.normalized_skill
-        ORDER BY co_count DESC
-        LIMIT 50
-    """)
-    
-    combinations = [{"skill_a": row["skill_a"], "skill_b": row["skill_b"], "count": row["co_count"]} 
+
+    limit = 20 if g.current_user else 5
+    cursor.execute(
+        "SELECT skill_a, skill_b, co_count FROM skill_combinations_summary ORDER BY co_count DESC LIMIT ?",
+        (limit,),
+    )
+
+    combinations = [{"skill_a": row["skill_a"], "skill_b": row["skill_b"], "count": row["co_count"]}
                     for row in cursor.fetchall()]
     conn.close()
-    
+
     return jsonify(combinations)
 
 
@@ -1205,50 +1225,18 @@ def api_docs():
     return render_template("api_docs.html")
 
 
-_SENIORITY_PREFIX_RE = re.compile(
-    r'^(?:Senior|Junior|Jr\.?|Sr\.?|Associate|Mid[\s-]Level|Entry[\s-]Level)\s+',
-    re.IGNORECASE,
-)
-_SENIORITY_SUFFIX_RE = re.compile(
-    r'\s+(?:Intern|Internship)\s*$',
-    re.IGNORECASE,
-)
-
-def _role_family(title: str) -> str:
-    t = _SENIORITY_PREFIX_RE.sub('', title).strip()
-    t = _SENIORITY_SUFFIX_RE.sub('', t).strip()
-    return t
-
-
 @app.route("/api/titles/top")
 def titles_top():
-    """Get top job titles grouped by role family (seniority-agnostic)."""
+    """Get top job titles grouped by role family (precomputed - see
+    src/analytics/precomputed_summaries.py for why)."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT normalized_title as title, COUNT(*) as count
-        FROM active_jobs
-        WHERE normalized_title IS NOT NULL
-          AND normalized_title != ''
-          AND normalized_title != 'Unknown'
-        GROUP BY normalized_title
-    """)
+    cursor.execute("SELECT title, count FROM top_titles_summary ORDER BY count DESC LIMIT 30")
 
-    # Aggregate by role family (strip seniority prefix)
-    from collections import defaultdict
-    families: dict[str, int] = defaultdict(int)
-    for row in cursor.fetchall():
-        family = _role_family(row["title"])
-        families[family] += row["count"]
-
+    titles = [{"title": row["title"], "count": row["count"]} for row in cursor.fetchall()]
     conn.close()
 
-    titles = sorted(
-        [{"title": fam, "count": cnt} for fam, cnt in families.items()],
-        key=lambda x: x["count"],
-        reverse=True,
-    )[:30]
     return jsonify(titles)
 
 
