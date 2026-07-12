@@ -1,350 +1,321 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_gating.html" as gating %}
 
-{% block title %}BI Dashboard - Job Market Intelligence{% endblock %}
+{% block title %}Dashboard - GreyWave{% endblock %}
 
 {% block extra_styles %}
 <style>
+    .dash-top-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        gap: 14px;
+        margin-bottom: 22px;
+    }
+    .dash-title { font-size: 21px; font-weight: 700; color: var(--text-primary); font-family: 'Figtree', sans-serif; }
+    .dash-sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 3px; }
+    .dash-controls { display: flex; gap: 8px; align-items: center; }
+    .dash-controls select { width: auto; }
+
     .dashboard-grid {
         display: grid;
-        gap: 1.5rem;
+        gap: 1.25rem;
         margin-bottom: 2rem;
     }
-    
+
     .widget {
-        background: white;
-        border-radius: 8px;
-        padding: 1.5rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.4rem;
+        box-shadow: var(--shadow-sm);
     }
-    
+
     .widget-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 1rem;
         padding-bottom: 0.75rem;
-        border-bottom: 2px solid #f0f0f0;
+        border-bottom: 1px solid var(--border-subtle);
     }
-    
+
     .widget-title {
-        font-size: 1.1rem;
-        font-weight: 600;
-        color: #1f2937;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 1rem;
+        font-weight: 700;
+        font-family: 'Figtree', sans-serif;
+        color: var(--text-primary);
         margin: 0;
     }
-    
+
+    .widget-title .icon-tile { color: var(--accent); display:flex; }
+
     .widget-subtitle {
-        font-size: 0.875rem;
-        color: #6b7280;
+        font-size: 0.78rem;
+        color: var(--text-secondary);
     }
-    
+
     .kpi-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 1.5rem;
-        margin-bottom: 2rem;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 1.1rem;
+        margin-bottom: 1.5rem;
     }
-    
+
     .kpi-card {
-        background: white;
-        border-radius: 8px;
-        padding: 1.5rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        text-align: center;
-        transition: transform 0.2s, box-shadow 0.2s;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.3rem 1.4rem;
+        box-shadow: var(--shadow-sm);
     }
-    
-    .kpi-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 6px 16px rgba(0,0,0,0.15);
-    }
-    
+
     .kpi-value {
-        font-size: 2.5rem;
-        font-weight: bold;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin-bottom: 0.5rem;
+        font-family: 'Figtree', sans-serif;
+        font-size: 2.1rem;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: 0.35rem;
+        line-height:1.1;
     }
-    
+
     .kpi-label {
-        color: #6b7280;
-        font-size: 0.875rem;
+        color: var(--text-secondary);
+        font-size: 0.78rem;
         text-transform: uppercase;
         letter-spacing: 0.5px;
-        font-weight: 600;
+        font-weight: 700;
     }
-    
+
     .kpi-trend {
-        font-size: 1.5rem;
-        margin-left: 0.5rem;
+        font-size: 0.85rem;
+        margin-left: 0.4rem;
+        font-weight: 700;
     }
-    
+    .kpi-trend.trend-up { color: var(--success); }
+    .kpi-trend.trend-down { color: var(--danger); }
+    .kpi-trend.trend-flat { color: var(--text-muted); }
+
     .chart-container {
         position: relative;
-        height: 300px;
-        margin-top: 1rem;
+        height: 280px;
+        margin-top: 0.75rem;
     }
-    
-    .data-table {
-        width: 100%;
-        margin-top: 1rem;
-    }
-    
+
+    .data-table { width: 100%; margin-top: 1rem; }
     .data-table th {
-        background: #f9fafb;
-        color: #1f2937;
-        padding: 0.75rem;
+        background: var(--bg-elevated);
+        color: var(--text-secondary);
+        padding: 0.65rem 0.75rem;
         text-align: left;
-        font-weight: 600;
-        font-size: 0.875rem;
+        font-weight: 700;
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
     }
-    
     .data-table td {
-        padding: 0.75rem;
-        border-bottom: 1px solid #e5e7eb;
-        font-size: 0.875rem;
+        padding: 0.65rem 0.75rem;
+        border-bottom: 1px solid var(--border-subtle);
+        font-size: 0.85rem;
+        color: var(--text-primary);
     }
-    
-    .data-table tr:hover {
-        background: #f9fafb;
-    }
-    
+    .data-table tr:hover { background: var(--bg-elevated); }
+
     .badge-emerging {
-        background: #10b981;
-        color: white;
-        padding: 0.25rem 0.5rem;
-        border-radius: 12px;
-        font-size: 0.75rem;
-        font-weight: 600;
+        background: var(--success-bg);
+        color: var(--success);
+        padding: 0.2rem 0.55rem;
+        border-radius: 6px;
+        font-size: 0.72rem;
+        font-weight: 700;
     }
-    
     .badge-declining {
-        background: #ef4444;
-        color: white;
-        padding: 0.25rem 0.5rem;
-        border-radius: 12px;
-        font-size: 0.75rem;
-        font-weight: 600;
+        background: var(--danger-bg);
+        color: var(--danger);
+        padding: 0.2rem 0.55rem;
+        border-radius: 6px;
+        font-size: 0.72rem;
+        font-weight: 700;
     }
-    
-    .loading {
-        text-align: center;
-        padding: 2rem;
-        color: #6b7280;
-    }
-    
+
     .loading-spinner {
         display: inline-block;
-        width: 40px;
-        height: 40px;
-        border: 4px solid #f3f4f6;
-        border-top-color: #667eea;
+        width: 30px;
+        height: 30px;
+        border: 3px solid var(--bg-elevated);
+        border-top-color: var(--accent);
         border-radius: 50%;
-        animation: spin 1s linear infinite;
+        animation: spin 0.9s linear infinite;
     }
-    
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-    
-    .refresh-btn {
-        background: #667eea;
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading { text-align: center; padding: 2rem; color: var(--text-secondary); }
+
+    .icon-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--accent);
         color: white;
         border: none;
         padding: 0.5rem 1rem;
-        border-radius: 6px;
+        border-radius: 8px;
         cursor: pointer;
-        font-size: 0.875rem;
+        font-size: 0.83rem;
         font-weight: 600;
-        transition: background 0.3s;
+        font-family: inherit;
+        transition: background 0.15s;
+        text-decoration: none;
     }
-    
-    .refresh-btn:hover {
-        background: #5568d3;
-    }
-    
-    .last-updated {
-        font-size: 0.75rem;
-        color: #9ca3af;
-        margin-top: 0.5rem;
+    .icon-btn:hover { background: var(--accent-hover); color: #fff; }
+    .icon-btn.secondary { background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border); }
+    .icon-btn.secondary:hover { background: var(--bg-elevated); }
+
+    .last-updated { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; }
+
+    @media (max-width: 760px) {
+        .dash-top-row { align-items: stretch; }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div style="display:flex;justify-content:flex-end;align-items:center;margin-bottom:12px;gap:8px;">
-    <label for="dashboardStatus" style="color:var(--text-secondary);font-size:13px;">Listing status</label>
-    <select id="dashboardStatus" class="form-control" style="width:auto;">
-        <option value="active">Active listings</option>
-        <option value="all">Active + historical</option>
-        <option value="unverified">Historical / unverified</option>
-        <option value="closed">Closed listings</option>
-    </select>
-</div>
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-    <h2 style="color: #1f2937; margin: 0;">📊 Business Intelligence Dashboard</h2>
+{{ gating.overlay() }}
+<div class="dash-top-row">
     <div>
-        <button id="refreshBtn" class="refresh-btn" style="margin-right: 10px;">🔄 Refresh</button>
-        <a href="/export/jobs" class="refresh-btn" style="text-decoration: none; background: #10b981;">📥 Export Jobs</a>
+        <div class="dash-title">Market overview</div>
+        <div class="dash-sub">Aggregated across every connected source · last refreshed <span id="updateTime">just now</span></div>
+    </div>
+    <div class="dash-controls">
+        <label for="dashboardStatus" style="color:var(--text-secondary);font-size:12.5px;font-weight:600;">Listings</label>
+        <select id="dashboardStatus" class="form-control">
+            <option value="active">Active</option>
+            <option value="all">Active + historical</option>
+            <option value="unverified">Historical / unverified</option>
+            <option value="closed">Closed</option>
+        </select>
+        <button id="refreshBtn" class="icon-btn secondary">{{ icons.refresh(14) }} Refresh</button>
+        <a href="/export/jobs" class="icon-btn">{{ icons.download(14) }} Export</a>
     </div>
 </div>
 
 <!-- KPI Cards -->
 <div class="kpi-grid">
     <div class="kpi-card">
-        <div class="kpi-value" id="kpiJobs">
-            <div class="loading-spinner"></div>
-        </div>
-        <div class="kpi-label">Total Jobs <span id="kpiJobsTrend" class="kpi-trend"></span></div>
+        <div class="kpi-value" id="kpiJobs"><div class="loading-spinner"></div></div>
+        <div class="kpi-label">Total jobs <span id="kpiJobsTrend" class="kpi-trend"></span></div>
     </div>
-    
     <div class="kpi-card">
-        <div class="kpi-value" id="kpiSkills">
-            <div class="loading-spinner"></div>
-        </div>
-        <div class="kpi-label">Skills Tracked <span id="kpiSkillsTrend" class="kpi-trend"></span></div>
+        <div class="kpi-value" id="kpiSkills"><div class="loading-spinner"></div></div>
+        <div class="kpi-label">Skills tracked <span id="kpiSkillsTrend" class="kpi-trend"></span></div>
     </div>
-    
     <div class="kpi-card">
-        <div class="kpi-value" id="kpiSources">
-            <div class="loading-spinner"></div>
-        </div>
-        <div class="kpi-label">Active Sources</div>
+        <div class="kpi-value" id="kpiSources"><div class="loading-spinner"></div></div>
+        <div class="kpi-label">Active sources</div>
     </div>
-    
     <div class="kpi-card">
-        <div class="kpi-value" id="kpiRemote">
-            <div class="loading-spinner"></div>
-        </div>
-        <div class="kpi-label">Remote Jobs</div>
+        <div class="kpi-value" id="kpiRemote"><div class="loading-spinner"></div></div>
+        <div class="kpi-label">Remote jobs</div>
     </div>
 </div>
 
 <!-- Main Dashboard Grid -->
 <div class="dashboard-grid">
-    <!-- Job Posting Trends -->
     <div class="widget" style="grid-column: span 2;">
         <div class="widget-header">
-            <h3 class="widget-title">📈 Job Posting Trends</h3>
+            <h3 class="widget-title"><span class="icon-tile">{{ icons.trend('up', 17) }}</span> Job posting trends</h3>
             <span class="widget-subtitle">Last 8 weeks</span>
         </div>
-        <div class="chart-container">
+        <div class="chart-container {% if not g.current_user %}gw-locked{% endif %}">
             <canvas id="trendsChart"></canvas>
+            {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
         </div>
     </div>
-    
-    <!-- Top Skills -->
+
     <div class="widget">
         <div class="widget-header">
-            <h3 class="widget-title">🔥 Top 10 Skills</h3>
+            <h3 class="widget-title"><span class="icon-tile">{{ icons.star(17) }}</span> Top 10 skills</h3>
             <span class="widget-subtitle">Current period</span>
         </div>
-        <div class="chart-container">
+        <div class="chart-container {% if not g.current_user %}gw-locked{% endif %}">
             <canvas id="skillsChart"></canvas>
+            {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
         </div>
     </div>
-    
-    <!-- Geographic Distribution -->
+
     <div class="widget">
         <div class="widget-header">
-            <h3 class="widget-title">🌍 Geographic Distribution</h3>
+            <h3 class="widget-title"><span class="icon-tile">{{ icons.globe(17) }}</span> Geographic distribution</h3>
             <span class="widget-subtitle">Top 10 countries</span>
         </div>
-        <div class="chart-container">
+        <div class="chart-container {% if not g.current_user %}gw-locked{% endif %}">
             <canvas id="geoChart"></canvas>
+            {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
         </div>
     </div>
-    
-    <!-- Source Performance -->
+
     <div class="widget">
         <div class="widget-header">
-            <h3 class="widget-title">📡 Source Performance</h3>
+            <h3 class="widget-title"><span class="icon-tile">{{ icons.layers(17) }}</span> Source performance</h3>
             <span class="widget-subtitle">Jobs by data source</span>
         </div>
-        <div class="chart-container">
+        <div class="chart-container {% if not g.current_user %}gw-locked{% endif %}">
             <canvas id="sourcesChart"></canvas>
+            {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
         </div>
     </div>
-    
-    <!-- Emerging Skills -->
+
     <div class="widget">
         <div class="widget-header">
-            <h3 class="widget-title">⭐ Emerging Skills</h3>
+            <h3 class="widget-title"><span class="icon-tile" style="color:var(--success);">{{ icons.trend('up', 17) }}</span> Emerging skills</h3>
             <span class="widget-subtitle">Top 10 trending up</span>
         </div>
-        <div id="emergingList" class="loading">
-            <div class="loading-spinner"></div>
+        <div class="{% if not g.current_user %}gw-locked{% endif %}">
+            <div id="emergingList" class="loading"><div class="loading-spinner"></div></div>
+            {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
         </div>
     </div>
-    
-    <!-- Declining Skills -->
+
     <div class="widget">
         <div class="widget-header">
-            <h3 class="widget-title">📉 Declining Skills</h3>
+            <h3 class="widget-title"><span class="icon-tile" style="color:var(--danger);">{{ icons.trend('down', 17) }}</span> Declining skills</h3>
             <span class="widget-subtitle">Top 10 trending down</span>
         </div>
-        <div id="decliningList" class="loading">
-            <div class="loading-spinner"></div>
+        <div class="{% if not g.current_user %}gw-locked{% endif %}">
+            <div id="decliningList" class="loading"><div class="loading-spinner"></div></div>
+            {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
         </div>
     </div>
-    
-    <!-- Top Companies -->
+
     <div class="widget" style="grid-column: span 2;">
         <div class="widget-header">
-            <h3 class="widget-title">🏢 Top Hiring Companies</h3>
+            <h3 class="widget-title"><span class="icon-tile">{{ icons.building(17) }}</span> Top hiring companies</h3>
             <span class="widget-subtitle">Job count by company</span>
         </div>
         <table id="companiesTable" class="data-table">
-            <thead>
-                <tr>
-                    <th>Rank</th>
-                    <th>Company</th>
-                    <th>Job Count</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td colspan="4" class="loading">
-                        <div class="loading-spinner"></div>
-                    </td>
-                </tr>
-            </tbody>
+            <thead><tr><th>Rank</th><th>Company</th><th>Job Count</th><th>Action</th></tr></thead>
+            <tbody><tr><td colspan="4" class="loading"><div class="loading-spinner"></div></td></tr></tbody>
         </table>
     </div>
-    
-    <!-- Location Diversity -->
+
     <div class="widget" style="grid-column: span 2;">
         <div class="widget-header">
-            <h3 class="widget-title">🗺️ Multi-Location Jobs</h3>
-            <span class="widget-subtitle">Companies hiring across most locations</span>
+            <h3 class="widget-title"><span class="icon-tile">{{ icons.globe(17) }}</span> Multi-location jobs</h3>
+            <span class="widget-subtitle">Companies hiring across the most locations</span>
         </div>
         <table id="locationDiversityTable" class="data-table">
-            <thead>
-                <tr>
-                    <th>Rank</th>
-                    <th>Company</th>
-                    <th>Max Locations</th>
-                    <th>Job Postings</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td colspan="4" class="loading">
-                        <div class="loading-spinner"></div>
-                    </td>
-                </tr>
-            </tbody>
+            <thead><tr><th>Rank</th><th>Company</th><th>Max Locations</th><th>Job Postings</th></tr></thead>
+            <tbody><tr><td colspan="4" class="loading"><div class="loading-spinner"></div></td></tr></tbody>
         </table>
     </div>
 </div>
 
-<div class="last-updated" id="lastUpdated">
-    Last updated: <span id="updateTime">Loading...</span>
-</div>
+<div class="last-updated">Data refreshes automatically when you change the listings filter above.</div>
+{{ gating.bar() }}
 {% endblock %}
 
 {% block extra_scripts %}

@@ -1,108 +1,77 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
 
-{% block title %}Metrics - Job Market Intelligence{% endblock %}
+{% block title %}Metrics - GreyWave{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .page-title { font-size: 21px; font-weight: 700; color: var(--text-primary); font-family: 'Figtree', sans-serif; margin-bottom: 1.5rem; }
+    .card-title { font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 1rem; margin-bottom: 1rem; display:flex; align-items:center; gap:8px; }
+    .week-chip { background: var(--bg-elevated); padding: 0.6rem 1.1rem; border-radius: 8px; font-size: 0.85rem; color: var(--text-primary); }
+    .week-chip strong { color: var(--text-primary); }
+    .empty-state { text-align:center;padding:2rem;color:var(--text-secondary); }
+    @media (max-width: 760px) { .metrics-grid { grid-template-columns: 1fr !important; } }
+</style>
+{% endblock %}
 
 {% block content %}
-<h2 style="margin-bottom: 1.5rem; color: #1f2937;">Weekly Metrics & Trends</h2>
+<h2 class="page-title">Weekly metrics &amp; trends</h2>
 
 <div class="card">
-    <h3 style="margin-bottom: 1rem; color: #1f2937;">Tracked Weeks</h3>
-    
+    <h3 class="card-title">Tracked weeks</h3>
     {% if weeks %}
-    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+    <div style="display: flex; flex-wrap: wrap; gap: 0.6rem;">
         {% for week in weeks %}
-        <div style="background: #f3f4f6; padding: 0.75rem 1.25rem; border-radius: 6px;">
-            <strong>{{ week.week_start_date }}</strong> - {{ week.market_id }}
-        </div>
+        <div class="week-chip"><strong>{{ week.week_start_date }}</strong> — {{ week.market_id }}</div>
         {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state">
-        <p>No weekly metrics computed yet.</p>
-    </div>
+    <div class="empty-state"><p>Nothing here yet — check back soon.</p></div>
     {% endif %}
 </div>
 
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-top: 1.5rem;">
+<div class="metrics-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 1.25rem;">
     <div class="card">
-        <h3 style="margin-bottom: 1rem; color: #10b981;">📈 Emerging Skills</h3>
-        
+        <h3 class="card-title" style="color: var(--success);">{{ icons.trend('up', 17) }} Emerging skills</h3>
         {% if emerging %}
         <table>
-            <thead>
-                <tr>
-                    <th>Skill</th>
-                    <th>Category</th>
-                    <th>Growth</th>
-                    <th>Frequency</th>
-                    <th>Week</th>
-                </tr>
-            </thead>
+            <thead><tr><th>Skill</th><th>Category</th><th>Growth</th><th>Frequency</th><th>Week</th></tr></thead>
             <tbody>
                 {% for skill in emerging %}
                 <tr>
                     <td><strong>{{ skill.skill_name }}</strong></td>
-                    <td>
-                        <span class="badge" style="background: #d1fae5; color: #065f46;">
-                            {{ skill.category }}
-                        </span>
-                    </td>
-                    <td>
-                        <span style="color: #10b981; font-weight: bold;">
-                            +{{ '{:.1f}'.format(skill.growth_percentage) }}%
-                        </span>
-                    </td>
+                    <td><span class="badge badge-success">{{ skill.category }}</span></td>
+                    <td><span style="color: var(--success); font-weight: 700;">+{{ '{:.1f}'.format(skill.growth_percentage) }}%</span></td>
                     <td>{{ skill.frequency }}</td>
-                    <td style="font-size: 0.875rem; color: #6b7280;">{{ skill.week_start_date }}</td>
+                    <td style="font-size: 0.8rem; color: var(--text-secondary);">{{ skill.week_start_date }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         {% else %}
-        <div class="empty-state">
-            <p>No emerging skills detected yet.</p>
-        </div>
+        <div class="empty-state"><p>Nothing here yet — check back soon.</p></div>
         {% endif %}
     </div>
-    
+
     <div class="card">
-        <h3 style="margin-bottom: 1rem; color: #ef4444;">📉 Declining Skills</h3>
-        
+        <h3 class="card-title" style="color: var(--danger);">{{ icons.trend('down', 17) }} Declining skills</h3>
         {% if declining %}
         <table>
-            <thead>
-                <tr>
-                    <th>Skill</th>
-                    <th>Category</th>
-                    <th>Change</th>
-                    <th>Frequency</th>
-                    <th>Week</th>
-                </tr>
-            </thead>
+            <thead><tr><th>Skill</th><th>Category</th><th>Change</th><th>Frequency</th><th>Week</th></tr></thead>
             <tbody>
                 {% for skill in declining %}
                 <tr>
                     <td><strong>{{ skill.skill_name }}</strong></td>
-                    <td>
-                        <span class="badge" style="background: #fee2e2; color: #991b1b;">
-                            {{ skill.category }}
-                        </span>
-                    </td>
-                    <td>
-                        <span style="color: #ef4444; font-weight: bold;">
-                            {{ '{:.1f}'.format(skill.growth_percentage) }}%
-                        </span>
-                    </td>
+                    <td><span class="badge badge-danger">{{ skill.category }}</span></td>
+                    <td><span style="color: var(--danger); font-weight: 700;">{{ '{:.1f}'.format(skill.growth_percentage) }}%</span></td>
                     <td>{{ skill.frequency }}</td>
-                    <td style="font-size: 0.875rem; color: #6b7280;">{{ skill.week_start_date }}</td>
+                    <td style="font-size: 0.8rem; color: var(--text-secondary);">{{ skill.week_start_date }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         {% else %}
-        <div class="empty-state">
-            <p>No declining skills detected yet.</p>
-        </div>
+        <div class="empty-state"><p>Nothing here yet — check back soon.</p></div>
         {% endif %}
     </div>
 </div>

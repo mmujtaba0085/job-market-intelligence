@@ -1,17 +1,18 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
 {% block title %}My API Keys{% endblock %}
 {% block content %}
 <div class="page-header flex-between">
     <div>
-        <h2>&#128273; My API Keys</h2>
-        <p>Generate keys to access the API programmatically</p>
+        <h2 style="display:flex;align-items:center;gap:8px;">{{ icons.key(19) }} My API keys</h2>
+        <p class="text-muted">Generate keys to access the API programmatically</p>
     </div>
-    <button class="btn btn-primary" onclick="openModal('createKeyModal')">+ New Key</button>
+    <button class="btn btn-primary" onclick="openModal('createKeyModal')">+ New key</button>
 </div>
 
 {% if created_key %}
 <div class="flash-key-created">
-    <strong>API key created. Copy it now; it will not be shown again:</strong>
+    <strong>Key created — copy it now, it won't be shown again:</strong>
     <code>{{ created_key }}</code>
 </div>
 {% endif %}
@@ -21,10 +22,10 @@
     <p style="color:var(--text-secondary);font-size:13px;margin-bottom:10px;">
         Include your API key in any request header:
     </p>
-    <code style="display:block;background:var(--bg-base);padding:8px 12px;border-radius:8px;font-size:12px;color:var(--accent);margin-bottom:6px;">
+    <code style="display:block;background:var(--code-bg);color:var(--code-text);padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:6px;">
         X-API-Key: jmi_&lt;your-key&gt;
     </code>
-    <code style="display:block;background:var(--bg-base);padding:8px 12px;border-radius:8px;font-size:12px;color:var(--accent);">
+    <code style="display:block;background:var(--code-bg);color:var(--code-text);padding:8px 12px;border-radius:8px;font-size:12px;">
         Authorization: Bearer jmi_&lt;your-key&gt;
     </code>
 </div>
@@ -42,8 +43,8 @@
         <tbody>
         {% for k in keys %}
         <tr>
-            <td style="font-weight:500;">{{ k.name }}</td>
-            <td><code style="background:var(--bg-elevated);padding:2px 7px;border-radius:4px;font-size:12px;color:var(--accent);">{{ k.key_prefix }}&#8230;</code></td>
+            <td style="font-weight:600;">{{ k.name }}</td>
+            <td><code style="background:var(--bg-elevated);padding:2px 7px;border-radius:5px;font-size:12px;color:var(--accent);">{{ k.key_prefix }}&#8230;</code></td>
             <td><span class="badge {{ 'badge-success' if not k.revoked else 'badge-danger' }}">{{ 'Active' if not k.revoked else 'Revoked' }}</span></td>
             <td style="font-size:12px;color:var(--text-secondary);">{{ k.rate_limit_hour }}/hr</td>
             <td style="font-variant-numeric:tabular-nums;">{{ k.usage_count }}</td>
@@ -53,7 +54,7 @@
                 {% if not k.revoked %}
                 <form method="POST" action="/auth/me/keys/{{ k.id }}/revoke" style="display:inline;">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" class="btn btn-xs btn-danger"
+                    <button type="submit" class="btn btn-sm btn-danger"
                             onclick="return confirm('Revoke this key?')">Revoke</button>
                 </form>
                 {% endif %}
@@ -64,28 +65,28 @@
     </table>
 </div>
 {% else %}
-<div class="empty-state">
-    <div class="empty-icon">&#128273;</div>
-    <p>No API keys yet. Create one to get started.</p>
+<div class="empty-state" style="text-align:center;padding:3rem;color:var(--text-secondary);">
+    <div style="opacity:0.35;margin-bottom:12px;color:var(--text-muted);">{{ icons.key(38) }}</div>
+    <p>No keys yet — create one to get started.</p>
 </div>
 {% endif %}
 
 <!-- Create Key Modal -->
 <div class="modal-overlay" id="createKeyModal">
     <div class="modal">
-        <div class="modal-title">Create New API Key</div>
+        <h3>Create new API key</h3>
         <form method="POST" action="/auth/me/keys/create">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
-                <label class="form-label">Key Name</label>
+                <label class="form-label" style="text-transform:none;letter-spacing:normal;">Key name</label>
                 <input class="form-control" name="name" required placeholder="e.g. My Dashboard Script">
             </div>
             <div class="form-group">
-                <label class="form-label">Rate Limit (requests/hour)</label>
+                <label class="form-label" style="text-transform:none;letter-spacing:normal;">Rate limit (requests/hour)</label>
                 <input class="form-control" type="number" name="rate_limit_hour" value="500" min="1" max="10000">
             </div>
             <div class="form-group">
-                <label class="form-label">Scopes</label>
+                <label class="form-label" style="text-transform:none;letter-spacing:normal;">Scopes</label>
                 <select class="form-control" name="scopes">
                     <option value="jobs:read,exports:read,analytics:read,sources:read,markets:read">All read APIs</option>
                     <option value="jobs:read,exports:read,analytics:read">Jobs, exports, analytics</option>
@@ -96,7 +97,7 @@
             <p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
                 The full key is shown only once after creation.
             </p>
-            <div class="modal-actions">
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
                 <button type="button" class="btn btn-secondary" onclick="closeModal('createKeyModal')">Cancel</button>
                 <button type="submit" class="btn btn-primary">Generate</button>
             </div>
@@ -105,9 +106,8 @@
 </div>
 
 <div style="margin-top:16px;">
-    <a href="/auth/me/password" class="btn btn-secondary btn-sm">&#128274; Change Password</a>
+    <a href="/auth/me/password" class="btn btn-secondary btn-sm" style="display:inline-flex;align-items:center;gap:6px;">{{ icons.lock(13) }} Change password</a>
 </div>
-
 {% endblock %}
 
 {% block extra_scripts %}

@@ -1,19 +1,31 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
 
-{% block title %}Skills - Job Market Intelligence{% endblock %}
+{% block title %}Skills - GreyWave{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .page-title { font-size: 21px; font-weight: 700; color: var(--text-primary); font-family: 'Figtree', sans-serif; margin-bottom: 1.5rem; }
+    .card-title { font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 1rem; color: var(--text-primary); margin-bottom: 1rem; }
+    .cat-tile { background: var(--bg-elevated); padding: 1rem; border-radius: 10px; text-align: center; }
+    .cat-count { font-size: 1.5rem; font-weight: 700; color: var(--accent); font-family: 'Figtree', sans-serif; }
+    .cat-label { color: var(--text-secondary); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.4px; margin-top: 0.25rem; font-weight:600; }
+    .freq-pill { background: var(--accent-bg); color: var(--accent); border-radius: 6px; padding: 0.2rem 0.55rem; display: inline-block; font-weight: 700; font-size: 0.8rem; }
+    .empty-state { text-align:center;padding:2rem;color:var(--text-secondary); }
+</style>
+{% endblock %}
 
 {% block content %}
-<h2 style="margin-bottom: 1.5rem; color: #1f2937;">Skills Overview</h2>
+<h2 class="page-title">Skills overview</h2>
 
-<div class="card">
-    <h3 style="margin-bottom: 1rem; color: #1f2937;">Skills by Category</h3>
-    
+<div class="card" style="margin-bottom: 1.25rem;">
+    <h3 class="card-title">Skills by category</h3>
     {% if categories %}
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.85rem;">
         {% for cat in categories %}
-        <div style="background: #f3f4f6; padding: 1rem; border-radius: 8px; text-align: center;">
-            <div style="font-size: 1.5rem; font-weight: bold; color: #667eea;">{{ cat.count }}</div>
-            <div style="color: #6b7280; font-size: 0.875rem; text-transform: uppercase; margin-top: 0.25rem;">{{ cat.category }}</div>
+        <div class="cat-tile">
+            <div class="cat-count">{{ cat.count }}</div>
+            <div class="cat-label">{{ cat.category }}</div>
         </div>
         {% endfor %}
     </div>
@@ -21,43 +33,24 @@
 </div>
 
 <div class="card">
-    <h3 style="margin-bottom: 1rem; color: #1f2937;">Top 100 Skills Across All Jobs</h3>
-    
+    <h3 class="card-title">Top 100 skills across all jobs</h3>
     {% if top_skills %}
     <table>
-        <thead>
-            <tr>
-                <th>Rank</th>
-                <th>Skill</th>
-                <th>Category</th>
-                <th>Frequency</th>
-                <th>Jobs</th>
-            </tr>
-        </thead>
+        <thead><tr><th>Rank</th><th>Skill</th><th>Category</th><th>Frequency</th><th>Jobs</th></tr></thead>
         <tbody>
             {% for skill in top_skills %}
             <tr>
                 <td><strong>{{ loop.index }}</strong></td>
                 <td>{{ skill.normalized_skill }}</td>
-                <td>
-                    <span class="badge" style="background: #e0e7ff; color: #4338ca;">
-                        {{ skill.category }}
-                    </span>
-                </td>
-                <td>
-                    <div style="background: #e0e7ff; border-radius: 4px; padding: 0.25rem 0.5rem; display: inline-block;">
-                        {{ skill.frequency }}
-                    </div>
-                </td>
+                <td><span class="badge badge-info">{{ skill.category }}</span></td>
+                <td><span class="freq-pill">{{ skill.frequency }}</span></td>
                 <td>{{ skill.job_count }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     {% else %}
-    <div class="empty-state">
-        <p>No skills data available yet.</p>
-    </div>
+    <div class="empty-state"><p>Nothing here yet — check back soon.</p></div>
     {% endif %}
 </div>
 {% endblock %}

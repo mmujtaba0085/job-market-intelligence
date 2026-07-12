@@ -1,0 +1,32 @@
+{#
+    _brand.html — single source of truth for the GreyWave wordmark.
+
+    This is the "weighted duotone" mark (light "Grey" + bold accent-colored
+    "Wave", no icon tile) chosen from the logo exploration. It's a Jinja
+    macro, not a static SVG, because it's just styled text — using var(--*)
+    for color means it repaints automatically in light/dark mode without any
+    JS, exactly like every other themed element in this app.
+
+    TO CHANGE THE LOGO LATER: edit the markup/styles inside `wordmark()`
+    below. Both base.html's header and auth/login.html's sign-in card import
+    this file and call the same macro, so one edit here updates everywhere.
+    (auth/login.html doesn't extend base.html — see the scope note in its
+    file — but it's still a normal Jinja template, so importing this partial
+    works exactly the same way.)
+
+    Usage:
+        {% import "_brand.html" as brand %}
+        ...
+        {{ brand.wordmark(19) }}   (base.html header size)
+        {{ brand.wordmark(30) }}   (login card size)
+
+    `size` is the font-size in px of "Grey"; "Wave" renders at the same
+    size but heavier weight. Both halves share the line so they always
+    scale together — pass one number, not two.
+
+    Favicon note: a pure wordmark can't shrink to browser-tab size, so the
+    small-square fallback lives separately as static/favicon.svg (a solid
+    accent tile with a plain "G"). If you change the wordmark's accent color
+    here, update that file's fill to match.
+#}
+{% macro wordmark(size=19) %}<span class="gw-wordmark" style="font-family:'Figtree',sans-serif;font-weight:600;font-size:{{ size }}px;line-height:1;color:var(--text-primary);letter-spacing:-0.3px;white-space:nowrap;">Grey<span style="font-weight:800;color:var(--accent);">Wave</span></span>{% endmacro %}

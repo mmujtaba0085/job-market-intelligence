@@ -1,0 +1,185 @@
+{% import "_icons.html" as icons %}
+{#
+    _gating.html — shared "sign in with Google to go further" UI for anonymous
+    visitors, used on the pages that now show a limited preview: dashboard,
+    jobs_list, job_detail, skills_intelligence, companies_intelligence,
+    titles_analytics.
+
+    Design: two layers, matching a real product pattern (think LinkedIn/
+    Indeed's logged-out browsing) —
+      1. gating.bar()      "soft" persistent bottom bar. Never blocks
+                             anything; just reminds an anonymous visitor
+                             that more is available.
+      2. gating.overlay()  "hard" interstitial. Hidden until JS calls
+                             gwShowGate() — wire that onto whatever a page
+                             considers "trying to access more" (a locked
+                             chart, a 21st+ job row, a per-item deep-dive).
+      3. gating.lockedBadge(label) small reusable "Sign in to view" pill
+                             + click target, for dropping inside a
+                             `.gw-locked` wrapper (blurs its own content).
+
+    All three key off g.current_user — the same Flask `g` global base.html
+    and jobs_list.html already read directly, so this needs no new
+    route-supplied variable and no changes to web_viewer.py / src/auth.
+
+    Usage in a gated page:
+        {% import "_icons.html" as icons %}
+        {% import "_gating.html" as gating %}
+        ...
+        {% block content %}
+        {{ gating.overlay() }}
+        ...
+        <div class="chart-container {% if not g.current_user %}gw-locked{% endif %}">
+            <canvas id="someChart"></canvas>
+            {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
+        </div>
+        ...
+        {{ gating.bar() }}
+        {% endblock %}
+
+    From page-local JS (inline scripts or static/js/*.js loaded after this
+    macro has rendered), branch on `window.GW_AUTHED` and call
+    `gwShowGate()` to open the interstitial — see dashboard.js's fmtKpi(),
+    or skills_intelligence.html's renderLockedSkillPanel(), for the pattern.
+
+    IMPORTANT: this is a frontend/visual layer only. It does not and cannot
+    restrict what data the server actually sends — real enforcement needs
+    a backend change out of this redesign's scope.
+#}
+
+{% macro overlay() %}
+<script>window.GW_AUTHED = {{ 'true' if g.current_user else 'false' }};</script>
+{% if not g.current_user %}
+<div id="gwGateOverlay" class="gw-gate-overlay" onclick="if(event.target===this)gwHideGate()" role="dialog" aria-modal="true" aria-labelledby="gwGateTitle">
+    <div class="gw-gate-card">
+        <button type="button" class="gw-gate-close" onclick="gwHideGate()" aria-label="Close">{{ icons.close(16) }}</button>
+        <div class="gw-gate-icon">{{ icons.lock(19) }}</div>
+        <div id="gwGateTitle" class="gw-gate-title">See the full picture</div>
+        <div class="gw-gate-sub">Continue with Google to unlock full details, live charts, and unlimited results — free.</div>
+        <a href="{{ url_for('auth.google_login', next=request.path) }}" class="gw-gate-btn">
+            <svg width="16" height="16" viewBox="0 0 18 18">
+                <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+                <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
+                <path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33z"/>
+                <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.59-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+            </svg>
+            Continue with Google
+        </a>
+        <button type="button" class="gw-gate-dismiss" onclick="gwHideGate()">Not now</button>
+    </div>
+</div>
+<style>
+    .gw-gate-overlay {
+        display: none; position: fixed; inset: 0; z-index: 1000;
+        background: rgba(27,25,20,0.42); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+        align-items: center; justify-content: center; padding: 20px;
+    }
+    .gw-gate-overlay.open { display: flex; }
+    .gw-gate-card {
+        position: relative; width: 100%; max-width: 340px;
+        background: var(--bg-surface); border: 1px solid var(--border); border-radius: 14px;
+        padding: 28px 24px 24px; text-align: center; box-shadow: var(--shadow-md);
+        animation: gwGateIn 0.18s ease-out;
+    }
+    @keyframes gwGateIn { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
+    .gw-gate-close {
+        position: absolute; top: 10px; right: 10px; background: none; border: none; cursor: pointer;
+        color: var(--text-muted); padding: 6px; line-height: 1; border-radius: 6px;
+    }
+    .gw-gate-close:hover { color: var(--text-primary); background: var(--bg-elevated); }
+    .gw-gate-icon {
+        width: 42px; height: 42px; border-radius: 11px; background: var(--accent-bg); color: var(--accent);
+        display: flex; align-items: center; justify-content: center; margin: 0 auto 14px;
+    }
+    .gw-gate-title { font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 16.5px; color: var(--text-primary); margin-bottom: 6px; }
+    .gw-gate-sub { font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); margin-bottom: 18px; }
+    .gw-gate-btn {
+        display: flex; align-items: center; justify-content: center; gap: 9px; width: 100%;
+        background: var(--bg-base); border: 1px solid var(--border); color: var(--text-primary);
+        padding: 10px; border-radius: 8px; font-size: 13.5px; font-weight: 600; text-decoration: none;
+        transition: background .15s, border-color .15s;
+    }
+    .gw-gate-btn:hover { background: var(--bg-elevated); border-color: var(--accent); color: var(--text-primary); }
+    .gw-gate-dismiss {
+        display: block; width: 100%; background: none; border: none; margin-top: 10px; padding: 6px;
+        color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .gw-gate-dismiss:hover { color: var(--text-secondary); }
+
+    /* Shared "locked" treatment for widgets/rows behind the wall (soft/1c look) */
+    .gw-locked { position: relative; }
+    .gw-locked > *:not(.gw-lock-badge) { filter: blur(3px); opacity: 0.6; pointer-events: none; user-select: none; }
+    .gw-lock-badge {
+        position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 7px; cursor: pointer; background: transparent; border: none; font-family: inherit; z-index: 2;
+    }
+    .gw-lock-pill {
+        display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700;
+        color: var(--text-secondary); background: var(--bg-surface); border: 1px solid var(--border);
+        padding: 5px 11px; border-radius: 20px; box-shadow: var(--shadow-sm);
+    }
+    .gw-cell-lock { display: inline-flex; align-items: center; color: var(--text-muted); cursor: pointer; opacity: 0.75; }
+    .gw-cell-lock:hover { color: var(--accent); opacity: 1; }
+    .gw-ghost-row { cursor: pointer; }
+    .gw-ghost-row:hover .gw-lock-pill { border-color: var(--accent); color: var(--text-primary); }
+    .gw-row-gate { cursor: pointer; }
+</style>
+<script>
+    window.gwShowGate = function () {
+        var el = document.getElementById('gwGateOverlay');
+        if (el) el.classList.add('open');
+    };
+    window.gwHideGate = function () {
+        var el = document.getElementById('gwGateOverlay');
+        if (el) el.classList.remove('open');
+    };
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') window.gwHideGate();
+    });
+</script>
+{% endif %}
+{% endmacro %}
+
+{% macro bar() %}
+{% if not g.current_user %}
+<div class="gw-gate-bar">
+    <span class="gw-gate-bar-text">You're seeing a limited preview — <strong>continue with Google</strong> for full details, live data, and unlimited results.</span>
+    <a href="{{ url_for('auth.google_login', next=request.path) }}" class="gw-gate-bar-btn">
+        <svg width="14" height="14" viewBox="0 0 18 18">
+            <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>
+            <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>
+            <path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33z"/>
+            <path fill="#EA4335" d="M9 3.58c1.32 0 2.51.46 3.44 1.35l2.59-2.59C13.46.89 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/>
+        </svg>
+        Continue with Google
+    </a>
+</div>
+<div class="gw-gate-bar-spacer"></div>
+<style>
+    .gw-gate-bar {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 900;
+        display: flex; align-items: center; justify-content: center; gap: 18px; flex-wrap: wrap;
+        background: var(--text-primary); color: var(--bg-surface);
+        padding: 12px 20px; font-size: 12.5px; text-align: center;
+    }
+    .gw-gate-bar-text strong { color: inherit; }
+    .gw-gate-bar-btn {
+        display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
+        background: var(--bg-surface); color: var(--text-primary); text-decoration: none;
+        padding: 7px 14px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+    }
+    .gw-gate-bar-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }
+    .gw-gate-bar-spacer { height: 52px; }
+    @media (max-width: 640px) {
+        .gw-gate-bar { font-size: 11.5px; padding: 10px 14px; }
+        .gw-gate-bar-spacer { height: 68px; }
+    }
+</style>
+{% endif %}
+{% endmacro %}
+
+{% macro lockedBadge(label='Sign in to view') %}
+<button type="button" class="gw-lock-badge" onclick="gwShowGate()">
+    <span class="gw-lock-pill">{{ icons.lock(11) }} {{ label }}</span>
+</button>
+{% endmacro %}

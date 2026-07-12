@@ -1,57 +1,23 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_gating.html" as gating %}
 
-{% block title %}Jobs - Job Market Intelligence{% endblock %}
+{% block title %}Jobs - GreyWave{% endblock %}
 
 {% block extra_styles %}
 <style>
-    /* Make table responsive with controlled column widths */
-    table {
-        table-layout: fixed;
-        width: 100%;
-    }
-    
-    /* Apply text wrapping and overflow handling to all cells */
-    th, td {
-        overflow: hidden;
-        word-wrap: break-word;
-        word-break: break-word;
-    }
-    
-    /* Specific column width allocations (8 columns total) */
-    th:nth-child(1), td:nth-child(1) { /* Title */
-        width: 30%;
-        min-width: 200px;
-    }
-    th:nth-child(2), td:nth-child(2) { /* Company */
-        width: 15%;
-        min-width: 120px;
-    }
-    th:nth-child(3), td:nth-child(3) { /* Location */
-        width: 12%;
-        min-width: 100px;
-    }
-    th:nth-child(4), td:nth-child(4) { /* Country */
-        width: 10%;
-        min-width: 80px;
-    }
-    th:nth-child(5), td:nth-child(5) { /* Type */
-        width: 10%;
-        min-width: 80px;
-    }
-    th:nth-child(6), td:nth-child(6) { /* Posted */
-        width: 10%;
-        min-width: 80px;
-    }
-    th:nth-child(7), td:nth-child(7) { /* Source */
-        width: 8%;
-        min-width: 70px;
-    }
-    th:nth-child(8), td:nth-child(8) { /* Action */
-        width: 10%;
-        min-width: 100px;
-    }
-    
-    /* Optional: Add ellipsis for extremely long text that doesn't wrap well */
+    table { table-layout: fixed; width: 100%; }
+    th, td { overflow: hidden; word-wrap: break-word; word-break: break-word; }
+
+    th:nth-child(1), td:nth-child(1) { width: 30%; min-width: 200px; }
+    th:nth-child(2), td:nth-child(2) { width: 15%; min-width: 120px; }
+    th:nth-child(3), td:nth-child(3) { width: 12%; min-width: 100px; }
+    th:nth-child(4), td:nth-child(4) { width: 10%; min-width: 80px; }
+    th:nth-child(5), td:nth-child(5) { width: 10%; min-width: 80px; }
+    th:nth-child(6), td:nth-child(6) { width: 10%; min-width: 90px; }
+    th:nth-child(7), td:nth-child(7) { width: 8%;  min-width: 70px; }
+    th:nth-child(8), td:nth-child(8) { width: 10%; min-width: 100px; }
+
     .job-title {
         display: -webkit-box;
         -webkit-line-clamp: 2;
@@ -59,33 +25,77 @@
         -webkit-box-orient: vertical;
         overflow: hidden;
     }
+
+    .loc-multi { color: var(--accent); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+
+    .badge-remote { background: var(--success-bg); color: var(--success); }
+    .badge-hybrid { background: var(--warning-bg); color: var(--warning); }
+    .badge-onsite { background: var(--bg-elevated); color: var(--text-secondary); }
+
+    .new-pill {
+        display: inline-block;
+        font-size: 9.5px;
+        font-weight: 800;
+        letter-spacing: 0.4px;
+        text-transform: uppercase;
+        color: var(--accent);
+        background: var(--accent-bg);
+        padding: 1px 6px;
+        border-radius: 5px;
+        margin-left: 6px;
+        vertical-align: middle;
+    }
+
+    .empty-state { text-align: center; padding: 2.5rem; color: var(--text-secondary); }
+
+    .page-top-row {
+        display: flex; justify-content: space-between; align-items: center;
+        flex-wrap: wrap; gap: 10px; margin-bottom: 1rem; margin-top: -0.75rem;
+    }
+
+    /* Sort toggle — segmented pill control */
+    .sort-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        background: var(--bg-elevated);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        padding: 3px;
+    }
+    .sort-toggle a {
+        display: flex; align-items: center; gap: 5px;
+        padding: 6px 13px;
+        border-radius: 6px;
+        font-size: 0.79rem;
+        font-weight: 600;
+        color: var(--text-secondary);
+    }
+    .sort-toggle a.active {
+        background: var(--bg-surface);
+        color: var(--text-primary);
+        box-shadow: var(--shadow-sm);
+    }
+    .sort-toggle a:hover:not(.active) { color: var(--text-primary); }
 </style>
 {% endblock %}
 
 {% block filter_sidebar %}
-<!-- Filter Toggle Button -->
-<button id="filterToggle" class="filter-toggle">
-    🔍 Filters
-</button>
-
-<!-- Filter Overlay -->
+<button id="filterToggle" class="filter-toggle">{{ icons.filterFunnel(15) }} Filters</button>
 <div id="filterOverlay" class="filter-overlay"></div>
 
-<!-- Filter Sidebar -->
 <div id="filterSidebar" class="filter-sidebar">
     <div class="filter-header">
         <h3>Filter Jobs</h3>
         <button id="filterClose" class="filter-close">&times;</button>
     </div>
-    
+
     <form id="filterForm" method="get" action="/jobs">
-        <!-- Search -->
         <div class="filter-section">
             <label>Search Keywords</label>
             <input type="text" name="search" placeholder="Title or company..." value="{{ search_query or '' }}">
         </div>
-        
-        <!-- Market -->
+
         <div class="filter-section">
             <label>Market</label>
             <select name="market">
@@ -106,79 +116,58 @@
                 {% endfor %}
             </select>
         </div>
-        
-        <!-- Remote Type -->
+
         <div class="filter-section">
             <label>Remote Type</label>
             <select name="remote_type">
                 <option value="">All Types</option>
                 {% for rtype in remote_types %}
-                <option value="{{ rtype }}" {% if rtype == current_remote %}selected{% endif %}>
-                    {{ rtype.title() }}
-                </option>
+                <option value="{{ rtype }}" {% if rtype == current_remote %}selected{% endif %}>{{ rtype.title() }}</option>
                 {% endfor %}
             </select>
         </div>
-        
-        <!-- Country -->
+
         <div class="filter-section">
             <label>Country</label>
             <select name="country">
                 <option value="">All Countries</option>
                 {% for country in countries %}
-                <option value="{{ country }}" {% if country == current_country %}selected{% endif %}>
-                    {{ country }}
-                </option>
+                <option value="{{ country }}" {% if country == current_country %}selected{% endif %}>{{ country }}</option>
                 {% endfor %}
             </select>
         </div>
-        
-        <!-- Source -->
+
         <div class="filter-section">
             <label>Data Source</label>
             <select name="source">
                 <option value="">All Sources</option>
                 {% for source in sources %}
-                <option value="{{ source }}" {% if source == current_source %}selected{% endif %}>
-                    {{ source }}
-                </option>
+                <option value="{{ source }}" {% if source == current_source %}selected{% endif %}>{{ source }}</option>
                 {% endfor %}
             </select>
         </div>
-        
-        <!-- Company -->
+
         <div class="filter-section">
             <label>Company</label>
             <input type="text" name="company" placeholder="Company name..." value="{{ current_company or '' }}">
         </div>
-        
-        <!-- Date Range -->
+
         <div class="filter-section">
             <label>Posted Date Range</label>
             <div class="date-range">
-                <div>
-                    <label>From</label>
-                    <input type="date" name="date_from" value="{{ date_from or '' }}">
-                </div>
-                <div>
-                    <label>To</label>
-                    <input type="date" name="date_to" value="{{ date_to or '' }}">
-                </div>
+                <div><label>From</label><input type="date" name="date_from" value="{{ date_from or '' }}"></div>
+                <div><label>To</label><input type="date" name="date_to" value="{{ date_to or '' }}"></div>
             </div>
         </div>
-        
-        <!-- Skills (Multi-select) -->
+
         <div class="filter-section">
             <label>Required Skills (AND logic)</label>
-            <div class="filter-search">
-                <input id="skillSearch" type="text" placeholder="Search skills...">
-            </div>
+            <div class="filter-search"><input id="skillSearch" type="text" placeholder="Search skills..."></div>
             <div id="skillsList" class="skill-list">
-                <p style="color: #999; font-size: 13px;">Loading skills...</p>
+                <p style="color: var(--text-muted); font-size: 13px;">Loading skills...</p>
             </div>
         </div>
-        
-        <!-- Action Buttons -->
+
         <div class="filter-actions">
             <button type="button" id="applyFilters" class="btn-apply-filters">Apply Filters</button>
             <button type="button" id="clearFilters" class="btn-clear-filters">Clear</button>
@@ -188,56 +177,35 @@
 {% endblock %}
 
 {% block content %}
-<h2 style="margin-bottom: 1.5rem; color: var(--text-primary);">Jobs ({{ total_jobs | number_format }})</h2>
-<div style="margin-top: -0.75rem; margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+{{ gating.overlay() }}
+<h2 style="margin-bottom: 1.25rem; color: var(--text-primary);">Jobs <span style="color:var(--text-secondary);font-weight:500;">({{ total_jobs | number_format }})</span></h2>
+
+<div class="page-top-row">
     <div>
         {% if g.current_user and g.current_user.get('role') == 'admin' %}
-        <a href="/jobs/quality" class="btn" style="padding: 0.4rem 0.9rem; font-size: 0.85rem;">🛠️ Open Data Quality Review</a>
+        <a href="/jobs/quality" class="btn btn-secondary" style="padding: 0.4rem 0.9rem; font-size: 0.85rem; display:inline-flex; align-items:center; gap:6px;">{{ icons.list(14) }} Data Quality Review</a>
         {% endif %}
     </div>
     {% if show_sort_toggle %}
-    <div class="text-muted text-sm">
-        Sort:
-        <a href="/jobs?sort=diverse" {% if current_sort == 'diverse' %}style="font-weight: 600; color: var(--text-primary);"{% endif %}>Diverse</a>
-        &middot;
-        <a href="/jobs?sort=recent" {% if current_sort == 'recent' %}style="font-weight: 600; color: var(--text-primary);"{% endif %}>Most Recent</a>
+    <div class="sort-toggle" aria-label="Sort jobs">
+        <a href="/jobs?sort=diverse" class="{{ 'active' if current_sort == 'diverse' else '' }}">{{ icons.star(13) }} Diverse</a>
+        <a href="/jobs?sort=recent" class="{{ 'active' if current_sort == 'recent' else '' }}">{{ icons.sort(13) }} Most Recent</a>
     </div>
     {% endif %}
 </div>
 
-<!-- Active Filters Display -->
 {% if search_query or current_market or current_remote or current_country or current_source or current_company or skills_filter or date_from or date_to or current_status != 'active' %}
 <div class="active-filters">
-    <strong>Active Filters:</strong>
-    {% if search_query %}
-    <span class="filter-badge">Search: {{ search_query }}</span>
-    {% endif %}
-    {% if current_market %}
-    <span class="filter-badge">Market: {{ current_market }}</span>
-    {% endif %}
-    {% if current_status != 'active' %}
-    <span class="filter-badge">Status: {{ current_status }}</span>
-    {% endif %}
-    {% if current_remote %}
-    <span class="filter-badge">Type: {{ current_remote }}</span>
-    {% endif %}
-    {% if current_country %}
-    <span class="filter-badge">Country: {{ current_country }}</span>
-    {% endif %}
-    {% if current_source %}
-    <span class="filter-badge">Source: {{ current_source }}</span>
-    {% endif %}
-    {% if current_company %}
-    <span class="filter-badge">Company: {{ current_company }}</span>
-    {% endif %}
-    {% if skills_filter %}
-    {% for skill in skills_filter %}
-    <span class="filter-badge">Skill: {{ skill }}</span>
-    {% endfor %}
-    {% endif %}
-    {% if date_from or date_to %}
-    <span class="filter-badge">Date: {{ date_from or '...' }} to {{ date_to or '...' }}</span>
-    {% endif %}
+    <strong style="color:var(--text-secondary);font-size:12.5px;">Active Filters:</strong>
+    {% if search_query %}<span class="filter-badge">Search: {{ search_query }}</span>{% endif %}
+    {% if current_market %}<span class="filter-badge">Market: {{ current_market }}</span>{% endif %}
+    {% if current_status != 'active' %}<span class="filter-badge">Status: {{ current_status }}</span>{% endif %}
+    {% if current_remote %}<span class="filter-badge">Type: {{ current_remote }}</span>{% endif %}
+    {% if current_country %}<span class="filter-badge">Country: {{ current_country }}</span>{% endif %}
+    {% if current_source %}<span class="filter-badge">Source: {{ current_source }}</span>{% endif %}
+    {% if current_company %}<span class="filter-badge">Company: {{ current_company }}</span>{% endif %}
+    {% if skills_filter %}{% for skill in skills_filter %}<span class="filter-badge">Skill: {{ skill }}</span>{% endfor %}{% endif %}
+    {% if date_from or date_to %}<span class="filter-badge">Date: {{ date_from or '...' }} to {{ date_to or '...' }}</span>{% endif %}
 </div>
 {% endif %}
 
@@ -246,24 +214,18 @@
     <table>
         <thead>
             <tr>
-                <th>Title</th>
-                <th>Company</th>
-                <th>Location</th>
-                <th>Country</th>
-                <th>Type</th>
-                <th>Posted</th>
-                <th>Source</th>
-                <th>Action</th>
+                <th>Title</th><th>Company</th><th>Location</th><th>Country</th>
+                <th>Type</th><th>Posted</th><th>Source</th><th>Action</th>
             </tr>
         </thead>
         <tbody>
             {% for job in jobs %}
-            <tr>
+            <tr{% if not g.current_user %} class="gw-row-gate" onclick="gwShowGate()"{% endif %}>
                 <td><div class="job-title"><strong>{{ job.title }}</strong></div></td>
                 <td>{{ job.company }}</td>
                 <td>
                     {% if job.location_count and job.location_count > 1 %}
-                    <span style="color: #667eea; font-weight: 500;">📍 {{ job.location_count }} locations</span>
+                    <span class="loc-multi">{{ icons.pin(13) }} {{ job.location_count }} locations</span>
                     {% else %}
                     {{ job.location }}
                     {% endif %}
@@ -278,33 +240,60 @@
                     <span class="badge badge-onsite">{{ job.remote_type }}</span>
                     {% endif %}
                 </td>
-                <td>{{ job.posted_date or 'N/A' }}</td>
+                <td data-posted="{{ job.posted_date or '' }}">
+                    {% if g.current_user %}{{ job.posted_date or 'N/A' }}{% else %}<span class="gw-cell-lock" onclick="event.stopPropagation();gwShowGate()" title="Sign in to view posted date">{{ icons.lock(12) }}</span>{% endif %}
+                </td>
                 <td>{{ job.source_name }}</td>
                 <td>
+                    {% if g.current_user %}
                     <a href="/jobs/{{ job.job_id }}" class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">View</a>
+                    {% else %}
+                    <button type="button" class="btn" onclick="event.stopPropagation();gwShowGate()" style="padding: 0.25rem 0.75rem; font-size: 0.875rem; border:none; cursor:pointer; font-family:inherit;">View</button>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     {% else %}
-    <div class="empty-state">
-        <p>No jobs found matching your filters.</p>
-    </div>
+    <div class="empty-state"><p>No jobs match these filters yet — try widening your search or clearing a few.</p></div>
     {% endif %}
 </div>
 
 {% if total_pages > 1 %}
 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
     <div class="text-muted text-sm">Page {{ page }} of {{ total_pages }}</div>
+    {% if g.current_user %}
     <div style="display:flex;gap:8px;">
         {% if prev_url %}<a class="btn btn-secondary" href="{{ prev_url }}">Previous</a>{% endif %}
         {% if next_url %}<a class="btn btn-secondary" href="{{ next_url }}">Next</a>{% endif %}
     </div>
+    {% else %}
+    <button type="button" class="btn btn-secondary" onclick="gwShowGate()" style="display:inline-flex;align-items:center;gap:6px;">{{ icons.lock(13) }} More pages — continue with Google</button>
+    {% endif %}
 </div>
 {% endif %}
+{{ gating.bar() }}
 {% endblock %}
 
 {% block extra_scripts %}
 <script src="{{ url_for('static', filename='js/filters.js') }}"></script>
+<script>
+// Purely cosmetic: flag rows posted within the last 2 days with a "New" pill.
+// Reads the same posted_date text already rendered server-side — no new data,
+// no id/name changes, safe no-op if the date can't be parsed.
+(function () {
+    var cutoff = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    document.querySelectorAll('td[data-posted]').forEach(function (cell) {
+        var raw = cell.getAttribute('data-posted');
+        if (!raw) return;
+        var d = new Date(raw);
+        if (isNaN(d.getTime()) || d.getTime() < cutoff) return;
+        var pill = document.createElement('span');
+        pill.className = 'new-pill';
+        pill.textContent = 'New';
+        cell.appendChild(pill);
+    });
+})();
+</script>
 {% endblock %}

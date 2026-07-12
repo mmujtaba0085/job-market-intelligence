@@ -1,182 +1,161 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_gating.html" as gating %}
 
 {% block title %}{{ job.title }} - Job Details{% endblock %}
 
 {% block extra_styles %}
 <style>
     .job-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 2rem;
-        border-radius: 8px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-top: 4px solid var(--accent);
+        border-radius: 12px;
+        padding: 1.75rem 2rem;
         margin-bottom: 1.5rem;
+        box-shadow: var(--shadow-sm);
     }
-    
+
+    .job-header h2 { font-size: 1.5rem; margin-bottom: 0.35rem; color: var(--text-primary); }
+    .job-header h3 { color: var(--text-secondary); font-weight: 500; font-size: 1rem; }
+
     .job-meta {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
         gap: 1rem;
-        margin-top: 1rem;
+        margin-top: 1.25rem;
+        padding-top: 1.25rem;
+        border-top: 1px solid var(--border-subtle);
     }
-    
-    .meta-item {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
-    
-    .description-box {
-        background: #f9fafb;
-        padding: 1.5rem;
+
+    .meta-item { display: flex; align-items: center; gap: 0.55rem; color: var(--text-secondary); font-size: 0.88rem; }
+    .meta-item svg { color: var(--accent); flex-shrink: 0; }
+    .meta-item strong { color: var(--text-primary); }
+
+    .apply-cta {
+        display: inline-flex; align-items: center; gap: 8px;
+        margin-top: 1.25rem;
+        background: var(--accent);
+        color: #fff;
+        padding: 0.55rem 1.1rem;
         border-radius: 8px;
-        border-left: 4px solid #667eea;
+        font-weight: 600;
+        font-size: 0.88rem;
+    }
+    .apply-cta:hover { background: var(--accent-hover); color: #fff; }
+
+    .description-box {
+        background: var(--bg-elevated);
+        padding: 1.5rem;
+        border-radius: 10px;
         max-height: 600px;
         overflow-y: auto;
+        color: var(--text-primary);
     }
-    
-    .description-box pre {
-        white-space: pre-wrap;
-        word-wrap: break-word;
-        font-family: inherit;
-    }
-    
+    .description-box pre { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; }
+
     .skills-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: 0.5rem;
+        gap: 0.6rem;
         margin-top: 1rem;
     }
-    
+
     .skill-chip {
-        background: #e0e7ff;
-        color: #4338ca;
-        padding: 0.5rem 1rem;
-        border-radius: 6px;
-        font-size: 0.875rem;
+        background: var(--bg-elevated);
+        color: var(--text-primary);
+        padding: 0.5rem 0.9rem;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        font-weight: 500;
         display: flex;
         justify-content: space-between;
         align-items: center;
+        gap: 8px;
     }
-    
+
     .category-tag {
-        background: #667eea;
-        color: white;
-        padding: 0.125rem 0.5rem;
-        border-radius: 4px;
-        font-size: 0.75rem;
-        margin-left: 0.5rem;
+        background: var(--purple-bg);
+        color: var(--purple);
+        padding: 0.1rem 0.5rem;
+        border-radius: 5px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        white-space: nowrap;
     }
+
+    .empty-state { text-align: center; padding: 2rem; color: var(--text-secondary); }
+
+    .badge-remote { background: var(--success-bg); color: var(--success); }
+    .badge-hybrid { background: var(--warning-bg); color: var(--warning); }
+    .badge-onsite { background: var(--bg-elevated); color: var(--text-secondary); }
 </style>
 {% endblock %}
 
 {% block content %}
+{{ gating.overlay() }}
 <div style="margin-bottom: 1rem;">
     <a href="/jobs" class="btn btn-secondary">← Back to Jobs</a>
 </div>
 
 <div class="job-header">
-    <h2 style="margin-bottom: 0.5rem;">{{ job.title }}</h2>
-    <h3 style="opacity: 0.9; font-weight: normal;">{{ job.company }}</h3>
-    
+    <h2>{{ job.title }}</h2>
+    <h3>{{ job.company }}</h3>
+
     <div class="job-meta">
         <div class="meta-item">
-            <span>📍</span>
+            {{ icons.pin(16) }}
             {% if job.location_count and job.location_count > 1 %}
             <span><strong>{{ job.location_count }} locations</strong></span>
             {% else %}
             <span>{{ job.location }}, {{ job.country }}</span>
             {% endif %}
         </div>
-        <div class="meta-item">
-            <span>💼</span>
-            <span>{{ job.remote_type.title() }}</span>
-        </div>
-        <div class="meta-item">
-            <span>📅</span>
-            <span>Posted: {{ job.posted_date or 'N/A' }}</span>
-        </div>
-        <div class="meta-item">
-            <span>🔗</span>
-            <span>Source: {{ job.source_name }}</span>
-        </div>
+        <div class="meta-item">{{ icons.briefcase(16) }} <span>{{ job.remote_type.title() }}</span></div>
+        <div class="meta-item">{{ icons.calendar(16) }} <span>Posted {{ job.posted_date or 'N/A' }}</span></div>
+        <div class="meta-item">{{ icons.link(16) }} <span>Source: {{ job.source_name }}</span></div>
     </div>
+
+    {% if job.url %}
+    <a href="{{ job.url }}" target="_blank" rel="noopener" class="apply-cta">{{ icons.link(15) }} View original posting →</a>
+    {% endif %}
 </div>
 
-<div class="card">
-    <h3 style="margin-bottom: 1rem; color: #1f2937;">Job Details</h3>
-    
-    <table style="margin-bottom: 1.5rem;">
-        <tr>
-            <th style="width: 150px;">Job ID</th>
-            <td>{{ job.job_id }}</td>
-        </tr>
-        <tr>
-            <th>Market</th>
-            <td>{{ job.market_id }}</td>
-        </tr>
-        <tr>
-            <th>URL</th>
-            <td><a href="{{ job.url }}" target="_blank" style="color: #667eea; text-decoration: none;">{{ job.url }}</a></td>
-        </tr>
-        {% if job.newspaper %}
-        <tr>
-            <th>Apply</th>
-            <td>
-                {% if job.apply_url %}
-                <a href="{{ job.apply_url }}" target="_blank" style="color: #667eea; text-decoration: none;">{{ job.apply_url }}</a>
-                {% else %}
-                <span style="color: #6b7280;">Not provided</span>
-                {% endif %}
-            </td>
-        </tr>
-        {% endif %}
+<div class="card" style="margin-bottom:1.25rem;">
+    <h3 style="margin-bottom: 1rem; color: var(--text-primary); font-size:1.05rem;">Job Details</h3>
+    <table>
+        <tr><th style="width: 150px;">Job ID</th><td>{{ job.job_id }}</td></tr>
+        <tr><th>Market</th><td>{{ job.market_id }}</td></tr>
+        <tr><th>URL</th><td><a href="{{ job.url }}" target="_blank" rel="noopener">{{ job.url }}</a></td></tr>
         {% if job.salary_min or job.salary_max %}
         <tr>
             <th>Salary</th>
             <td>
-                {% if job.salary_min and job.salary_max %}
+                {% if not g.current_user %}
+                <span class="gw-cell-lock" onclick="gwShowGate()" title="Sign in to view salary">{{ icons.lock(12) }} Sign in to view</span>
+                {% elif job.salary_min and job.salary_max %}
                 {{ job.currency or '$' }} {{ '{:,.0f}'.format(job.salary_min) }} - {{ '{:,.0f}'.format(job.salary_max) }}
                 {% elif job.salary_min %}
                 {{ job.currency or '$' }} {{ '{:,.0f}'.format(job.salary_min) }}+
                 {% else %}
                 {{ job.currency or '$' }} Up to {{ '{:,.0f}'.format(job.salary_max) }}
                 {% endif %}
-                {% if job.salary_period == 'hourly' %}/hr{% endif %}
             </td>
         </tr>
         {% endif %}
-        <tr>
-            <th>First Seen</th>
-            <td>{{ job.first_seen_at | format_date }}</td>
-        </tr>
-        <tr>
-            <th>Last Seen</th>
-            <td>{{ job.last_seen_at | format_date }}</td>
-        </tr>
-        <tr>
-            <th>Ingested</th>
-            <td>{{ job.ingested_at | format_date }}</td>
-        </tr>
+        <tr><th>First Seen</th><td>{{ job.first_seen_at | format_date }}</td></tr>
+        <tr><th>Last Seen</th><td>{{ job.last_seen_at | format_date }}</td></tr>
+        <tr><th>Ingested</th><td>{{ job.ingested_at | format_date }}</td></tr>
     </table>
 </div>
 
 {% if locations and locations|length > 1 %}
-<div class="card">
-    <h3 style="margin-bottom: 1rem; color: #1f2937;">All Locations ({{ locations|length }})</h3>
-    <p style="color: #6b7280; margin-bottom: 1rem; font-size: 0.9rem;">
-        This job posting has been found in multiple locations.
-    </p>
-    
+<div class="card" style="margin-bottom:1.25rem;">
+    <h3 style="margin-bottom: 1rem; color: var(--text-primary); font-size:1.05rem;">All Locations ({{ locations|length }})</h3>
+    <p style="color: var(--text-secondary); margin-bottom: 1rem; font-size: 0.88rem;">This posting has been found in multiple locations.</p>
     <table>
         <thead>
-            <tr>
-                <th>Location</th>
-                <th>Country</th>
-                <th>Type</th>
-                <th>Salary Range</th>
-                <th>First Seen</th>
-                <th>Last Seen</th>
-            </tr>
+            <tr><th>Location</th><th>Country</th><th>Type</th><th>Salary Range</th><th>First Seen</th><th>Last Seen</th></tr>
         </thead>
         <tbody>
             {% for loc in locations %}
@@ -186,9 +165,7 @@
                 <td>
                     {% if loc.remote_type %}
                     <span class="badge badge-{{ loc.remote_type|lower }}">{{ loc.remote_type.title() }}</span>
-                    {% else %}
-                    N/A
-                    {% endif %}
+                    {% else %}N/A{% endif %}
                 </td>
                 <td>
                     {% if loc.salary_min and loc.salary_max %}
@@ -197,9 +174,7 @@
                     {{ loc.currency or '$' }} {{ '{:,.0f}'.format(loc.salary_min) }}+
                     {% elif loc.salary_max %}
                     {{ loc.currency or '$' }} Up to {{ '{:,.0f}'.format(loc.salary_max) }}
-                    {% else %}
-                    Not specified
-                    {% endif %}
+                    {% else %}Not specified{% endif %}
                 </td>
                 <td>{{ loc.first_seen_at | format_date }}</td>
                 <td>{{ loc.last_seen_at | format_date }}</td>
@@ -210,46 +185,39 @@
 </div>
 {% endif %}
 
-<div class="card">
-    <h3 style="margin-bottom: 1rem; color: #1f2937;">Detected Skills ({{ skills|length }})</h3>
-    
+<div class="card" style="margin-bottom:1.25rem;">
+    <h3 style="margin-bottom: 1rem; color: var(--text-primary); font-size:1.05rem;">Detected Skills ({{ skills|length }})</h3>
     {% if skills %}
     <div class="skills-grid">
         {% for skill in skills %}
-        <div class="skill-chip">
-            <span>{{ skill.normalized_skill }}</span>
-            <span class="category-tag">{{ skill.category }}</span>
-        </div>
+        <div class="skill-chip"><span>{{ skill.normalized_skill }}</span><span class="category-tag">{{ skill.category }}</span></div>
         {% endfor %}
     </div>
     {% else %}
-    <div class="empty-state">
-        <p>No skills detected for this job.</p>
+    <div class="empty-state"><p>No skills detected for this listing yet.</p></div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h3 style="margin-bottom: 1rem; color: var(--text-primary); font-size:1.05rem;">Job Description</h3>
+    <div class="description-box"{% if not g.current_user and job.raw_description %} style="position:relative;max-height:150px;overflow:hidden;"{% endif %}>
+        {% if job.raw_description %}
+        {{ job.raw_description | safe }}
+        {% else %}
+        <p style="color: var(--text-secondary);">No description available.</p>
+        {% endif %}
+        {% if not g.current_user and job.raw_description %}
+        <div style="position:absolute;left:0;right:0;bottom:0;height:100px;background:linear-gradient(180deg,transparent,var(--bg-elevated) 80%);"></div>
+        {% endif %}
+    </div>
+    {% if not g.current_user and job.raw_description %}
+    <div style="text-align:center;margin-top:14px;">
+        <button type="button" class="btn btn-primary" onclick="gwShowGate()" style="display:inline-flex;align-items:center;gap:8px;">{{ icons.lock(14) }} Continue with Google to read the full description</button>
     </div>
     {% endif %}
 </div>
 
-{% if job.ad_image_url %}
-<div class="card">
-    <h3 style="margin-bottom: 1rem; color: #1f2937;">Original Newspaper Ad{% if job.newspaper %} ({{ job.newspaper }}){% endif %}</h3>
-    <a href="{{ job.ad_image_url }}" target="_blank">
-        <img src="{{ job.ad_image_url }}" alt="Original newspaper advertisement" style="max-width: 100%; border-radius: 8px; border: 1px solid #e5e7eb;">
-    </a>
-</div>
-{% endif %}
-
-<div class="card">
-    <h3 style="margin-bottom: 1rem; color: #1f2937;">Job Description</h3>
-    
-    <div class="description-box">
-        {% if job.raw_description %}
-        {{ job.raw_description | safe }}
-        {% else %}
-        <p style="color: #6b7280;">No description available.</p>
-        {% endif %}
-    </div>
-</div>
-
+{{ gating.bar() }}
 <div style="margin-top: 1.5rem;">
     <a href="/jobs" class="btn btn-secondary">← Back to Jobs</a>
 </div>

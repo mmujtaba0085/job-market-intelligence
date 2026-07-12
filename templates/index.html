@@ -1,44 +1,48 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
 
-{% block title %}Dashboard - Job Market Intelligence{% endblock %}
+{% block title %}Dashboard - GreyWave{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .page-title { font-size: 21px; font-weight: 700; color: var(--text-primary); font-family: 'Figtree', sans-serif; margin-bottom: 1.5rem; }
+    .stats-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:2rem; }
+    .stat-value { font-size:2rem;font-weight:700;color:var(--text-primary);font-family:'Figtree',sans-serif; }
+    .stat-label { color:var(--text-secondary);font-size:0.78rem;text-transform:uppercase;letter-spacing:0.4px;margin-top:4px;font-weight:600; }
+    .card-title { font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 1rem; }
+    .empty-state { text-align:center;padding:2rem;color:var(--text-secondary); }
+    .empty-state code { display:inline-block;margin-top:8px;background:var(--code-bg);color:var(--code-text);padding:6px 12px;border-radius:6px;font-size:12px; }
+</style>
+{% endblock %}
 
 {% block content %}
-<h2 style="margin-bottom: 1.5rem; color: #1f2937;">Dashboard Overview</h2>
+<h2 class="page-title">Dashboard overview</h2>
 
 <div class="stats-grid">
-    <div class="stat-card">
+    <div class="stat-card card" style="text-align:center;">
         <div class="stat-value">{{ total_jobs }}</div>
-        <div class="stat-label">Total Jobs</div>
+        <div class="stat-label">Total jobs</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card card" style="text-align:center;">
         <div class="stat-value">{{ total_skills }}</div>
-        <div class="stat-label">Skills Detected</div>
+        <div class="stat-label">Skills detected</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card card" style="text-align:center;">
         <div class="stat-value">{{ total_markets }}</div>
         <div class="stat-label">Markets</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card card" style="text-align:center;">
         <div class="stat-value">{{ total_weeks }}</div>
-        <div class="stat-label">Weeks Tracked</div>
+        <div class="stat-label">Weeks tracked</div>
     </div>
 </div>
 
 <div class="card">
-    <h3 style="margin-bottom: 1rem; color: #1f2937;">Recent Jobs</h3>
-    
+    <h3 class="card-title" style="margin-bottom: 1rem;">Recent jobs</h3>
     {% if recent_jobs %}
     <table>
         <thead>
-            <tr>
-                <th>Title</th>
-                <th>Company</th>
-                <th>Location</th>
-                <th>Type</th>
-                <th>Posted</th>
-                <th>Source</th>
-                <th>Action</th>
-            </tr>
+            <tr><th>Title</th><th>Company</th><th>Location</th><th>Type</th><th>Posted</th><th>Source</th><th>Action</th></tr>
         </thead>
         <tbody>
             {% for job in recent_jobs %}
@@ -48,32 +52,30 @@
                 <td>{{ job.location }}</td>
                 <td>
                     {% if job.remote_type == 'remote' %}
-                    <span class="badge badge-remote">Remote</span>
+                    <span class="badge badge-success">Remote</span>
                     {% elif job.remote_type == 'hybrid' %}
-                    <span class="badge badge-hybrid">Hybrid</span>
+                    <span class="badge badge-warning">Hybrid</span>
                     {% else %}
-                    <span class="badge badge-onsite">{{ job.remote_type.title() }}</span>
+                    <span class="badge" style="background: var(--bg-elevated); color: var(--text-secondary);">{{ job.remote_type.title() }}</span>
                     {% endif %}
                 </td>
                 <td>{{ job.posted_date or 'N/A' }}</td>
                 <td>{{ job.source_name }}</td>
-                <td>
-                    <a href="/jobs/{{ job.job_id }}" class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">View</a>
-                </td>
+                <td><a href="/jobs/{{ job.job_id }}" class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">View</a></td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     {% else %}
     <div class="empty-state">
-        <p>No jobs in database yet. Run the pipeline to collect data:</p>
+        <p>Nothing here yet — run the pipeline to collect data:</p>
         <code>python -m src.orchestrator --mode weekly</code>
     </div>
     {% endif %}
 </div>
 
 <div style="margin-top: 1.5rem; text-align: center;">
-    <a href="/jobs" class="btn">View All Jobs →</a>
-    <a href="/skills" class="btn btn-secondary" style="margin-left: 1rem;">Browse Skills →</a>
+    <a href="/jobs" class="btn btn-primary">View all jobs →</a>
+    <a href="/skills" class="btn btn-secondary" style="margin-left: 1rem;">Browse skills →</a>
 </div>
 {% endblock %}

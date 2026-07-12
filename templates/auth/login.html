@@ -1,214 +1,193 @@
+{% import "_brand.html" as brand %}
+{#
+    Local macro (not shared — this file is standalone) so the password form
+    markup exists exactly once even though it's referenced from two branches
+    below. Kept available but tucked away now that Google is the primary
+    path; nothing here was deleted, just de-emphasized per request.
+#}
+{% macro password_form() %}
+<form method="POST">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="form-group">
+        <label class="form-label" for="username">Username</label>
+        <input class="form-control" type="text" id="username" name="username"
+               placeholder="Enter username" autocomplete="username" required>
+    </div>
+    <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input class="form-control" type="password" id="password" name="password"
+               placeholder="Enter password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn-login">Sign In</button>
+</form>
+{% endmacro %}
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In — Job Market Intelligence</title>
+    <title>Sign In — GreyWave</title>
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@600;700;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
-        :root,[data-theme="dark"]{--bg-base:#0d1117;--bg-surface:#161b22;--bg-elevated:#21262d;--border:#30363d;--text-primary:#e6edf3;--text-secondary:#8b949e;--accent:#58a6ff;--accent-hover:#79b8ff;--accent-bg:rgba(88,166,255,0.1);--danger:#f85149;--danger-bg:rgba(248,81,73,0.12);--success:#3fb950;--success-bg:rgba(63,185,80,0.12);--purple:#bc8cff;--purple-bg:rgba(188,140,255,0.12);}
-        [data-theme="light"]{--bg-base:#f6f8fa;--bg-surface:#ffffff;--bg-elevated:#f0f3f7;--border:#d0d7de;--text-primary:#1f2328;--text-secondary:#57606a;--accent:#0969da;--accent-hover:#0550ae;--accent-bg:rgba(9,105,218,0.07);--danger:#cf222e;--danger-bg:rgba(207,34,46,0.08);--success:#1a7f37;--success-bg:rgba(26,127,55,0.08);--purple:#8250df;--purple-bg:rgba(130,80,223,0.08);}
+        /*
+            Standalone by design — this is the one pre-auth page, and a bare,
+            chrome-free login screen (no header/nav) is the right experience
+            here. Its variables are now an exact copy of base.html's GreyWave
+            tokens so light/dark mode match the rest of the app pixel for
+            pixel; its own theme-toggle script is unchanged.
+        */
+        :root, [data-theme="light"] {
+            --bg-base:      #FBFBF9;
+            --bg-surface:   #FFFFFF;
+            --bg-elevated:  #F3F3EE;
+            --bg-hover:     #EAE8E0;
+            --border:       #E5E3DA;
+            --border-subtle:#EFEEE7;
+            --text-primary: #1B1B18;
+            --text-secondary:#6F6C61;
+            --text-muted:   #A29E90;
+            --accent:       #1F6D4C;
+            --accent-hover: #17573D;
+            --accent-bg:    rgba(31,109,76,0.10);
+            --success:      #1F6D4C;
+            --success-bg:   rgba(31,109,76,0.10);
+            --warning:      #9C6B12;
+            --warning-bg:   rgba(156,107,18,0.10);
+            --danger:       #AE4331;
+            --danger-bg:    rgba(174,67,49,0.10);
+            --purple:       #6B5B95;
+            --purple-bg:    rgba(107,91,149,0.10);
+            --shadow-sm:    0 1px 2px rgba(27,25,20,0.06);
+            --shadow-md:    0 6px 20px rgba(27,25,20,0.08);
+            --shadow-lg:    0 20px 48px rgba(27,25,20,0.16);
+        }
+        [data-theme="dark"] {
+            --bg-base:      #171613;
+            --bg-surface:   #201F1B;
+            --bg-elevated:  #26251F;
+            --bg-hover:     #302E26;
+            --border:       #35332A;
+            --border-subtle:#2A2822;
+            --text-primary: #F2EFE7;
+            --text-secondary:#A9A497;
+            --text-muted:   #726E62;
+            --accent:       #4FA57C;
+            --accent-hover: #6BBE95;
+            --accent-bg:    rgba(79,165,124,0.16);
+            --success:      #4FA57C;
+            --success-bg:   rgba(79,165,124,0.16);
+            --warning:      #D2A245;
+            --warning-bg:   rgba(210,162,69,0.16);
+            --danger:       #D9836C;
+            --danger-bg:    rgba(217,131,108,0.16);
+            --purple:       #A895C9;
+            --purple-bg:    rgba(168,149,201,0.16);
+            --shadow-sm:    0 1px 2px rgba(0,0,0,0.35);
+            --shadow-md:    0 8px 24px rgba(0,0,0,0.4);
+            --shadow-lg:    0 24px 56px rgba(0,0,0,0.6);
+        }
         *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
-        body{font-family:'Inter',sans-serif;font-size:14px;line-height:1.6;color:var(--text-primary);background:var(--bg-base);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+        body{font-family:'Public Sans',sans-serif;font-size:14px;line-height:1.6;color:var(--text-primary);background:var(--bg-base);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;}
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { color: var(--accent-hover); }
     </style>
     <style>
-        .login-wrap {
-            width: 100%;
-            max-width: 400px;
-        }
+        .login-wrap { width: 100%; max-width: 400px; }
+        .login-brand { text-align: center; margin-bottom: 28px; }
 
-        .login-brand {
-            text-align: center;
-            margin-bottom: 32px;
-        }
-
-        .brand-logo {
-            width: 56px; height: 56px;
-            background: linear-gradient(135deg, #58a6ff, #bc8cff);
-            border-radius: 16px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 28px;
-            margin: 0 auto 16px;
-            box-shadow: 0 8px 24px rgba(88,166,255,0.25);
-        }
-
-        .brand-name {
-            font-size: 20px;
-            font-weight: 700;
-            color: var(--text-primary);
-        }
-
-        .brand-sub {
-            font-size: 13px;
-            color: var(--text-secondary);
-            margin-top: 4px;
-        }
+        /* Brand mark: shared macro in templates/_brand.html, see that file
+           to change the wordmark itself. This wrapper just adds spacing. */
+        .brand-mark { margin-bottom: 10px; }
+        .brand-sub { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
 
         .login-card {
             background: var(--bg-surface);
             border: 1px solid var(--border);
-            border-radius: 16px;
+            border-radius: 14px;
             padding: 32px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            box-shadow: var(--shadow-lg);
         }
 
-        .login-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 24px;
-            color: var(--text-primary);
-        }
+        .login-title { font-family:'Figtree',sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 4px; color: var(--text-primary); }
+        .login-title-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 24px; }
 
         .form-group { margin-bottom: 16px; }
-
-        .form-label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            margin-bottom: 6px;
-        }
+        .form-label { display: block; font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
 
         .form-control {
-            width: 100%;
-            padding: 10px 14px;
-            background: var(--bg-base);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-size: 14px;
-            font-family: inherit;
+            width: 100%; padding: 10px 14px;
+            background: var(--bg-base); border: 1px solid var(--border); border-radius: 8px;
+            color: var(--text-primary); font-size: 14px; font-family: inherit;
             transition: border-color 0.15s, box-shadow 0.15s;
         }
-
-        .form-control:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px var(--accent-bg);
-        }
+        .form-control:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
 
         .error-box {
-            padding: 10px 14px;
-            background: var(--danger-bg);
-            border: 1px solid var(--danger);
-            border-radius: 8px;
-            color: var(--danger);
-            font-size: 13px;
-            margin-bottom: 16px;
+            padding: 10px 14px; background: var(--danger-bg); border: 1px solid var(--danger);
+            border-radius: 8px; color: var(--danger); font-size: 13px; margin-bottom: 16px;
         }
 
         .btn-login {
-            width: 100%;
-            padding: 11px;
-            background: var(--accent);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            font-family: inherit;
-            cursor: pointer;
-            transition: opacity 0.15s;
-            margin-top: 8px;
+            width: 100%; padding: 11px; background: var(--accent); color: white; border: none;
+            border-radius: 8px; font-size: 14px; font-weight: 700; font-family: inherit;
+            cursor: pointer; transition: background 0.15s; margin-top: 8px;
         }
+        .btn-login:hover { background: var(--accent-hover); }
 
-        .btn-login:hover { opacity: 0.88; }
-
-        .api-info {
-            margin-top: 20px;
-            padding: 14px;
-            background: var(--bg-elevated);
-            border-radius: 10px;
-            border: 1px solid var(--border);
-        }
-
-        .api-info-title {
-            font-size: 11px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
-            margin-bottom: 8px;
-        }
-
-        .api-info code {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 12px;
-            color: var(--accent);
-            background: var(--bg-base);
-            padding: 3px 7px;
-            border-radius: 4px;
-            display: block;
-            margin-bottom: 4px;
-        }
+        .api-info { margin-top: 20px; padding: 14px; background: var(--bg-elevated); border-radius: 10px; }
+        .api-info-title { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .api-info code { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--accent); background: var(--bg-base); padding: 3px 7px; border-radius: 4px; display: block; margin-bottom: 4px; }
 
         .theme-btn {
-            position: fixed;
-            top: 16px; right: 16px;
-            width: 36px; height: 36px;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            background: var(--bg-surface);
-            color: var(--text-primary);
-            cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 16px;
+            position: fixed; top: 16px; right: 16px; width: 36px; height: 36px;
+            border-radius: 8px; border: 1px solid var(--border); background: var(--bg-surface);
+            color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center;
         }
+        .theme-btn:hover { color: var(--text-primary); background: var(--bg-elevated); }
+        .theme-btn .icon-sun { display: none; }
+        [data-theme="dark"] .theme-btn .icon-sun { display: flex; }
+        [data-theme="dark"] .theme-btn .icon-moon { display: none; }
 
         .btn-google {
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            padding: 10px;
-            background: var(--bg-surface);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            font-family: inherit;
-            text-decoration: none;
-            cursor: pointer;
-            transition: background 0.15s;
+            width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
+            padding: 12px; background: var(--bg-surface); color: var(--text-primary); border: 1px solid var(--border);
+            border-radius: 8px; font-size: 15px; font-weight: 600; font-family: inherit; text-decoration: none;
+            cursor: pointer; transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
         }
-        .btn-google:hover { background: var(--bg-elevated); }
+        .btn-google:hover { background: var(--bg-elevated); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
         .btn-google svg { flex-shrink: 0; }
 
-        .divider {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            margin: 20px 0;
-            color: var(--text-secondary);
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.6px;
+        .link-toggle {
+            display: block; width: 100%; text-align: center; background: none; border: none;
+            color: var(--text-secondary); font-size: 12.5px; font-weight: 600; cursor: pointer;
+            margin-top: 16px; padding: 4px; font-family: inherit;
+            text-decoration: underline; text-underline-offset: 2px;
         }
-        .divider::before, .divider::after {
-            content: "";
-            flex: 1;
-            height: 1px;
-            background: var(--border);
-        }
+        .link-toggle:hover { color: var(--accent); }
+
+        .password-form-wrap.collapsed { display: none; }
+
+        .divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--text-secondary); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .divider::before, .divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
     </style>
 </head>
 <body>
-    <button class="theme-btn" id="themeToggle" onclick="toggleTheme()">🌙</button>
+    <button class="theme-btn" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle theme">
+        <svg class="icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2.5v2.5M12 19v2.5M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2.5 12H5M19 12h2.5M4.2 19.8L6 18M18 6l1.8-1.8"/></svg>
+        <svg class="icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
+    </button>
 
     <div class="login-wrap">
         <div class="login-brand">
-            <div class="brand-logo">📊</div>
-            <div class="brand-name">Job Market Intelligence</div>
-            <div class="brand-sub">Sign in to access the dashboard</div>
+            <div class="brand-mark">{{ brand.wordmark(28) }}</div>
+            <div class="brand-sub">Continue with Google to access your dashboard</div>
         </div>
 
         <div class="login-card">
-            <div class="login-title">Sign In</div>
+            <div class="login-title">Welcome back</div>
+            <div class="login-title-sub">One click, no password to remember</div>
 
             {% if error %}
             <div class="error-box">{{ error }}</div>
@@ -224,26 +203,27 @@
                 </svg>
                 Continue with Google
             </a>
-            <div class="divider">or</div>
+
+            <button type="button" class="link-toggle" id="pwToggle" onclick="togglePasswordForm()">Sign in with username instead</button>
+
+            <div id="passwordFormWrap" class="password-form-wrap collapsed">
+                <div class="divider">or</div>
+                {{ password_form() }}
+            </div>
+            {% else %}
+            <!--
+                Frontend-only fallback for the case the backend hasn't got Google
+                OAuth configured (google_oauth_enabled is an existing route var,
+                untouched) — the password form is the only option shown, in full.
+            -->
+            {{ password_form() }}
             {% endif %}
 
-            <form method="POST">
-                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <div class="form-group">
-                    <label class="form-label" for="username">Username</label>
-                    <input class="form-control" type="text" id="username" name="username"
-                           placeholder="Enter username" autocomplete="username" required autofocus>
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="password">Password</label>
-                    <input class="form-control" type="password" id="password" name="password"
-                           placeholder="Enter password" autocomplete="current-password" required>
-                </div>
-                <button type="submit" class="btn-login">Sign In</button>
-            </form>
-
             <div class="api-info">
-                <div class="api-info-title">API Access</div>
+                <div class="api-info-title">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"></circle><path d="M11 12l8-8"></path><path d="M16 7l3 3"></path><path d="M13 10l2.5 2.5"></path></svg>
+                    API Access
+                </div>
                 <code>X-API-Key: jmi_&lt;your-key&gt;</code>
                 <code>Authorization: Bearer jmi_&lt;your-key&gt;</code>
                 <p style="font-size:11px;color:var(--text-secondary);margin-top:6px;">
@@ -258,18 +238,20 @@
             const saved=document.cookie.match(/jmi_theme=([^;]+)/)?.[1];
             const theme=saved||"dark";
             document.documentElement.setAttribute("data-theme",theme);
-            const btn=document.getElementById("themeToggle");
-            if(btn)btn.textContent=theme==="dark"?"☀️":"🌙";
         })();
 
         window.toggleTheme=function(){
             const html=document.documentElement;
-            const cur=html.getAttribute("data-theme");
-            const next=cur==="dark"?"light":"dark";
+            const next=html.getAttribute("data-theme")==="dark"?"light":"dark";
             html.setAttribute("data-theme",next);
             document.cookie=`jmi_theme=${next};path=/;max-age=31536000;SameSite=Lax`;
-            const btn=document.getElementById("themeToggle");
-            if(btn)btn.textContent=next==="dark"?"☀️":"🌙";
+        };
+
+        window.togglePasswordForm=function(){
+            const wrap=document.getElementById("passwordFormWrap");
+            const btn=document.getElementById("pwToggle");
+            const nowCollapsed=wrap.classList.toggle("collapsed");
+            btn.textContent=nowCollapsed?"Sign in with username instead":"Hide username sign-in";
         };
     </script>
 </body>

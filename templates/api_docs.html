@@ -1,73 +1,68 @@
 {% extends "base.html" %}
-{% block title %}API Documentation - Job Market Intelligence{% endblock %}
+{% import "_icons.html" as icons %}
+{% block title %}API Documentation - GreyWave{% endblock %}
+{% block extra_styles %}
+<style>
+    .api-title { font-size: 22px; font-weight: 700; font-family: 'Figtree', sans-serif; color: var(--text-primary); margin-bottom: 0.25rem; }
+    .card h2 { font-family: 'Figtree', sans-serif; font-size: 1.05rem; font-weight: 700; }
+    .api-code {
+        background: var(--code-bg);
+        color: var(--code-text);
+        padding: 1rem;
+        border-radius: 8px;
+        overflow-x: auto;
+        font-size: 0.83rem;
+        font-family: 'IBM Plex Mono', monospace;
+        line-height: 1.6;
+    }
+    .api-table { width:100%; border-collapse: collapse; font-size:0.87rem; }
+    .api-table th { text-align:left; padding:0.5rem 0.6rem 0.5rem 0; border-bottom:1px solid var(--border); color: var(--text-secondary); font-size:0.75rem; text-transform:uppercase; letter-spacing:.04em; }
+    .api-table td { padding:0.55rem 0.6rem 0.55rem 0; border-bottom:1px solid var(--border-subtle); }
+    .api-table code { background: var(--bg-elevated); padding: 1px 6px; border-radius: 4px; color: var(--accent); }
+</style>
+{% endblock %}
 {% block content %}
-<div class="container" style="max-width: 900px;">
-  <h1 style="margin-bottom: 0.25rem;">API Documentation</h1>
+<div class="container" style="max-width: 900px; padding:0;">
+  <div class="api-title">API documentation</div>
   <p style="color: var(--text-secondary); margin-top: 0;">
-    Read-only JSON access to the job data behind this site. Same data the web UI is built on.
+    Read-only JSON access to the job data behind this site — the same data the dashboards are built on.
   </p>
 
-  <!-- Authentication -->
   <div class="card" style="margin-top: 1.5rem;">
-    <h2 style="margin-top: 0;">Authentication</h2>
+    <h2 style="margin-top: 0; display:flex; align-items:center; gap:8px;">{{ icons.lock(18) }} Authentication</h2>
     <p>Every request needs an API key. Generate one yourself at
       <a href="/auth/me/keys">/auth/me/keys</a> — no admin approval needed.</p>
     <p>Send it in a header, either form works:</p>
-    <pre style="background:#111827;color:#e5e7eb;padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;">X-API-Key: jmi_your_key_here
+    <pre class="api-code">X-API-Key: jmi_your_key_here
 Authorization: Bearer jmi_your_key_here</pre>
-    <p style="margin-bottom:0;color: var(--text-secondary); font-size:0.9rem;">
+    <p style="margin-bottom:0;color: var(--text-secondary); font-size:0.87rem;">
       API keys are <strong>read-only</strong> — they can never create, edit, or delete anything, regardless of scope.
       Each key has its own hourly rate limit (set when you create it) and a fixed set of scopes it's allowed to touch.
     </p>
   </div>
 
-  <!-- Primary endpoint -->
   <div class="card" style="margin-top: 1.5rem;">
-    <h2 style="margin-top: 0;"><code>GET /api/jobs</code></h2>
+    <h2 style="margin-top: 0; display:flex; align-items:center; gap:8px;">{{ icons.briefcase(18) }} <code style="background:var(--bg-elevated);padding:2px 8px;border-radius:5px;">GET /api/jobs</code></h2>
     <p>The main data feed. Returns job postings sorted by their own posted date (most recent first) — not by when
       we happened to collect them.</p>
 
-    <h4 style="margin-bottom:0.5rem;">Query parameters</h4>
-    <table style="width:100%; border-collapse: collapse; font-size:0.9rem;">
-      <thead>
-        <tr style="border-bottom:1px solid var(--border);">
-          <th style="text-align:left; padding:0.4rem 0.5rem 0.4rem 0;">Param</th>
-          <th style="text-align:left; padding:0.4rem 0.5rem;">Default</th>
-          <th style="text-align:left; padding:0.4rem 0;">Description</th>
-        </tr>
-      </thead>
+    <h4 style="margin-bottom:0.6rem;font-family:'Figtree',sans-serif;">Query parameters</h4>
+    <table class="api-table">
+      <thead><tr><th>Param</th><th>Default</th><th>Description</th></tr></thead>
       <tbody>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>limit</code></td>
-          <td style="padding:0.4rem 0.5rem;">50</td>
-          <td style="padding:0.4rem 0;">Rows to return, max 200 per request.</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>offset</code></td>
-          <td style="padding:0.4rem 0.5rem;">0</td>
-          <td style="padding:0.4rem 0;">Pagination offset. Page through by incrementing by <code>limit</code> each request.</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>market</code></td>
-          <td style="padding:0.4rem 0.5rem;">—</td>
-          <td style="padding:0.4rem 0;">
-            Filter to one market: <code>pakistan_jobs_all</code>, <code>ai_ml_global</code>, or <code>swe_backend_global</code>.
-          </td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>exclude_market</code></td>
-          <td style="padding:0.4rem 0.5rem;">—</td>
-          <td style="padding:0.4rem 0;">Inverse of <code>market</code> — everything except the given market.</td>
-        </tr>
+        <tr><td><code>limit</code></td><td>50</td><td>Rows to return, max 200 per request.</td></tr>
+        <tr><td><code>offset</code></td><td>0</td><td>Pagination offset. Page through by incrementing by <code>limit</code> each request.</td></tr>
+        <tr><td><code>market</code></td><td>—</td><td>Filter to one market: <code>pakistan_jobs_all</code>, <code>ai_ml_global</code>, or <code>swe_backend_global</code>.</td></tr>
+        <tr><td><code>exclude_market</code></td><td>—</td><td>Inverse of <code>market</code> — everything except the given market.</td></tr>
       </tbody>
     </table>
 
-    <h4 style="margin-bottom:0.5rem;">Example request</h4>
-    <pre style="background:#111827;color:#e5e7eb;padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;">curl -H "X-API-Key: jmi_your_key_here" \
+    <h4 style="margin:1.25rem 0 0.6rem;font-family:'Figtree',sans-serif;">Example request</h4>
+    <pre class="api-code">curl -H "X-API-Key: jmi_your_key_here" \
   "https://{{ request.host }}/api/jobs?market=pakistan_jobs_all&limit=20"</pre>
 
-    <h4 style="margin-bottom:0.5rem;">Example response</h4>
-    <pre style="background:#111827;color:#e5e7eb;padding:1rem;border-radius:6px;overflow-x:auto;font-size:0.85rem;">{
+    <h4 style="margin:1.25rem 0 0.6rem;font-family:'Figtree',sans-serif;">Example response</h4>
+    <pre class="api-code">{
   "jobs": [
     {
       "job_id": 99636,
@@ -85,88 +80,42 @@ Authorization: Bearer jmi_your_key_here</pre>
   "limit": 20,
   "offset": 0
 }</pre>
-    <p style="color: var(--text-secondary); font-size:0.9rem;">
-      <strong>Paginate</strong> by calling again with <code>offset</code> increased by <code>limit</code> each time,
-      until <code>jobs</code> comes back empty.
+    <p style="color: var(--text-secondary); font-size:0.87rem;">
+      <strong>Paginate</strong> by calling again with <code style="background:var(--bg-elevated);padding:1px 6px;border-radius:4px;">offset</code> increased by <code style="background:var(--bg-elevated);padding:1px 6px;border-radius:4px;">limit</code> each time, until <code style="background:var(--bg-elevated);padding:1px 6px;border-radius:4px;">jobs</code> comes back empty.
     </p>
-    <p style="margin-bottom:0; color: var(--text-secondary); font-size:0.9rem;">
-      <strong>Note on <code>source_name</code>:</strong> the site owner can choose to hide real source names from
-      non-admin accounts. When that's on, you'll see generic labels like <code>"Source A"</code> instead of e.g.
-      <code>"Himalayas"</code> — the job data itself is unaffected either way.
+    <p style="margin-bottom:0; color: var(--text-secondary); font-size:0.87rem;">
+      <strong>Note on <code style="background:var(--bg-elevated);padding:1px 6px;border-radius:4px;">source_name</code>:</strong> the site owner can choose to hide real source names from
+      non-admin accounts. When that's on, you'll see generic labels like <code style="background:var(--bg-elevated);padding:1px 6px;border-radius:4px;">"Source A"</code> instead of e.g.
+      <code style="background:var(--bg-elevated);padding:1px 6px;border-radius:4px;">"Himalayas"</code> — the job data itself is unaffected either way.
     </p>
   </div>
 
-  <!-- Other endpoints -->
   <div class="card" style="margin-top: 1.5rem;">
-    <h2 style="margin-top: 0;">Other read-only endpoints</h2>
-    <p style="color: var(--text-secondary); font-size:0.9rem;">
+    <h2 style="margin-top: 0; display:flex; align-items:center; gap:8px;">{{ icons.list(18) }} Other read-only endpoints</h2>
+    <p style="color: var(--text-secondary); font-size:0.87rem;">
       These power the dashboards on this site and are available with the same API key, subject to your key's scopes.
     </p>
-    <table style="width:100%; border-collapse: collapse; font-size:0.9rem;">
-      <thead>
-        <tr style="border-bottom:1px solid var(--border);">
-          <th style="text-align:left; padding:0.4rem 0.5rem 0.4rem 0;">Endpoint</th>
-          <th style="text-align:left; padding:0.4rem 0.5rem;">Scope</th>
-          <th style="text-align:left; padding:0.4rem 0;">Returns</th>
-        </tr>
-      </thead>
+    <table class="api-table">
+      <thead><tr><th>Endpoint</th><th>Scope</th><th>Returns</th></tr></thead>
       <tbody>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>/api/dashboard/kpis</code></td>
-          <td style="padding:0.4rem 0.5rem;">analytics:read</td>
-          <td style="padding:0.4rem 0;">Headline counts (total jobs, sources, companies, etc.)</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>/api/dashboard/sources</code></td>
-          <td style="padding:0.4rem 0.5rem;">analytics:read</td>
-          <td style="padding:0.4rem 0;">Job counts per data source</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>/api/skills/search?q=</code></td>
-          <td style="padding:0.4rem 0.5rem;">analytics:read</td>
-          <td style="padding:0.4rem 0;">Autocomplete search over detected skills</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>/api/companies/list</code></td>
-          <td style="padding:0.4rem 0.5rem;">analytics:read</td>
-          <td style="padding:0.4rem 0;">Companies with posting stats</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>/api/titles/top</code></td>
-          <td style="padding:0.4rem 0.5rem;">analytics:read</td>
-          <td style="padding:0.4rem 0;">Most common job titles, grouped by role family</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>/api/filters/*</code></td>
-          <td style="padding:0.4rem 0.5rem;">analytics:read</td>
-          <td style="padding:0.4rem 0;">Valid filter values (skills, countries, sources, companies, categories)</td>
-        </tr>
-        <tr>
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>/export/jobs</code></td>
-          <td style="padding:0.4rem 0.5rem;">exports:read</td>
-          <td style="padding:0.4rem 0;">Full job catalog as CSV (browser download, not JSON)</td>
-        </tr>
+        <tr><td><code>/api/dashboard/kpis</code></td><td>analytics:read</td><td>Headline counts (total jobs, sources, companies, etc.)</td></tr>
+        <tr><td><code>/api/dashboard/sources</code></td><td>analytics:read</td><td>Job counts per data source</td></tr>
+        <tr><td><code>/api/skills/search?q=</code></td><td>analytics:read</td><td>Autocomplete search over detected skills</td></tr>
+        <tr><td><code>/api/companies/list</code></td><td>analytics:read</td><td>Companies with posting stats</td></tr>
+        <tr><td><code>/api/titles/top</code></td><td>analytics:read</td><td>Most common job titles, grouped by role family</td></tr>
+        <tr><td><code>/api/filters/*</code></td><td>analytics:read</td><td>Valid filter values (skills, countries, sources, companies, categories)</td></tr>
+        <tr><td><code>/export/jobs</code></td><td>exports:read</td><td>Full job catalog as CSV (browser download, not JSON)</td></tr>
       </tbody>
     </table>
   </div>
 
-  <!-- Errors -->
   <div class="card" style="margin-top: 1.5rem;">
-    <h2 style="margin-top: 0;">Errors</h2>
-    <table style="width:100%; border-collapse: collapse; font-size:0.9rem;">
+    <h2 style="margin-top: 0; display:flex; align-items:center; gap:8px;">{{ icons.warning(18) }} Errors</h2>
+    <table class="api-table">
       <tbody>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>401</code></td>
-          <td style="padding:0.4rem 0;">Missing or invalid API key.</td>
-        </tr>
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>403</code></td>
-          <td style="padding:0.4rem 0;">Your key doesn't have the scope this endpoint needs.</td>
-        </tr>
-        <tr>
-          <td style="padding:0.4rem 0.5rem 0.4rem 0;"><code>429</code></td>
-          <td style="padding:0.4rem 0;">Hourly rate limit exceeded for this key.</td>
-        </tr>
+        <tr><td><code>401</code></td><td colspan="2">Missing or invalid API key.</td></tr>
+        <tr><td><code>403</code></td><td colspan="2">Your key doesn't have the scope this endpoint needs.</td></tr>
+        <tr><td><code>429</code></td><td colspan="2">Hourly rate limit exceeded for this key.</td></tr>
       </tbody>
     </table>
   </div>

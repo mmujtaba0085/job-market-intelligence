@@ -1,110 +1,327 @@
 {% extends "base.html" %}
+{% import "_icons.html" as icons %}
+{% import "_gating.html" as gating %}
 
-{% block title %}Company Intelligence - Job Market Intelligence{% endblock %}
+{% block title %}Companies - GreyWave{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .page-top-row {
+        display: flex; justify-content: space-between; align-items: center;
+        flex-wrap: wrap; gap: 12px; margin-bottom: 1.5rem;
+    }
+    .page-title { font-size: 21px; font-weight: 700; color: var(--text-primary); font-family: 'Figtree', sans-serif; }
+    .page-sub { font-size: 12.5px; color: var(--text-secondary); margin-top: 3px; }
+
+    .co-toolbar {
+        display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 1.25rem;
+    }
+    .co-search {
+        flex: 1; min-width: 220px;
+        display: flex; align-items: center; gap: 8px;
+        padding: 9px 14px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-surface);
+        color: var(--text-secondary);
+    }
+    .co-search svg { flex-shrink: 0; color: var(--text-muted); }
+    .co-search input {
+        border: none; outline: none; background: transparent;
+        font-size: 13px; color: var(--text-primary); width: 100%; font-family: inherit;
+    }
+    .co-sort {
+        padding: 9px 12px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--bg-surface);
+        color: var(--text-primary);
+        font-size: 13px;
+        font-family: inherit;
+    }
+
+    .co-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 14px;
+        margin-bottom: 1.5rem;
+    }
+
+    .co-card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: var(--shadow-sm);
+        cursor: pointer;
+        position: relative;
+        border-top: 3px solid var(--accent);
+        transition: box-shadow .15s, border-color .15s;
+    }
+    .co-card:hover { box-shadow: var(--shadow-md); }
+    .co-card.selected { border-color: var(--accent); box-shadow: var(--shadow-md); }
+
+    .co-card-top { display: flex; align-items: center; gap: 11px; }
+    .co-avatar {
+        width: 40px; height: 40px; flex-shrink: 0;
+        border-radius: 10px;
+        background: var(--accent);
+        color: #fff;
+        display: flex; align-items: center; justify-content: center;
+        font-family: 'Figtree', sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+    }
+    .co-name {
+        font-family: 'Figtree', sans-serif;
+        font-weight: 700;
+        font-size: 14px;
+        color: var(--text-primary);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .co-meta-row {
+        display: flex; gap: 12px; margin-top: 12px; flex-wrap: wrap;
+        font-size: 11.5px; color: var(--text-secondary);
+    }
+    .co-meta-row .co-remote-stat strong { color: var(--success); }
+    .co-meta-row span { display: flex; align-items: center; gap: 4px; }
+    .co-meta-row svg { color: var(--text-muted); }
+
+    .co-empty { text-align: center; padding: 3rem; color: var(--text-secondary); grid-column: 1 / -1; }
+
+    /* Drill-down panel */
+    .co-panel {
+        display: none;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 1.5rem;
+        scroll-margin-top: 80px;
+    }
+    .co-panel.open { display: block; }
+    .co-panel-head { display: flex; align-items: center; gap: 14px; margin-bottom: 1.25rem; }
+    .co-panel-avatar {
+        width: 52px; height: 52px; border-radius: 12px; background: var(--accent);
+        color: #fff; display: flex; align-items: center; justify-content: center;
+        font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 18px; flex-shrink: 0;
+    }
+    .co-panel-name { font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 1.3rem; color: var(--text-primary); }
+    .co-panel-close {
+        margin-left: auto; background: none; border: none; cursor: pointer;
+        color: var(--text-muted); padding: 4px;
+    }
+    .co-panel-close:hover { color: var(--text-primary); }
+
+    .co-stat-grid {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr));
+        gap: 12px; margin-bottom: 1.5rem;
+    }
+    .co-stat {
+        background: var(--bg-elevated); border-radius: 10px; padding: 12px 14px; text-align: center;
+    }
+    .co-stat-val { font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 1.4rem; color: var(--text-primary); }
+    .co-stat-label { font-size: 10.5px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .4px; margin-top: 2px; }
+
+    .skill-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+    .skill-row .skill-name { min-width: 150px; font-weight: 500; color: var(--text-primary); }
+    .skill-bar-track { flex: 1; background: var(--bg-elevated); border-radius: 4px; height: 8px; }
+    .skill-bar-fill { height: 100%; border-radius: 4px; background: var(--accent); }
+    .skill-count { min-width: 26px; text-align: right; color: var(--text-secondary); font-size: 12px; }
+
+    .co-view-jobs {
+        display: inline-flex; align-items: center; gap: 6px; margin-top: 1.25rem;
+        background: var(--accent); color: #fff; padding: 8px 16px; border-radius: 8px;
+        font-weight: 600; font-size: 13px;
+    }
+    .co-view-jobs:hover { background: var(--accent-hover); color: #fff; }
+
+    .loading-spinner {
+        display: inline-block; width: 30px; height: 30px;
+        border: 3px solid var(--bg-elevated); border-top-color: var(--accent);
+        border-radius: 50%; animation: spin .9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% endblock %}
 
 {% block content %}
-<h2 style="margin-bottom: 2rem; color: #1f2937;">🏢 Company Intelligence</h2>
-
-<div class="card">
-    <table id="companiesTable" class="data-table" style="width: 100%;">
-        <thead>
-            <tr>
-                <th>Company</th>
-                <th>Jobs Posted</th>
-                <th>Skill Diversity</th>
-                <th>Locations</th>
-                <th>Remote %</th>
-                <th>Action</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr>
-                <td colspan="6" style="text-align: center; padding: 2rem;">
-                    <div class="loading-spinner"></div>
-                    <p style="color: #6b7280; margin-top: 1rem;">Loading company data...</p>
-                </td>
-            </tr>
-        </tbody>
-    </table>
+{{ gating.overlay() }}
+<div class="page-top-row">
+    <div>
+        <div class="page-title">Companies</div>
+        <div class="page-sub">Every employer we've aggregated, blended across all connected sources</div>
+    </div>
 </div>
 
-<style>
-    .loading-spinner {
-        display: inline-block;
-        width: 40px;
-        height: 40px;
-        border: 4px solid #f3f4f6;
-        border-top-color: #667eea;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-    }
-    
-    @keyframes spin {
-        to { transform: rotate(360deg); }
-    }
-    
-    .data-table {
-        width: 100%;
-    }
-    
-    .data-table th {
-        background: #f9fafb;
-        color: #1f2937;
-        padding: 0.75rem;
-        text-align: left;
-        font-weight: 600;
-        font-size: 0.875rem;
-    }
-    
-    .data-table td {
-        padding: 0.75rem;
-        border-bottom: 1px solid #e5e7eb;
-        font-size: 0.875rem;
-    }
-    
-    .data-table tr:hover {
-        background: #f9fafb;
-    }
-</style>
+<div class="co-toolbar">
+    <div class="co-search">
+        {{ icons.search(14) }}
+        <input type="text" id="coSearchInput" placeholder="Search companies…">
+    </div>
+    <select id="coSortSelect" class="co-sort">
+        <option value="jobs">Sort: Most jobs</option>
+        <option value="skills">Sort: Most skills</option>
+        <option value="remote">Sort: Most remote</option>
+        <option value="countries">Sort: Most countries</option>
+    </select>
+</div>
 
+<!-- Drill-down panel (populated on card click) -->
+<div class="co-panel" id="coPanel">
+    <div class="co-panel-head">
+        <div class="co-panel-avatar" id="coPanelAvatar"></div>
+        <div class="co-panel-name" id="coPanelName"></div>
+        <button class="co-panel-close" onclick="closeCompanyPanel()">{{ icons.close(18) }}</button>
+    </div>
+    <div class="co-stat-grid" id="coPanelStats"></div>
+    <h3 class="card-title" style="margin-bottom:12px; display:flex; align-items:center; gap:7px; font-size:14px;">{{ icons.tag(15) }} Most-requested skills</h3>
+    <div id="coPanelSkills"><div style="text-align:center;padding:1.5rem;"><div class="loading-spinner"></div></div></div>
+    <a href="#" id="coPanelJobsLink" class="co-view-jobs">{{ icons.briefcase(14) }} View all jobs at this company →</a>
+</div>
+
+<div class="co-grid" id="coGrid">
+    <div class="co-empty"><div class="loading-spinner"></div></div>
+</div>
+{{ gating.bar() }}
+{% endblock %}
+
+{% block extra_scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    loadCompanies();
+let allCompanies = [];
+let currentSort = 'jobs';
+let currentSearch = '';
+
+function initials(name) {
+    const words = name.replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+    if (words.length === 0) return '?';
+    if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    fetch('/api/companies/list')
+        .then(r => r.json())
+        .then(data => {
+            allCompanies = data;
+            applyView();
+        })
+        .catch(() => {
+            document.getElementById('coGrid').innerHTML =
+                '<div class="co-empty">Something went wrong loading companies — try refreshing.</div>';
+        });
+
+    document.getElementById('coSearchInput').addEventListener('input', function (e) {
+        currentSearch = e.target.value.trim().toLowerCase();
+        applyView();
+    });
+    document.getElementById('coSortSelect').addEventListener('change', function (e) {
+        currentSort = e.target.value;
+        applyView();
+    });
 });
 
-function loadCompanies() {
-    fetch('/api/companies/list')
-        .then(response => response.json())
-        .then(companies => {
-            const tbody = document.querySelector('#companiesTable tbody');
-            
-            if (companies.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #6b7280; padding: 2rem;">No companies found</td></tr>';
+function applyView() {
+    let list = allCompanies.filter(c => c.company.toLowerCase().includes(currentSearch));
+    const sortKey = { jobs: 'job_count', skills: 'skill_diversity', remote: 'remote_pct', countries: 'location_count' }[currentSort];
+    list = list.slice().sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+    renderGrid(list);
+}
+
+function renderGrid(list) {
+    const grid = document.getElementById('coGrid');
+    if (list.length === 0) {
+        grid.innerHTML = '<div class="co-empty">No companies match "' + currentSearch + '".</div>';
+        return;
+    }
+    grid.innerHTML = list.map(c => `
+        <div class="co-card" data-company="${encodeURIComponent(c.company)}" onclick="openCompanyPanel(this)">
+            <div class="co-card-top">
+                <div class="co-avatar">${initials(c.company)}</div>
+                <div style="min-width:0;flex:1;">
+                    <div class="co-name" title="${c.company}">${c.company}</div>
+                </div>
+            </div>
+            <div class="co-meta-row">
+                <span>{{ icons.briefcase(12) }} <strong style="color:var(--text-primary);">${c.job_count}</strong> jobs</span>
+                <span>{{ icons.tag(12) }} <strong style="color:var(--text-primary);">${c.skill_diversity}</strong> skills</span>
+                <span>{{ icons.globe(12) }} <strong style="color:var(--text-primary);">${c.location_count}</strong> countries</span>
+                <span class="co-remote-stat"><strong>${c.remote_pct}%</strong> remote</span>
+            </div>
+        </div>
+    `).join('');
+
+    // keep the panel's selected-card highlight in sync after a re-render
+    const openCompany = document.getElementById('coPanel').dataset.company;
+    if (openCompany) {
+        const match = grid.querySelector(`[data-company="${CSS.escape(openCompany)}"]`);
+        if (match) match.classList.add('selected');
+    }
+}
+
+function openCompanyPanel(cardEl) {
+    document.querySelectorAll('.co-card').forEach(c => c.classList.remove('selected'));
+    cardEl.classList.add('selected');
+
+    const encoded = cardEl.dataset.company;
+    const company = decodeURIComponent(encoded);
+    const data = allCompanies.find(c => c.company === company);
+    if (!data) return;
+
+    const panel = document.getElementById('coPanel');
+    panel.dataset.company = encoded;
+    document.getElementById('coPanelAvatar').textContent = initials(company);
+    document.getElementById('coPanelName').textContent = company;
+    document.getElementById('coPanelJobsLink').href = '/jobs?company=' + encoded;
+    document.getElementById('coPanelStats').innerHTML = `
+        <div class="co-stat"><div class="co-stat-val">${data.job_count}</div><div class="co-stat-label">Jobs posted</div></div>
+        <div class="co-stat"><div class="co-stat-val">${data.skill_diversity}</div><div class="co-stat-label">Distinct skills</div></div>
+        <div class="co-stat"><div class="co-stat-val">${data.location_count}</div><div class="co-stat-label">Countries</div></div>
+        <div class="co-stat"><div class="co-stat-val">${data.remote_pct}%</div><div class="co-stat-label">Remote</div></div>
+    `;
+    if (!window.GW_AUTHED) {
+        document.getElementById('coPanelSkills').innerHTML = `
+            <div style="text-align:center;padding:1.5rem 1rem;">
+                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:1rem;">Sign in to see this company's most-requested skills.</p>
+                <button type="button" class="btn btn-primary" onclick="gwShowGate()" style="display:inline-flex;align-items:center;gap:8px;margin:0 auto;">{{ icons.lock(14) }} Continue with Google</button>
+            </div>`;
+        panel.classList.add('open');
+        panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return;
+    }
+
+    document.getElementById('coPanelSkills').innerHTML = '<div style="text-align:center;padding:1.5rem;"><div class="loading-spinner"></div></div>';
+    panel.classList.add('open');
+    panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    fetch('/api/companies/' + encoded + '/tech-stack')
+        .then(r => r.json())
+        .then(skills => {
+            if (!skills.length) {
+                document.getElementById('coPanelSkills').innerHTML =
+                    '<p style="color:var(--text-secondary);font-size:13px;">No skills detected for this company yet.</p>';
                 return;
             }
-            
-            tbody.innerHTML = companies.map(company => `
-                <tr>
-                    <td><strong>${company.company}</strong></td>
-                    <td>${company.job_count} jobs</td>
-                    <td>${company.skill_diversity} skills</td>
-                    <td>${company.location_count} countries</td>
-                    <td>${company.remote_pct}%</td>
-                    <td>
-                        <a href="/jobs?company=${encodeURIComponent(company.company)}" 
-                           class="btn" 
-                           style="padding: 0.25rem 0.75rem; font-size: 0.75rem; background: #667eea; color: white; text-decoration: none; border-radius: 4px;">
-                            View Jobs
-                        </a>
-                    </td>
-                </tr>
-            `).join('');
+            const max = skills[0].count;
+            document.getElementById('coPanelSkills').innerHTML = skills.map(s => `
+                <div class="skill-row">
+                    <span class="skill-name">${s.normalized_skill}</span>
+                    <div class="skill-bar-track"><div class="skill-bar-fill" style="width:${Math.round(s.count / max * 100)}%"></div></div>
+                    <span class="skill-count">${s.count}</span>
+                </div>`).join('');
         })
-        .catch(error => {
-            console.error('Error loading companies:', error);
-            document.querySelector('#companiesTable tbody').innerHTML = 
-                '<tr><td colspan="6" style="text-align: center; color: #ef4444; padding: 2rem;">Error loading company data</td></tr>';
+        .catch(() => {
+            document.getElementById('coPanelSkills').innerHTML =
+                '<p style="color:var(--danger);font-size:13px;">Something went wrong loading skills.</p>';
         });
+}
+
+function closeCompanyPanel() {
+    const panel = document.getElementById('coPanel');
+    panel.classList.remove('open');
+    delete panel.dataset.company;
+    document.querySelectorAll('.co-card').forEach(c => c.classList.remove('selected'));
 }
 </script>
 {% endblock %}
