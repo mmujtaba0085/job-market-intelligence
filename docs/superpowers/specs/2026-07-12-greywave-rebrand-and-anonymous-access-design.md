@@ -338,15 +338,31 @@ def titles_top():
     return jsonify([{"title": r["title"], "count": r["count"]} for r in rows])
 ```
 
-The rendered result is unchanged for everyone (signed-in visitors still
-see 20 rows, anonymous visitors still see 5) — but what's actually sent
-over the wire changes for *both*: signed-in requests now receive exactly
-20 rows (not 50, since the frontend never displayed more than 20 anyway —
-folding in the earlier "pull only what's shown" fix), and anonymous
-requests now genuinely receive only 5 server-side, not 50 with only 5
-rendered client-side. The summary table itself stores up to 50 for
-headroom (cheap — it's 50 rows either way), but neither endpoint response
-ever needs to.
+The visible skill-pair rows are unchanged for everyone (signed-in
+visitors still see 20 rows, anonymous visitors still see 5) — but what's
+actually sent over the wire changes for *both*: signed-in requests now
+receive exactly 20 rows (not 50, since the frontend never displayed more
+than 20 anyway — folding in the earlier "pull only what's shown" fix),
+and anonymous requests now genuinely receive only 5 server-side, not 50
+with only 5 rendered client-side. The summary table itself stores up to
+50 for headroom (cheap — it's 50 rows either way), but neither endpoint
+response ever needs to.
+
+**Correction, found during final review (not caught when this was
+originally written):** one *other* piece of rendered output does change
+for anonymous visitors as a direct consequence of this trim.
+`skills_intelligence.html`'s "N more combinations — continue with Google"
+teaser row computed its count from `combinations.length - limit` — that
+only ever showed anything when the backend returned more than `limit`
+rows. Once the backend returns *exactly* `limit`, that comparison is
+always false and the teaser row silently stopped rendering for anonymous
+visitors. Fixed by showing the row unconditionally for anonymous
+visitors with generic copy ("More combinations — continue with Google")
+instead of a now-unavailable exact count — see
+`templates/skills_intelligence.html`'s `loadSkillCombinations()`. The
+page's other gating elements (the persistent bottom bar, the hard
+overlay, the locked skill-detail panel) were unaffected and continued to
+funnel anonymous visitors toward sign-in throughout.
 
 **One-time backfill:** both summary tables are empty until the next
 scheduled pipeline run. Run `recompute_skill_combinations()` and

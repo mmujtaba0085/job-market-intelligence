@@ -306,10 +306,15 @@ function loadSkillCombinations() {
             }
             const limit = window.GW_AUTHED ? 20 : 5;
             const shown = combinations.slice(0, limit);
-            const lockedRow = (!window.GW_AUTHED && combinations.length > limit) ? `
+            // The backend now returns exactly `limit` rows for anonymous
+            // requests (not the full set with client-side trimming), so
+            // there's no accurate "N more" count available here anymore -
+            // show the teaser row unconditionally for anon instead of
+            // gating it on a length comparison that can never be true.
+            const lockedRow = !window.GW_AUTHED ? `
                         <tr class="gw-ghost-row" onclick="gwShowGate()">
                             <td colspan="5" style="text-align:center;padding:1rem;">
-                                <span class="gw-lock-pill">{{ icons.lock(12) }} ${combinations.length - limit} more combinations — continue with Google</span>
+                                <span class="gw-lock-pill">{{ icons.lock(12) }} More combinations — continue with Google</span>
                             </td>
                         </tr>` : '';
             container.innerHTML = `
