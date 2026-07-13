@@ -390,6 +390,23 @@ def test_reclassify_clears_stale_state_on_downgrade(conn, monkeypatch):
 
     queued = conn.execute("SELECT status FROM groq_classification_queue WHERE job_id = 1").fetchone()
     assert queued["status"] == "pending"
+
+
+def test_reclassify_all_after_job_id_resumes_past_prior_chunk(conn):
+    # Without after_job_id, two successive limit=1 calls would both select
+    # job_id=1 forever (ORDER BY job_id LIMIT 1 is deterministic) - a
+    # multi-tick local_full_backfill run would never advance. after_job_id
+    # must let the second call pick up job_id=2 instead.
+    from src.classification.local_stage import reclassify_all
+    first = reclassify_all(conn, run_id="run1", limit=1)
+    assert first["processed"] == 1
+
+    conn.execute("INSERT INTO classification_runs (run_id, run_type, trigger, started_at) VALUES ('run2', 'local_full_backfill', 'manual', datetime('now'))")
+    second = reclassify_all(conn, run_id="run2", limit=1, after_job_id=1)
+    assert second["processed"] == 1
+
+    run2 = conn.execute("SELECT cursor_job_id FROM classification_runs WHERE run_id = 'run2'").fetchone()
+    assert run2["cursor_job_id"] == 2  # advanced past job 1, not stuck reprocessing it
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -528,19 +545,29 @@ def classify_pending_jobs(conn, run_id: str, limit: int | None = None) -> dict[s
     return _run_batch(conn, run_id, rows)
 
 
-def reclassify_all(conn, run_id: str, limit: int | None = None) -> dict[str, int]:
-    """Re-run classification for every job, regardless of prior attempts."""
-    query = "SELECT job_id, title, raw_description FROM jobs ORDER BY job_id"
+def reclassify_all(conn, run_id: str, limit: int | None = None, after_job_id: int | None = None) -> dict[str, int]:
+    """Re-run classification for every job, regardless of prior attempts.
+
+    after_job_id resumes a chunked local_full_backfill run from where the
+    previous chunk's cursor_job_id left off - without it, every call would
+    re-select the same first `limit` job_ids by job_id order forever, and a
+    multi-tick backfill would never advance past its first chunk."""
+    query = "SELECT job_id, title, raw_description FROM jobs"
+    params: list = []
+    if after_job_id is not None:
+        query += " WHERE job_id > ?"
+        params.append(after_job_id)
+    query += " ORDER BY job_id"
     if limit:
         query += f" LIMIT {int(limit)}"
-    rows = conn.execute(query).fetchall()
+    rows = conn.execute(query, params).fetchall()
     return _run_batch(conn, run_id, rows)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_local_classification_stage.py -v`
-Expected: PASS (7 tests)
+Expected: PASS (8 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1198,6 +1225,36 @@ def test_tick_respects_configured_idle_threshold_override(conn, monkeypatch):
     assert run is not None  # only starts if the 10s config override was actually read, not the 300s default
 
 
+def test_local_full_backfill_advances_across_ticks_not_stuck_on_first_chunk(conn):
+    # Regression test: reclassify_all() has no natural "already done" filter
+    # (unlike classify_pending_jobs), so without after_job_id wired through
+    # correctly, two ticks would both reprocess the same first job forever.
+    conn.execute("INSERT INTO jobs (job_id, title) VALUES (2, 'Data Analyst')")
+    conn.execute("INSERT INTO jobs (job_id, title) VALUES (3, 'Product Manager')")
+    conn.execute("INSERT INTO pipeline_config (key, value, updated_at) VALUES ('classification_local_chunk_size', '1', datetime('now'))")
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES ('backfill1', 'local_full_backfill', 'manual', 'running', datetime('now'))"
+    )
+    conn.commit()
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    long_idle = now - timedelta(seconds=400)
+
+    run_scheduler_tick(conn, last_request_at=long_idle, now=now)
+    after_tick_1 = conn.execute("SELECT cursor_job_id FROM classification_runs WHERE run_id = 'backfill1'").fetchone()
+    assert after_tick_1["cursor_job_id"] == 1
+
+    run_scheduler_tick(conn, last_request_at=long_idle, now=now)
+    after_tick_2 = conn.execute("SELECT cursor_job_id, status FROM classification_runs WHERE run_id = 'backfill1'").fetchone()
+    assert after_tick_2["cursor_job_id"] == 2  # advanced past job 1, not stuck reprocessing it
+
+    run_scheduler_tick(conn, last_request_at=long_idle, now=now)
+    after_tick_3 = conn.execute("SELECT cursor_job_id, status FROM classification_runs WHERE run_id = 'backfill1'").fetchone()
+    assert after_tick_3["cursor_job_id"] == 3
+    assert after_tick_3["status"] == "success"  # all 3 jobs processed, run completed
+
+
 def test_tick_launches_groq_backlog_when_idle_and_pending_rows_exist(conn, monkeypatch):
     conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
     conn.execute("INSERT INTO groq_classification_queue (job_id, status, created_at) VALUES (1, 'pending', datetime('now'))")
@@ -1417,7 +1474,10 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
             logger.error("[classification_scheduler] local_incremental failed: %s", exc)
             _finish_run(conn, run_id, status="failed")
 
-    # groq_backlog: auto-starts on idle, chunked, load-gated.
+    # groq_backlog: auto-starts on idle, chunked, load-gated. local_full_backfill's
+    # active status can't change between the start-check and the continuation
+    # below (nothing in between writes to it), so it's read once and reused
+    # rather than re-queried.
     other_active = _any_run_active(conn, "local_full_backfill")
     if _has_pending_groq_backlog(conn) and not _any_run_active(conn, "groq_backlog"):
         if should_process_chunk(last_request_at, other_active, now, idle_seconds_threshold=idle_threshold):
@@ -1425,7 +1485,6 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
             # Falls through to the continuation branch below on this same tick.
 
     if _any_run_active(conn, "groq_backlog"):
-        other_active = _any_run_active(conn, "local_full_backfill")
         if should_process_chunk(last_request_at, other_active, now, idle_seconds_threshold=idle_threshold):
             run = conn.execute("SELECT run_id FROM classification_runs WHERE run_type = 'groq_backlog' AND status = 'running' LIMIT 1").fetchone()
             run_id = run["run_id"]
@@ -1441,8 +1500,13 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
             from src.classification.local_stage import reclassify_all
             run = conn.execute("SELECT run_id, cursor_job_id FROM classification_runs WHERE run_type = 'local_full_backfill' AND status = 'running' LIMIT 1").fetchone()
             run_id = run["run_id"]
-            remaining = conn.execute("SELECT COUNT(*) FROM jobs WHERE job_id > ?", (run["cursor_job_id"] or 0,)).fetchone()[0]
-            reclassify_all(conn, run_id=run_id, limit=local_chunk_size)
+            cursor_job_id = run["cursor_job_id"]
+            remaining = conn.execute("SELECT COUNT(*) FROM jobs WHERE job_id > ?", (cursor_job_id or 0,)).fetchone()[0]
+            # after_job_id is required here - without it, reclassify_all's
+            # ORDER BY job_id LIMIT n query would deterministically re-select
+            # the same first chunk on every tick and the run would never
+            # advance past it (see Task 2's after_job_id addition).
+            reclassify_all(conn, run_id=run_id, limit=local_chunk_size, after_job_id=cursor_job_id)
             if remaining <= local_chunk_size:
                 _finish_run(conn, run_id, status="success")
 
@@ -1463,7 +1527,7 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_classification_scheduling.py -v`
-Expected: PASS (13 tests)
+Expected: PASS (14 tests)
 
 - [ ] **Step 5: Wire into `_auto_scheduler_loop` and add the `before_request` hook**
 
