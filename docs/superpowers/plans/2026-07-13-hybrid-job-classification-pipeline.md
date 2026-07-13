@@ -567,6 +567,7 @@ git commit -m "feat: add local classification stage (classify_pending_jobs, recl
 # tests/test_groq_classification_stage.py
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -735,6 +736,56 @@ def test_prompt_sends_category_ids_not_full_keywords(conn, monkeypatch):
     prompt_text = str(captured["payload"])
     assert "it.software" in prompt_text
     assert "a very long keyword list" not in prompt_text
+
+
+def test_multiple_chunks_do_not_crash_on_placeholder_mismatch(conn, monkeypatch):
+    # chunk_size=1 forces 3 separate chunks from the fixture's 3 pending jobs -
+    # this is exactly the scenario that raises a SQL parameter-count mismatch
+    # if the "mark processing" UPDATE reuses a placeholder string sized for
+    # the full job_ids list instead of one scoped to the current chunk.
+    monkeypatch.setattr("config.settings.GROQ_API_KEYS", ["fake-key-1"])
+    from src.classification import groq_stage
+
+    class _MockResponse:
+        status_code = 200
+        def json(self):
+            return _fake_groq_response({1: "it.software", 2: "it.software", 3: "it.software"})
+        def raise_for_status(self):
+            pass
+
+    with patch("src.classification.groq_stage.requests.post", return_value=_MockResponse()):
+        result = groq_stage.process_groq_queue(conn, run_id="run1", statuses=("pending",), chunk_size=1)
+
+    assert result["processed"] == 3
+    assert result["succeeded"] == 3
+
+
+def test_stale_processing_rows_reclaimed_to_pending(conn):
+    from src.classification import groq_stage
+    stale_time = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    conn.execute("UPDATE groq_classification_queue SET status = 'processing', last_attempted_at = ? WHERE job_id = 1", (stale_time,))
+    conn.commit()
+
+    groq_stage._reclaim_stale_processing_rows(conn)
+
+    row = conn.execute("SELECT status FROM groq_classification_queue WHERE job_id = 1").fetchone()
+    assert row["status"] == "pending"
+
+
+def test_recently_processing_rows_not_reclaimed(conn):
+    # A row legitimately mid-flight (another call to process_groq_queue
+    # currently working on it) must not be yanked back to pending underneath
+    # that in-progress call - only rows stuck well past a normal chunk's
+    # processing time should be reclaimed.
+    from src.classification import groq_stage
+    recent_time = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    conn.execute("UPDATE groq_classification_queue SET status = 'processing', last_attempted_at = ? WHERE job_id = 1", (recent_time,))
+    conn.commit()
+
+    groq_stage._reclaim_stale_processing_rows(conn)
+
+    row = conn.execute("SELECT status FROM groq_classification_queue WHERE job_id = 1").fetchone()
+    assert row["status"] == "processing"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -839,7 +890,26 @@ def _eligible_job_ids(conn, statuses: tuple[str, ...]) -> list[int]:
     return [r["job_id"] for r in rows]
 
 
+STALE_PROCESSING_MINUTES = 10
+
+
+def _reclaim_stale_processing_rows(conn) -> None:
+    """A crash/restart (e.g. a Docker redeploy mid-chunk) between setting
+    status='processing' and the final outcome commit would otherwise orphan
+    these rows forever - _eligible_job_ids() only ever selects pending or
+    failed_technical, never processing. Reclaim anything stuck past a
+    generous staleness window back to pending so it gets picked up again."""
+    conn.execute(
+        """UPDATE groq_classification_queue SET status = 'pending'
+           WHERE status = 'processing'
+             AND (last_attempted_at IS NULL OR last_attempted_at < datetime('now', ?))""",
+        (f"-{STALE_PROCESSING_MINUTES} minutes",),
+    )
+    conn.commit()
+
+
 def process_groq_queue(conn, run_id: str, statuses: tuple[str, ...], limit: int | None = None, chunk_size: int = 25) -> dict[str, int]:
+    _reclaim_stale_processing_rows(conn)
     job_ids = _eligible_job_ids(conn, statuses)
     if limit:
         job_ids = job_ids[:limit]
@@ -869,9 +939,14 @@ def process_groq_queue(conn, run_id: str, statuses: tuple[str, ...], limit: int 
         payload = _build_prompt(categories, batch)
         prompt_json = json.dumps(payload)
 
+        # NOTE: uses its own chunk-scoped placeholder string, not the outer
+        # `placeholders` (which was sized for the full job_ids list, not one
+        # chunk) - reusing that one here would raise a parameter-count
+        # mismatch as soon as job_ids spans more than one chunk_size batch.
+        chunk_placeholders = ",".join("?" for _ in chunk_ids)
         conn.execute(
-            f"UPDATE groq_classification_queue SET status = 'processing' WHERE job_id IN ({placeholders})",
-            chunk_ids,
+            f"UPDATE groq_classification_queue SET status = 'processing', last_attempted_at = ? WHERE job_id IN ({chunk_placeholders})",
+            [_now(), *chunk_ids],
         )
         conn.commit()
 
@@ -971,7 +1046,7 @@ def process_groq_queue(conn, run_id: str, statuses: tuple[str, ...], limit: int 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_groq_classification_stage.py -v`
-Expected: PASS (5 tests). If `test_succeeded_outcome_writes_category_and_clears_queue`'s mock setup has issues (it's the most complex mock in this file), simplify the `fake_post` helper to just return the fixed `_fake_groq_response(...)` dict directly rather than trying to introspect the outgoing payload — only `test_prompt_sends_category_ids_not_full_keywords` actually needs to inspect the outgoing payload.
+Expected: PASS (8 tests). If `test_succeeded_outcome_writes_category_and_clears_queue`'s mock setup has issues (it's the most complex mock in this file), simplify the `fake_post` helper to just return the fixed `_fake_groq_response(...)` dict directly rather than trying to introspect the outgoing payload — only `test_prompt_sends_category_ids_not_full_keywords` actually needs to inspect the outgoing payload.
 
 - [ ] **Step 5: Commit**
 
