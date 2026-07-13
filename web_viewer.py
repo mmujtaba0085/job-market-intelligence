@@ -105,7 +105,7 @@ def inject_current_user():
 
 
 # ── Global auth gate ──────────────────────────────────────────────────────────
-_PUBLIC_PATHS = {"/healthz", "/auth/login", "/auth/logout", "/auth/google", "/auth/google/callback"}
+_PUBLIC_PATHS = {"/healthz", "/auth/login", "/auth/logout", "/auth/google", "/auth/google/callback", "/robots.txt"}
 _PUBLIC_PREFIXES = ("/static/",)
 
 # Reachable without a login, but NOT a full bypass like _PUBLIC_PATHS above -
@@ -555,6 +555,12 @@ def healthz():
     except Exception as exc:  # noqa: BLE001
         logger.warning("[healthz] DB check failed: %s", exc)
         return jsonify({"status": "degraded", "db": "error", "error": str(exc)}), 503
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    """Disallow everything for now - not an SEO launch yet."""
+    return make_response(("User-agent: *\nDisallow: /\n", 200, {"Content-Type": "text/plain"}))
 
 
 @app.route("/api/dashboard/kpis")
