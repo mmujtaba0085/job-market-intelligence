@@ -76,8 +76,18 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!skillsList) return;
         
         fetch('/api/filters/skills')
-            .then(response => response.json())
+            .then(response => {
+                if (response.status === 401) {
+                    skillsList.innerHTML = window.gwShowGate
+                        ? '<p style="font-size:13px;color:var(--text-secondary,#666);">' +
+                          '<a href="#" onclick="event.preventDefault();gwShowGate();" style="color:inherit;text-decoration:underline;">Sign in</a> to filter by skills.</p>'
+                        : '<p style="font-size:13px;color:#999;">Sign in to filter by skills.</p>';
+                    return null;
+                }
+                return response.json();
+            })
             .then(skills => {
+                if (skills === null) return;  // handled above (locked)
                 if (skills.length === 0) {
                     skillsList.innerHTML = '<p style="color: #999; font-size: 13px;">No skills found</p>';
                     return;

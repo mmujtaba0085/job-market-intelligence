@@ -2,11 +2,17 @@
 tests/test_public_viewable_routes.py
 ─────────────────────────────────────
 Verifies web_viewer.py's global_auth_gate() correctly distinguishes three
-cases for the newly-public routes:
-  1. An anonymous request (no session, no API key) reaches the six page
-     routes and eight API routes without being redirected to /auth/login.
+cases for the public-viewable routes:
+  1. An anonymous request (no session, no API key) reaches the public
+     page routes (dashboard, jobs list, job detail) and public API
+     routes without being redirected to /auth/login.
   2. Every other route is still fully gated for anonymous requests (the
-     public-viewable change must not leak beyond the named routes).
+     public-viewable change must not leak beyond the named routes) -
+     including skills/companies/titles intelligence and their backing
+     API endpoints, which were originally public-with-a-teaser and were
+     later reverted to fully gated by explicit request: an anonymous
+     click on Skills/Companies/Titles now goes straight to /auth/login,
+     with no preview.
   3. API-key scope enforcement is NOT bypassed by this change - an API
      key without the required scope still gets 403 on a newly-public API
      path, proving the new check didn't accidentally short-circuit the
@@ -56,7 +62,7 @@ def anon_client(tmp_path, monkeypatch):
 
 
 def test_anonymous_request_reaches_public_page_routes(anon_client):
-    for path in ["/dashboard", "/jobs", "/jobs/1", "/skills/intelligence", "/companies/intelligence", "/titles/analytics"]:
+    for path in ["/dashboard", "/jobs", "/jobs/1"]:
         r = anon_client.get(path)
         assert r.status_code == 200, f"{path} should be reachable anonymously, got {r.status_code}"
 
@@ -64,8 +70,6 @@ def test_anonymous_request_reaches_public_page_routes(anon_client):
 def test_anonymous_request_reaches_public_api_routes(anon_client):
     for path in [
         "/api/dashboard/kpis", "/api/dashboard/companies", "/api/dashboard/location-diversity",
-        "/api/skills/search", "/api/skills/combinations", "/api/companies/list",
-        "/api/titles/top", "/api/filters/skills",
     ]:
         r = anon_client.get(path)
         assert r.status_code == 200, f"{path} should be reachable anonymously, got {r.status_code}"
@@ -78,6 +82,35 @@ def test_anonymous_request_still_blocked_from_non_public_routes(anon_client):
 
     r = anon_client.get("/api/dashboard/trends")
     assert r.status_code == 401
+
+
+def test_anonymous_request_blocked_from_skills_companies_titles_pages(anon_client):
+    """Skills/Companies/Titles intelligence were originally public-with-a-
+    teaser, then reverted to fully gated by explicit request: an
+    anonymous click on any of the three now goes straight to
+    /auth/login, with no preview shown first."""
+    for path in ["/skills/intelligence", "/companies/intelligence", "/titles/analytics"]:
+        r = anon_client.get(path, follow_redirects=False)
+        assert r.status_code == 302, f"{path} should redirect anonymous visitors to login, got {r.status_code}"
+        assert "/auth/login" in r.headers["Location"]
+
+
+def test_anonymous_request_blocked_from_skills_companies_titles_apis(anon_client):
+    """The four API endpoints that fed the now-fully-gated pages must
+    also be blocked directly, not just their pages - otherwise an
+    anonymous visitor could still pull the same data straight from the
+    API even though the page itself redirects to login."""
+    for path in ["/api/skills/search", "/api/skills/combinations", "/api/companies/list", "/api/titles/top"]:
+        r = anon_client.get(path)
+        assert r.status_code == 401, f"{path} should be blocked (401) for anonymous requests, got {r.status_code}"
+
+
+def test_anonymous_request_blocked_from_jobs_filter_api(anon_client):
+    """The jobs-list skill-filter dropdown's data source is also locked
+    by explicit request - the /jobs page itself stays public, but its
+    filter-by-skill capability requires signing in."""
+    r = anon_client.get("/api/filters/skills")
+    assert r.status_code == 401, f"/api/filters/skills should be blocked for anonymous requests, got {r.status_code}"
 
 
 def test_anonymous_request_still_blocked_from_admin_routes(anon_client):
@@ -96,7 +129,7 @@ def test_api_key_scope_enforcement_not_bypassed_on_public_api_route(anon_client,
     )
     monkeypatch.setattr(auth_middleware, "api_key_has_scope", lambda user, scope: False)
 
-    r = anon_client.get("/api/skills/combinations", headers={"X-API-Key": "jmi_fake"})
+    r = anon_client.get("/api/dashboard/kpis", headers={"X-API-Key": "jmi_fake"})
     assert r.status_code == 403, "an API key lacking the required scope must still be rejected on a public-viewable API path"
 
 

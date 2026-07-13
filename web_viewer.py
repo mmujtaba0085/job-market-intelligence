@@ -119,12 +119,21 @@ _PUBLIC_VIEWABLE_ENDPOINTS = {
               # link (present on every page) sends anonymous visitors to
               # the login page instead of the dashboard.
     "dashboard", "jobs_list", "job_detail",
-    "skills_intelligence", "companies_intelligence", "titles_analytics",
+    # skills_intelligence / companies_intelligence / titles_analytics are
+    # deliberately NOT here - fully gated by request: an anonymous click
+    # on Skills/Companies/Titles goes straight to /auth/login (the normal
+    # global_auth_gate() fallback), not a teased preview.
 }
 _PUBLIC_API_READS = {
     "/api/dashboard/kpis", "/api/dashboard/companies", "/api/dashboard/location-diversity",
-    "/api/skills/search", "/api/skills/combinations",
-    "/api/companies/list", "/api/titles/top", "/api/filters/skills",
+    # /api/skills/search, /api/skills/combinations, /api/companies/list,
+    # /api/titles/top removed along with their pages above - anonymous
+    # visitors can no longer reach the pages that call them, and leaving
+    # the API endpoints public would let the same data through directly.
+    # /api/filters/skills removed by explicit request too - the jobs list
+    # filter dropdown's skill options are now also locked behind login;
+    # anonymous visitors still see the full job list, just without the
+    # skill-filter dropdown populated.
 }
 
 
@@ -1079,14 +1088,17 @@ def skill_locations(skill_name):
 @cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def skill_combinations():
     """Get top skill pairs/combinations (precomputed - see
-    src/analytics/precomputed_summaries.py for why)."""
+    src/analytics/precomputed_summaries.py for why).
+
+    No role-based limit here anymore: this endpoint is fully gated (not
+    in _PUBLIC_API_READS), so every request that reaches this point is
+    already authenticated - g.current_user is always truthy."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    limit = 20 if g.current_user else 5
     cursor.execute(
         "SELECT skill_a, skill_b, co_count FROM skill_combinations_summary ORDER BY co_count DESC LIMIT ?",
-        (limit,),
+        (20,),
     )
 
     combinations = [{"skill_a": row["skill_a"], "skill_b": row["skill_b"], "count": row["co_count"]}
@@ -1421,7 +1433,7 @@ def jobs_list():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    PER_PAGE = 100
+    PER_PAGE = 20 if g.current_user else 10
 
     # Filters
     market_filter  = request.args.get("market", "")

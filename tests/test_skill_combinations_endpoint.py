@@ -1,10 +1,16 @@
 """
 tests/test_skill_combinations_endpoint.py
 ─────────────────────────────────────────
-Confirms /api/skills/combinations respects the role-based row limit
-end-to-end (5 for anonymous, 20 for signed-in) - the summary table
-itself stores up to 50 rows for headroom, but neither endpoint response
-should ever return more than what's actually displayed.
+Confirms /api/skills/combinations is fully gated (anonymous requests
+blocked, not given a reduced-row teaser) and that signed-in requests get
+exactly 20 rows - the summary table itself stores up to 50 rows for
+headroom, but the endpoint response should never return more than what's
+actually displayed.
+
+This endpoint (and the skills_intelligence page that calls it) was
+originally public-with-a-teaser (5 rows for anonymous visitors) and was
+later reverted to fully gated by explicit request - see
+_PUBLIC_API_READS in web_viewer.py.
 """
 import sqlite3
 
@@ -43,10 +49,9 @@ def app_client_with_30_pairs(tmp_path, monkeypatch):
     return web_viewer.app.test_client()
 
 
-def test_anonymous_request_gets_exactly_five_rows(app_client_with_30_pairs):
+def test_anonymous_request_is_blocked(app_client_with_30_pairs):
     r = app_client_with_30_pairs.get("/api/skills/combinations")
-    assert r.status_code == 200
-    assert len(r.get_json()) == 5
+    assert r.status_code == 401
 
 
 def test_signed_in_request_gets_exactly_twenty_rows(app_client_with_30_pairs):
