@@ -8,9 +8,13 @@ document.addEventListener('DOMContentLoaded', function() {
     const clearFiltersBtn = document.getElementById('clearFilters');
     const skillSearch = document.getElementById('skillSearch');
     
-    // Toggle filter sidebar
+    // Toggle filter sidebar - filtering is a signed-in feature
     if (filterToggle) {
         filterToggle.addEventListener('click', function() {
+            if (!window.GW_AUTHED) {
+                if (window.gwShowGate) window.gwShowGate();
+                return;
+            }
             filterSidebar.classList.add('active');
             filterOverlay.classList.add('active');
         });

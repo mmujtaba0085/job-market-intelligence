@@ -1448,6 +1448,16 @@ def jobs_list():
     current_status = request.args.get("status", "active")
     sort_param     = request.args.get("sort", "diverse")
 
+    # Filtering is a signed-in feature - the sidebar is hidden for anonymous
+    # visitors, but a filtered URL can still be typed or shared directly, so
+    # the query params must be ignored here too, not just hidden in the UI.
+    if not g.current_user:
+        market_filter = remote_filter = search_query = ""
+        country_filter = source_filter = company_filter = ""
+        skills_filter = []
+        date_from = date_to = ""
+        current_status = "active"
+
     # Diversity ordering only means anything against the exact population it
     # was computed for: status=active, zero other filters. Any deviation from
     # that baseline falls back to plain recency, same as before this feature.
