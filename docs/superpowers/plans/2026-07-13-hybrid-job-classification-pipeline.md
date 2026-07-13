@@ -899,10 +899,16 @@ def _reclaim_stale_processing_rows(conn) -> None:
     these rows forever - _eligible_job_ids() only ever selects pending or
     failed_technical, never processing. Reclaim anything stuck past a
     generous staleness window back to pending so it gets picked up again."""
+    # Both sides MUST go through SQLite's datetime() normalizer: last_attempted_at
+    # is stored as Python's isoformat() ("...T...+00:00"), while datetime('now', ...)
+    # produces SQLite's own space-separated, no-offset format. Comparing the raw
+    # strings directly is a silent no-op bug - 'T' (0x54) sorts after ' ' (0x20),
+    # so any ISO timestamp would lexicographically compare as "later" than SQLite's
+    # own output regardless of actual staleness, and this would never fire.
     conn.execute(
         """UPDATE groq_classification_queue SET status = 'pending'
            WHERE status = 'processing'
-             AND (last_attempted_at IS NULL OR last_attempted_at < datetime('now', ?))""",
+             AND (last_attempted_at IS NULL OR datetime(last_attempted_at) < datetime('now', ?))""",
         (f"-{STALE_PROCESSING_MINUTES} minutes",),
     )
     conn.commit()
