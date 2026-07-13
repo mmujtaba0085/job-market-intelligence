@@ -89,7 +89,31 @@ def _eligible_job_ids(conn, statuses: tuple[str, ...]) -> list[int]:
     return [r["job_id"] for r in rows]
 
 
+STALE_PROCESSING_MINUTES = 10
+
+
+def _reclaim_stale_processing_rows(conn) -> None:
+    """A crash/restart (e.g. a Docker redeploy mid-chunk) between setting
+    status='processing' and the final outcome commit would otherwise orphan
+    these rows forever - _eligible_job_ids() only ever selects pending or
+    failed_technical, never processing. Reclaim anything stuck past a
+    generous staleness window back to pending so it gets picked up again."""
+    # last_attempted_at is stored via _now(), i.e. datetime.now(timezone.utc).isoformat()
+    # ("...T...+00:00"), which sorts lexicographically *after* SQLite's own
+    # datetime('now', ...) output ("...  ...", space-separated, no offset) for
+    # any same-day timestamp - a raw string comparison would therefore never
+    # consider a row stale. Wrap both sides in datetime(...) to normalize.
+    conn.execute(
+        """UPDATE groq_classification_queue SET status = 'pending'
+           WHERE status = 'processing'
+             AND (last_attempted_at IS NULL OR datetime(last_attempted_at) < datetime('now', ?))""",
+        (f"-{STALE_PROCESSING_MINUTES} minutes",),
+    )
+    conn.commit()
+
+
 def process_groq_queue(conn, run_id: str, statuses: tuple[str, ...], limit: int | None = None, chunk_size: int = 25) -> dict[str, int]:
+    _reclaim_stale_processing_rows(conn)
     job_ids = _eligible_job_ids(conn, statuses)
     if limit:
         job_ids = job_ids[:limit]
@@ -119,9 +143,14 @@ def process_groq_queue(conn, run_id: str, statuses: tuple[str, ...], limit: int 
         payload = _build_prompt(categories, batch)
         prompt_json = json.dumps(payload)
 
+        # NOTE: uses its own chunk-scoped placeholder string, not the outer
+        # `placeholders` (which was sized for the full job_ids list, not one
+        # chunk) - reusing that one here would raise a parameter-count
+        # mismatch as soon as job_ids spans more than one chunk_size batch.
+        chunk_placeholders = ",".join("?" for _ in chunk_ids)
         conn.execute(
-            f"UPDATE groq_classification_queue SET status = 'processing' WHERE job_id IN ({placeholders})",
-            chunk_ids,
+            f"UPDATE groq_classification_queue SET status = 'processing', last_attempted_at = ? WHERE job_id IN ({chunk_placeholders})",
+            [_now(), *chunk_ids],
         )
         conn.commit()
 

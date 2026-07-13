@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -168,3 +169,53 @@ def test_prompt_sends_category_ids_not_full_keywords(conn, monkeypatch):
     prompt_text = str(captured["payload"])
     assert "it.software" in prompt_text
     assert "a very long keyword list" not in prompt_text
+
+
+def test_multiple_chunks_do_not_crash_on_placeholder_mismatch(conn, monkeypatch):
+    # chunk_size=1 forces 3 separate chunks from the fixture's 3 pending jobs -
+    # this is exactly the scenario that raises a SQL parameter-count mismatch
+    # if the "mark processing" UPDATE reuses a placeholder string sized for
+    # the full job_ids list instead of one scoped to the current chunk.
+    monkeypatch.setattr("config.settings.GROQ_API_KEYS", ["fake-key-1"])
+    from src.classification import groq_stage
+
+    class _MockResponse:
+        status_code = 200
+        def json(self):
+            return _fake_groq_response({1: "it.software", 2: "it.software", 3: "it.software"})
+        def raise_for_status(self):
+            pass
+
+    with patch("src.classification.groq_stage.requests.post", return_value=_MockResponse()):
+        result = groq_stage.process_groq_queue(conn, run_id="run1", statuses=("pending",), chunk_size=1)
+
+    assert result["processed"] == 3
+    assert result["succeeded"] == 3
+
+
+def test_stale_processing_rows_reclaimed_to_pending(conn):
+    from src.classification import groq_stage
+    stale_time = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    conn.execute("UPDATE groq_classification_queue SET status = 'processing', last_attempted_at = ? WHERE job_id = 1", (stale_time,))
+    conn.commit()
+
+    groq_stage._reclaim_stale_processing_rows(conn)
+
+    row = conn.execute("SELECT status FROM groq_classification_queue WHERE job_id = 1").fetchone()
+    assert row["status"] == "pending"
+
+
+def test_recently_processing_rows_not_reclaimed(conn):
+    # A row legitimately mid-flight (another call to process_groq_queue
+    # currently working on it) must not be yanked back to pending underneath
+    # that in-progress call - only rows stuck well past a normal chunk's
+    # processing time should be reclaimed.
+    from src.classification import groq_stage
+    recent_time = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+    conn.execute("UPDATE groq_classification_queue SET status = 'processing', last_attempted_at = ? WHERE job_id = 1", (recent_time,))
+    conn.commit()
+
+    groq_stage._reclaim_stale_processing_rows(conn)
+
+    row = conn.execute("SELECT status FROM groq_classification_queue WHERE job_id = 1").fetchone()
+    assert row["status"] == "processing"
