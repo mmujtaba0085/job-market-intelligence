@@ -207,7 +207,33 @@ def run_migrations() -> None:
                 ON jobs(normalization_confidence)
             """)
             logger.info("[db] Migration 005 complete: normalization_confidence column added")
-        
+
+        # Migration 008: field-taxonomy classification columns (conditional)
+        if "field_category_id" not in job_columns:
+            logger.info("[db] Running migration 008: add field_category_id column")
+            conn.execute("ALTER TABLE jobs ADD COLUMN field_category_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_field_category_id ON jobs(field_category_id)")
+
+        if "field_classification_confidence" not in job_columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN field_classification_confidence REAL")
+
+        if "field_classification_method" not in job_columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN field_classification_method TEXT")
+
+        if "field_classification_attempted_at" not in job_columns:
+            conn.execute("ALTER TABLE jobs ADD COLUMN field_classification_attempted_at TEXT")
+            logger.info("[db] Migration 008 complete: field classification columns added")
+
+        # Re-seed job_categories from config on every startup, so editing
+        # config/job_markets.py and redeploying keeps the DB copy in sync.
+        from config.job_markets import JOB_MARKETS
+        for market in JOB_MARKETS:
+            conn.execute(
+                """INSERT OR REPLACE INTO job_categories (category_id, name, parent_id, isco, keywords)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (market["market_id"], market["name"], market["parent_id"], market["isco"], json.dumps(market["keywords"])),
+            )
+
         # Migration 006: Add job_id and click_type to sheets_click_tracking (conditional)
         cursor = conn.execute("PRAGMA table_info(sheets_click_tracking)")
         tracking_columns = {row[1] for row in cursor.fetchall()}
