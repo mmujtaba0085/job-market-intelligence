@@ -558,6 +558,7 @@ def healthz():
 
 
 @app.route("/api/dashboard/kpis")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def dashboard_kpis():
     """Get KPI metrics for dashboard."""
     conn = get_db_connection()
@@ -822,6 +823,7 @@ def dashboard_declining():
 
 
 @app.route("/api/dashboard/companies")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def dashboard_companies():
     """Get top hiring companies."""
     conn = get_db_connection()
@@ -844,6 +846,7 @@ def dashboard_companies():
 
 
 @app.route("/api/dashboard/location-diversity")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def dashboard_location_diversity():
     """Get companies with jobs in most locations."""
     conn = get_db_connection()
@@ -882,6 +885,7 @@ def skills_intelligence():
 
 
 @app.route("/api/skills/search")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def skills_search():
     """Search skills with autocomplete."""
     query = request.args.get("q", "").lower()
@@ -1062,6 +1066,7 @@ def skill_locations(skill_name):
 
 
 @app.route("/api/skills/combinations")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def skill_combinations():
     """Get top skill pairs/combinations (precomputed - see
     src/analytics/precomputed_summaries.py for why)."""
@@ -1089,6 +1094,7 @@ def companies_intelligence():
 
 
 @app.route("/api/companies/list")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def companies_list():
     """Get all companies with statistics."""
     conn = get_db_connection()
@@ -1226,6 +1232,7 @@ def api_docs():
 
 
 @app.route("/api/titles/top")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def titles_top():
     """Get top job titles grouped by role family (precomputed - see
     src/analytics/precomputed_summaries.py for why)."""
@@ -1277,6 +1284,7 @@ def title_skills(title):
 
 
 @app.route("/api/filters/skills")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
 def get_skills_filter():
     """Get all unique skills for filter."""
     conn = get_db_connection()
