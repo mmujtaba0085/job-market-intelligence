@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - Never write to `jobs.market_id` — it is live and holds the ingestion-source grouping (`ai_ml_global`, etc.), used by the Jobs List Market filter. All new schema uses `field_category_*` / `job_categor*` naming.
-- Classification threshold: 0.62 confidence / 2.0 score cutoff (from `src/market_classifier.py`, unchanged), read from `get_config()`/`set_config()` (in `src/pipeline_monitor.py`), not hardcoded.
+- Classification threshold: `src/market_classifier.py`'s internal 0.62 confidence / 2.0 score cutoff is unchanged (not modified by this plan). The local classification stage additionally re-checks `match.confidence` against a `classification_confidence_threshold` read from `get_config()`/`set_config()` (`src/pipeline_monitor.py`) — this is the only config-driven threshold; there is no separate "score threshold" knob, since `MarketMatch` doesn't expose the raw score for a caller to re-check.
 - Groq prompt sends only `{category_id, name}` pairs for the 20 leaf categories — never the full keyword lists.
 - Three Groq outcomes only: `succeeded` / `failed_technical` (retryable, capped at 5 attempts) / `no_match` (terminal, never retried in this spec).
 - `local_full_backfill` runs are manual-start only (admin-triggered, preview-then-confirm). `groq_backlog` runs auto-start (`trigger='backfill_idle'`) whenever pending queue rows exist and none is already running. Do not conflate these two.
@@ -351,6 +351,45 @@ def test_limit_caps_batch_size_and_sets_cursor(conn):
 
     run = conn.execute("SELECT cursor_job_id FROM classification_runs WHERE run_id = 'run1'").fetchone()
     assert run["cursor_job_id"] == 1
+
+
+def test_reclassify_clears_stale_state_on_downgrade(conn, monkeypatch):
+    # Simulate job 1 having been classified in a prior run (as if by an
+    # earlier, now-superseded taxonomy/threshold), then reclassify_all()
+    # runs against a classifier that no longer matches it - the job must
+    # end up genuinely unclassified, not stuck showing a stale category
+    # while also sitting in the Groq queue.
+    conn.execute(
+        "UPDATE jobs SET field_category_id = 'it.software', field_classification_confidence = 0.9, "
+        "field_classification_method = 'local_hybrid_v1', field_classification_attempted_at = datetime('now') WHERE job_id = 1"
+    )
+    conn.execute(
+        "INSERT INTO job_category_assignments (job_id, category_id, assignment_type, confidence, method, evidence_json, assigned_at) "
+        "VALUES (1, 'it.software', 'primary', 0.9, 'local_hybrid_v1', '[]', datetime('now'))"
+    )
+    conn.commit()
+
+    # Force classify_job to always return no match, regardless of title, so
+    # this test proves the downgrade path without depending on the real
+    # classifier's keyword list happening to miss "Senior Software Engineer".
+    from src.classification import local_stage
+    from src.market_classifier import MarketMatch
+    monkeypatch.setattr(local_stage, "classify_job", lambda title, description: MarketMatch(None, 0.0, (), "local_hybrid_v1", ()))
+
+    from src.classification.local_stage import reclassify_all
+    conn.execute("INSERT INTO classification_runs (run_id, run_type, trigger, started_at) VALUES ('run2', 'local_full_backfill', 'manual', datetime('now'))")
+    reclassify_all(conn, run_id="run2")
+
+    row = conn.execute("SELECT field_category_id, field_classification_confidence, field_classification_method FROM jobs WHERE job_id = 1").fetchone()
+    assert row["field_category_id"] is None
+    assert row["field_classification_confidence"] is None
+    assert row["field_classification_method"] is None
+
+    assignments = conn.execute("SELECT COUNT(*) FROM job_category_assignments WHERE job_id = 1").fetchone()[0]
+    assert assignments == 0  # stale primary row removed, not left behind
+
+    queued = conn.execute("SELECT status FROM groq_classification_queue WHERE job_id = 1").fetchone()
+    assert queued["status"] == "pending"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -376,31 +415,38 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any
 
 from src.market_classifier import classify_job
 from src.pipeline_monitor import get_config
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.62
-DEFAULT_SCORE_THRESHOLD = 2.0
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _thresholds() -> tuple[float, float]:
+def _confidence_threshold() -> float:
+    # NOTE: there is no separate "score threshold" knob here - classify_job()
+    # already enforces its own internal 2.0 raw-score cutoff before ever
+    # returning a non-None market_id (see market_classifier.py), and its
+    # MarketMatch return value doesn't expose the raw score for a caller to
+    # re-check. Only `confidence` is re-checkable at this layer.
     cfg = get_config()
-    confidence = float(cfg.get("classification_confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD))
-    score = float(cfg.get("classification_score_threshold", DEFAULT_SCORE_THRESHOLD))
-    return confidence, score
+    return float(cfg.get("classification_confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD))
 
 
-def _classify_one(conn, run_id: str, job_id: int, title: str, description: str) -> bool:
+def _classify_one(conn, run_id: str, job_id: int, title: str, description: str, confidence_threshold: float) -> bool:
     """Classify a single job; returns True if it was directly classified, False if queued for Groq."""
     match = classify_job(title, description or "")
-    confidence_threshold, score_threshold = _thresholds()
     now = _now()
+
+    # Reclassification replaces the prior assignment picture entirely - clear
+    # any existing rows for this job before writing fresh ones below, so a
+    # category change or a classified->unclassified transition on a
+    # reclassify_all() run doesn't leave stale/duplicate rows behind (a job
+    # can only have one 'primary' category at a time).
+    conn.execute("DELETE FROM job_category_assignments WHERE job_id = ?", (job_id,))
 
     # classify_job() already applies its own internal threshold (0.62/2.0) and
     # returns market_id=None below it - re-checking confidence here lets an
@@ -413,22 +459,29 @@ def _classify_one(conn, run_id: str, job_id: int, title: str, description: str) 
             (match.market_id, match.confidence, match.method, now, job_id),
         )
         conn.execute(
-            """INSERT OR REPLACE INTO job_category_assignments
+            """INSERT INTO job_category_assignments
                (job_id, category_id, assignment_type, confidence, method, evidence_json, assigned_at)
                VALUES (?, ?, 'primary', ?, ?, ?, ?)""",
             (job_id, match.market_id, match.confidence, match.method, json.dumps(match.evidence), now),
         )
         for tag in match.tags:
             conn.execute(
-                """INSERT OR REPLACE INTO job_category_assignments
+                """INSERT INTO job_category_assignments
                    (job_id, category_id, assignment_type, confidence, method, evidence_json, assigned_at)
                    VALUES (?, ?, 'tag', ?, ?, ?, ?)""",
                 (job_id, tag, match.confidence, match.method, json.dumps(match.evidence), now),
             )
         return True
 
+    # Below threshold (or unclassifiable): explicitly clear any prior
+    # classification on this job, not just leave stale values in place - a
+    # job that was classified before a config/taxonomy change and no longer
+    # qualifies must not keep showing an old field_category_id while
+    # simultaneously being queued for Groq review as "unclassified."
     conn.execute(
-        "UPDATE jobs SET field_classification_attempted_at = ? WHERE job_id = ?",
+        """UPDATE jobs SET field_category_id = NULL, field_classification_confidence = NULL,
+                            field_classification_method = NULL, field_classification_attempted_at = ?
+           WHERE job_id = ?""",
         (now, job_id),
     )
     conn.execute(
@@ -439,11 +492,15 @@ def _classify_one(conn, run_id: str, job_id: int, title: str, description: str) 
     return False
 
 
-def _run_batch(conn, run_id: str, rows: list, ) -> dict[str, int]:
+def _run_batch(conn, run_id: str, rows: list) -> dict[str, int]:
+    # Read once per batch, not once per job - avoids ~500 redundant
+    # get_config() round-trips on a full local_full_backfill chunk for a
+    # value that can't change mid-batch anyway.
+    confidence_threshold = _confidence_threshold()
     processed = classified = queued = 0
     cursor_job_id = None
     for row in rows:
-        did_classify = _classify_one(conn, run_id, row["job_id"], row["title"], row["raw_description"])
+        did_classify = _classify_one(conn, run_id, row["job_id"], row["title"], row["raw_description"], confidence_threshold)
         processed += 1
         cursor_job_id = row["job_id"]
         if did_classify:
@@ -483,7 +540,7 @@ def reclassify_all(conn, run_id: str, limit: int | None = None) -> dict[str, int
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_local_classification_stage.py -v`
-Expected: PASS (6 tests)
+Expected: PASS (7 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1641,7 +1698,7 @@ def admin_classification_queue_delete(queue_id: int):
 def admin_classification_config():
     from src.pipeline_monitor import set_config
     allowed = {
-        "classification_confidence_threshold", "classification_score_threshold",
+        "classification_confidence_threshold",
         "classification_idle_seconds", "classification_retry_cap",
         "classification_local_chunk_size", "classification_groq_chunk_size",
     }
