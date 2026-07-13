@@ -109,3 +109,42 @@ def test_limit_caps_batch_size_and_sets_cursor(conn):
 
     run = conn.execute("SELECT cursor_job_id FROM classification_runs WHERE run_id = 'run1'").fetchone()
     assert run["cursor_job_id"] == 1
+
+
+def test_reclassify_clears_stale_state_on_downgrade(conn, monkeypatch):
+    # Simulate job 1 having been classified in a prior run (as if by an
+    # earlier, now-superseded taxonomy/threshold), then reclassify_all()
+    # runs against a classifier that no longer matches it - the job must
+    # end up genuinely unclassified, not stuck showing a stale category
+    # while also sitting in the Groq queue.
+    conn.execute(
+        "UPDATE jobs SET field_category_id = 'it.software', field_classification_confidence = 0.9, "
+        "field_classification_method = 'local_hybrid_v1', field_classification_attempted_at = datetime('now') WHERE job_id = 1"
+    )
+    conn.execute(
+        "INSERT INTO job_category_assignments (job_id, category_id, assignment_type, confidence, method, evidence_json, assigned_at) "
+        "VALUES (1, 'it.software', 'primary', 0.9, 'local_hybrid_v1', '[]', datetime('now'))"
+    )
+    conn.commit()
+
+    # Force classify_job to always return no match, regardless of title, so
+    # this test proves the downgrade path without depending on the real
+    # classifier's keyword list happening to miss "Senior Software Engineer".
+    from src.classification import local_stage
+    from src.market_classifier import MarketMatch
+    monkeypatch.setattr(local_stage, "classify_job", lambda title, description: MarketMatch(None, 0.0, (), "local_hybrid_v1", ()))
+
+    from src.classification.local_stage import reclassify_all
+    conn.execute("INSERT INTO classification_runs (run_id, run_type, trigger, started_at) VALUES ('run2', 'local_full_backfill', 'manual', datetime('now'))")
+    reclassify_all(conn, run_id="run2")
+
+    row = conn.execute("SELECT field_category_id, field_classification_confidence, field_classification_method FROM jobs WHERE job_id = 1").fetchone()
+    assert row["field_category_id"] is None
+    assert row["field_classification_confidence"] is None
+    assert row["field_classification_method"] is None
+
+    assignments = conn.execute("SELECT COUNT(*) FROM job_category_assignments WHERE job_id = 1").fetchone()[0]
+    assert assignments == 0  # stale primary row removed, not left behind
+
+    queued = conn.execute("SELECT status FROM groq_classification_queue WHERE job_id = 1").fetchone()
+    assert queued["status"] == "pending"

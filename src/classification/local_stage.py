@@ -8,31 +8,38 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from typing import Any
 
 from src.market_classifier import classify_job
 from src.pipeline_monitor import get_config
 
 DEFAULT_CONFIDENCE_THRESHOLD = 0.62
-DEFAULT_SCORE_THRESHOLD = 2.0
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _thresholds() -> tuple[float, float]:
+def _confidence_threshold() -> float:
+    # NOTE: there is no separate "score threshold" knob here - classify_job()
+    # already enforces its own internal 2.0 raw-score cutoff before ever
+    # returning a non-None market_id (see market_classifier.py), and its
+    # MarketMatch return value doesn't expose the raw score for a caller to
+    # re-check. Only `confidence` is re-checkable at this layer.
     cfg = get_config()
-    confidence = float(cfg.get("classification_confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD))
-    score = float(cfg.get("classification_score_threshold", DEFAULT_SCORE_THRESHOLD))
-    return confidence, score
+    return float(cfg.get("classification_confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD))
 
 
-def _classify_one(conn, run_id: str, job_id: int, title: str, description: str) -> bool:
+def _classify_one(conn, run_id: str, job_id: int, title: str, description: str, confidence_threshold: float) -> bool:
     """Classify a single job; returns True if it was directly classified, False if queued for Groq."""
     match = classify_job(title, description or "")
-    confidence_threshold, score_threshold = _thresholds()
     now = _now()
+
+    # Reclassification replaces the prior assignment picture entirely - clear
+    # any existing rows for this job before writing fresh ones below, so a
+    # category change or a classified->unclassified transition on a
+    # reclassify_all() run doesn't leave stale/duplicate rows behind (a job
+    # can only have one 'primary' category at a time).
+    conn.execute("DELETE FROM job_category_assignments WHERE job_id = ?", (job_id,))
 
     # classify_job() already applies its own internal threshold (0.62/2.0) and
     # returns market_id=None below it - re-checking confidence here lets an
@@ -45,22 +52,29 @@ def _classify_one(conn, run_id: str, job_id: int, title: str, description: str) 
             (match.market_id, match.confidence, match.method, now, job_id),
         )
         conn.execute(
-            """INSERT OR REPLACE INTO job_category_assignments
+            """INSERT INTO job_category_assignments
                (job_id, category_id, assignment_type, confidence, method, evidence_json, assigned_at)
                VALUES (?, ?, 'primary', ?, ?, ?, ?)""",
             (job_id, match.market_id, match.confidence, match.method, json.dumps(match.evidence), now),
         )
         for tag in match.tags:
             conn.execute(
-                """INSERT OR REPLACE INTO job_category_assignments
+                """INSERT INTO job_category_assignments
                    (job_id, category_id, assignment_type, confidence, method, evidence_json, assigned_at)
                    VALUES (?, ?, 'tag', ?, ?, ?, ?)""",
                 (job_id, tag, match.confidence, match.method, json.dumps(match.evidence), now),
             )
         return True
 
+    # Below threshold (or unclassifiable): explicitly clear any prior
+    # classification on this job, not just leave stale values in place - a
+    # job that was classified before a config/taxonomy change and no longer
+    # qualifies must not keep showing an old field_category_id while
+    # simultaneously being queued for Groq review as "unclassified."
     conn.execute(
-        "UPDATE jobs SET field_classification_attempted_at = ? WHERE job_id = ?",
+        """UPDATE jobs SET field_category_id = NULL, field_classification_confidence = NULL,
+                            field_classification_method = NULL, field_classification_attempted_at = ?
+           WHERE job_id = ?""",
         (now, job_id),
     )
     conn.execute(
@@ -71,11 +85,15 @@ def _classify_one(conn, run_id: str, job_id: int, title: str, description: str) 
     return False
 
 
-def _run_batch(conn, run_id: str, rows: list, ) -> dict[str, int]:
+def _run_batch(conn, run_id: str, rows: list) -> dict[str, int]:
+    # Read once per batch, not once per job - avoids ~500 redundant
+    # get_config() round-trips on a full local_full_backfill chunk for a
+    # value that can't change mid-batch anyway.
+    confidence_threshold = _confidence_threshold()
     processed = classified = queued = 0
     cursor_job_id = None
     for row in rows:
-        did_classify = _classify_one(conn, run_id, row["job_id"], row["title"], row["raw_description"])
+        did_classify = _classify_one(conn, run_id, row["job_id"], row["title"], row["raw_description"], confidence_threshold)
         processed += 1
         cursor_job_id = row["job_id"]
         if did_classify:
