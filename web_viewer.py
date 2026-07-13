@@ -196,6 +196,20 @@ def global_auth_gate():
             return jsonify({"error": f"Forbidden — requires scope: {required}"}), 403
 
 
+# Tracks the most recent real request so the classification scheduler can
+# tell whether the site is idle before running load-gated backfill chunks.
+_last_request_at: "datetime | None" = None
+
+
+@app.before_request
+def _track_last_request_at():
+    global _last_request_at
+    if request.path == "/healthz" or request.path.startswith("/static/"):
+        return
+    from datetime import datetime, timezone
+    _last_request_at = datetime.now(timezone.utc)
+
+
 # ── Initialise auth DB on startup ─────────────────────────────────────────────
 init_auth_db()
 
@@ -3030,6 +3044,14 @@ def _auto_scheduler_loop() -> None:
                     if not already:
                         launch_pipeline(mode, trigger="schedule")
                         _log.info("Auto-launched %s (was due %s)", mode, nxt_dt.isoformat())
+
+            from src.classification.scheduling import run_scheduler_tick
+            from src.storage.db import get_connection as _get_classification_conn
+            classification_conn = _get_classification_conn()
+            try:
+                run_scheduler_tick(classification_conn, last_request_at=_last_request_at, now=now)
+            finally:
+                classification_conn.close()
         except Exception as exc:
             logging.getLogger("auto_scheduler").error("Scheduler error: %s", exc)
 
