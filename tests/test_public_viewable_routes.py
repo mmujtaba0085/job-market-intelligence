@@ -98,3 +98,20 @@ def test_api_key_scope_enforcement_not_bypassed_on_public_api_route(anon_client,
 
     r = anon_client.get("/api/skills/combinations", headers={"X-API-Key": "jmi_fake"})
     assert r.status_code == 403, "an API key lacking the required scope must still be rejected on a public-viewable API path"
+
+
+def test_anonymous_root_redirects_to_dashboard_not_login(anon_client):
+    """Regression test: the header-brand/logo link on every page points at
+    "/" (endpoint `index`), which itself just redirects to /dashboard.
+    `index` was missing from _PUBLIC_VIEWABLE_ENDPOINTS, so the auth gate
+    blocked it before it ever got a chance to issue that redirect -
+    meaning the single most commonly clicked link on the entire site
+    (the logo) sent every anonymous visitor to the login page instead of
+    the dashboard. Found by testing real production behavior after
+    deploy, not caught by any task or review during implementation."""
+    r = anon_client.get("/", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["Location"] == "/dashboard", (
+        f"anonymous visitors hitting '/' must land on /dashboard, not be "
+        f"diverted to login - got redirect to {r.headers.get('Location')!r}"
+    )

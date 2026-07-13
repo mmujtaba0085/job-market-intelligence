@@ -114,6 +114,10 @@ _PUBLIC_PREFIXES = ("/static/",)
 # global_auth_gate() still applies. See that function for exactly where
 # this is consulted and why the placement matters.
 _PUBLIC_VIEWABLE_ENDPOINTS = {
+    "index",  # "/" - just redirects to dashboard, but that redirect must
+              # itself be reachable anonymously, or the header-brand/logo
+              # link (present on every page) sends anonymous visitors to
+              # the login page instead of the dashboard.
     "dashboard", "jobs_list", "job_detail",
     "skills_intelligence", "companies_intelligence", "titles_analytics",
 }
