@@ -542,6 +542,7 @@ def conn(tmp_path):
             jobs_processed INTEGER DEFAULT 0, jobs_classified INTEGER DEFAULT 0,
             jobs_queued_groq INTEGER DEFAULT 0, error TEXT
         );
+        CREATE TABLE pipeline_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
     """)
     c.execute("INSERT INTO job_categories (category_id, name) VALUES ('it.software', 'Software Engineering')")
     c.execute("INSERT INTO jobs (job_id, title, raw_description) VALUES (1, 'Backend Dev', 'writes python')")
@@ -714,10 +715,17 @@ import requests
 
 from config.settings import GROK_BASE_URL, GROK_MODEL, GROQ_API_KEYS
 from src.ai.grok_staging import _mask_key, _retry_after_seconds
+from src.pipeline_monitor import get_config
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRY_ATTEMPTS = 5
+DEFAULT_MAX_RETRY_ATTEMPTS = 5
+
+
+def _max_retry_attempts() -> int:
+    """Admin-configurable via /admin/classification's 'retry cap' field (classification_retry_cap)."""
+    cfg = get_config()
+    return int(cfg.get("classification_retry_cap", DEFAULT_MAX_RETRY_ATTEMPTS))
 
 
 def _now() -> str:
@@ -767,7 +775,7 @@ def _eligible_job_ids(conn, statuses: tuple[str, ...]) -> list[int]:
     elif statuses == ("failed_technical",):
         rows = conn.execute(
             "SELECT job_id FROM groq_classification_queue WHERE status = 'failed_technical' AND attempt_count < ? ORDER BY last_attempted_at",
-            (MAX_RETRY_ATTEMPTS,),
+            (_max_retry_attempts(),),
         ).fetchall()
     else:
         raise ValueError(f"Unsupported statuses combination: {statuses}")
@@ -1034,6 +1042,24 @@ def test_tick_does_not_launch_groq_backlog_when_recent_activity(conn):
     assert len(runs) == 0
 
 
+def test_tick_respects_configured_idle_threshold_override(conn, monkeypatch):
+    conn.execute("INSERT INTO pipeline_config (key, value, updated_at) VALUES ('classification_idle_seconds', '10', datetime('now'))")
+    conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
+    conn.execute("INSERT INTO groq_classification_queue (job_id, status, created_at) VALUES (1, 'pending', datetime('now'))")
+    conn.commit()
+
+    from src.classification import groq_stage
+    monkeypatch.setattr(groq_stage, "process_groq_queue", lambda conn, run_id, statuses, **kw: {"processed": 1, "succeeded": 1, "failed_technical": 0, "no_match": 0})
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    idle_60s = now - timedelta(seconds=60)  # below the 300s default, above the configured 10s
+    run_scheduler_tick(conn, last_request_at=idle_60s, now=now)
+
+    run = conn.execute("SELECT run_type FROM classification_runs WHERE run_type = 'groq_backlog'").fetchone()
+    assert run is not None  # only starts if the 10s config override was actually read, not the 300s default
+
+
 def test_tick_launches_groq_backlog_when_idle_and_pending_rows_exist(conn, monkeypatch):
     conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
     conn.execute("INSERT INTO groq_classification_queue (job_id, status, created_at) VALUES (1, 'pending', datetime('now'))")
@@ -1067,6 +1093,68 @@ def test_tick_does_not_start_second_groq_backlog_if_one_already_running(conn):
 
     count = conn.execute("SELECT COUNT(*) FROM classification_runs WHERE run_type = 'groq_backlog'").fetchone()[0]
     assert count == 1  # still just the pre-existing one, no duplicate
+
+
+def test_tick_launches_groq_retry_when_never_run_before(conn, monkeypatch):
+    conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
+    conn.execute("INSERT INTO groq_classification_queue (job_id, status, attempt_count, created_at) VALUES (1, 'failed_technical', 1, datetime('now'))")
+    conn.commit()
+
+    from src.classification import groq_stage
+    monkeypatch.setattr(groq_stage, "process_groq_queue", lambda conn, run_id, statuses, **kw: {"processed": 1, "succeeded": 1, "failed_technical": 0, "no_match": 0})
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    run_scheduler_tick(conn, last_request_at=now, now=now)  # recent activity - must NOT block groq_retry
+
+    run = conn.execute("SELECT trigger, status FROM classification_runs WHERE run_type = 'groq_retry'").fetchone()
+    assert run is not None
+    assert run["trigger"] == "schedule"
+    assert run["status"] == "success"
+
+
+def test_tick_skips_groq_retry_when_recently_run(conn, monkeypatch):
+    now = datetime.now(timezone.utc)
+    recent = now - timedelta(minutes=10)
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at, finished_at) VALUES ('prev-retry', 'groq_retry', 'schedule', 'success', ?, ?)",
+        (recent.isoformat(), recent.isoformat()),
+    )
+    conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
+    conn.commit()
+
+    from src.classification import groq_stage
+    mock_called = {"count": 0}
+    def _mock_process(conn, run_id, statuses, **kw):
+        mock_called["count"] += 1
+        return {"processed": 0, "succeeded": 0, "failed_technical": 0, "no_match": 0}
+    monkeypatch.setattr(groq_stage, "process_groq_queue", _mock_process)
+
+    from src.classification.scheduling import run_scheduler_tick
+    run_scheduler_tick(conn, last_request_at=now, now=now)
+
+    count = conn.execute("SELECT COUNT(*) FROM classification_runs WHERE run_type = 'groq_retry'").fetchone()[0]
+    assert count == 1  # still just the pre-existing one from 10 minutes ago - not due yet (< 1 hour)
+
+
+def test_tick_launches_groq_retry_after_interval_elapsed(conn, monkeypatch):
+    now = datetime.now(timezone.utc)
+    long_ago = now - timedelta(hours=2)
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at, finished_at) VALUES ('prev-retry', 'groq_retry', 'schedule', 'success', ?, ?)",
+        (long_ago.isoformat(), long_ago.isoformat()),
+    )
+    conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
+    conn.commit()
+
+    from src.classification import groq_stage
+    monkeypatch.setattr(groq_stage, "process_groq_queue", lambda conn, run_id, statuses, **kw: {"processed": 0, "succeeded": 0, "failed_technical": 0, "no_match": 0})
+
+    from src.classification.scheduling import run_scheduler_tick
+    run_scheduler_tick(conn, last_request_at=now, now=now)
+
+    count = conn.execute("SELECT COUNT(*) FROM classification_runs WHERE run_type = 'groq_retry'").fetchone()[0]
+    assert count == 2  # the 2-hour-old one plus a new one just launched
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1101,6 +1189,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_IDLE_SECONDS_THRESHOLD = 300
 DEFAULT_LOCAL_CHUNK_SIZE = 500
 DEFAULT_GROQ_CHUNK_SIZE = 25
+DEFAULT_RETRY_INTERVAL_SECONDS = 3600
 
 
 def should_process_chunk(
@@ -1152,9 +1241,33 @@ def _has_pending_groq_backlog(conn) -> bool:
     return row is not None
 
 
+def _groq_retry_due(conn, now: datetime) -> bool:
+    """True if no groq_retry run has ever started, or the last one started
+    over an hour ago. Not load-gated (per Global Constraints) - this is a
+    time-based cadence check only, independent of should_process_chunk()."""
+    row = conn.execute(
+        "SELECT started_at FROM classification_runs WHERE run_type = 'groq_retry' ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        return True
+    last_started = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
+    if last_started.tzinfo is None:
+        last_started = last_started.replace(tzinfo=timezone.utc)
+    return (now - last_started).total_seconds() >= DEFAULT_RETRY_INTERVAL_SECONDS
+
+
 def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) -> None:
     from src.classification.groq_stage import process_groq_queue
     from src.classification.local_stage import classify_pending_jobs
+    from src.pipeline_monitor import get_config
+
+    # Read once per tick - admin-configurable via /admin/classification's
+    # config form (classification_idle_seconds / _local_chunk_size / _groq_chunk_size),
+    # falling back to the module defaults if unset.
+    cfg = get_config()
+    idle_threshold = int(cfg.get("classification_idle_seconds", DEFAULT_IDLE_SECONDS_THRESHOLD))
+    local_chunk_size = int(cfg.get("classification_local_chunk_size", DEFAULT_LOCAL_CHUNK_SIZE))
+    groq_chunk_size = int(cfg.get("classification_groq_chunk_size", DEFAULT_GROQ_CHUNK_SIZE))
 
     # local_incremental: always-on, never load-gated (small volume, cheap).
     if _has_pending_local_work(conn) and not _any_run_active(conn, "local_incremental"):
@@ -1169,16 +1282,16 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
     # groq_backlog: auto-starts on idle, chunked, load-gated.
     other_active = _any_run_active(conn, "local_full_backfill")
     if _has_pending_groq_backlog(conn) and not _any_run_active(conn, "groq_backlog"):
-        if should_process_chunk(last_request_at, other_active, now):
+        if should_process_chunk(last_request_at, other_active, now, idle_seconds_threshold=idle_threshold):
             _start_run(conn, "groq_backlog", trigger="backfill_idle")
             # Falls through to the continuation branch below on this same tick.
 
     if _any_run_active(conn, "groq_backlog"):
         other_active = _any_run_active(conn, "local_full_backfill")
-        if should_process_chunk(last_request_at, other_active, now):
+        if should_process_chunk(last_request_at, other_active, now, idle_seconds_threshold=idle_threshold):
             run = conn.execute("SELECT run_id FROM classification_runs WHERE run_type = 'groq_backlog' AND status = 'running' LIMIT 1").fetchone()
             run_id = run["run_id"]
-            process_groq_queue(conn, run_id=run_id, statuses=("pending",), limit=DEFAULT_GROQ_CHUNK_SIZE)
+            process_groq_queue(conn, run_id=run_id, statuses=("pending",), limit=groq_chunk_size)
             if not _has_pending_groq_backlog(conn):
                 _finish_run(conn, run_id, status="success")
 
@@ -1186,20 +1299,33 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
     # row elsewhere); this tick only ever CONTINUES an already-started one.
     if _any_run_active(conn, "local_full_backfill"):
         other_active = _any_run_active(conn, "groq_backlog")
-        if should_process_chunk(last_request_at, other_active, now):
+        if should_process_chunk(last_request_at, other_active, now, idle_seconds_threshold=idle_threshold):
             from src.classification.local_stage import reclassify_all
             run = conn.execute("SELECT run_id, cursor_job_id FROM classification_runs WHERE run_type = 'local_full_backfill' AND status = 'running' LIMIT 1").fetchone()
             run_id = run["run_id"]
             remaining = conn.execute("SELECT COUNT(*) FROM jobs WHERE job_id > ?", (run["cursor_job_id"] or 0,)).fetchone()[0]
-            reclassify_all(conn, run_id=run_id, limit=DEFAULT_LOCAL_CHUNK_SIZE)
-            if remaining <= DEFAULT_LOCAL_CHUNK_SIZE:
+            reclassify_all(conn, run_id=run_id, limit=local_chunk_size)
+            if remaining <= local_chunk_size:
                 _finish_run(conn, run_id, status="success")
+
+    # groq_retry: hourly sweep of failed_technical rows under the attempt cap.
+    # Deliberately NOT load-gated (Global Constraints: load gating applies only
+    # to local_full_backfill and groq_backlog) - this is a small-volume, purely
+    # time-based cadence, independent of site traffic.
+    if _groq_retry_due(conn, now) and not _any_run_active(conn, "groq_retry"):
+        run_id = _start_run(conn, "groq_retry", trigger="schedule")
+        try:
+            process_groq_queue(conn, run_id=run_id, statuses=("failed_technical",))
+            _finish_run(conn, run_id, status="success")
+        except Exception as exc:  # noqa: BLE001
+            logger.error("[classification_scheduler] groq_retry failed: %s", exc)
+            _finish_run(conn, run_id, status="failed")
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_classification_scheduling.py -v`
-Expected: PASS (9 tests)
+Expected: PASS (13 tests)
 
 - [ ] **Step 5: Wire into `_auto_scheduler_loop` and add the `before_request` hook**
 
@@ -1514,7 +1640,11 @@ def admin_classification_queue_delete(queue_id: int):
 @require_admin
 def admin_classification_config():
     from src.pipeline_monitor import set_config
-    allowed = {"classification_confidence_threshold", "classification_score_threshold", "classification_idle_seconds", "classification_retry_cap"}
+    allowed = {
+        "classification_confidence_threshold", "classification_score_threshold",
+        "classification_idle_seconds", "classification_retry_cap",
+        "classification_local_chunk_size", "classification_groq_chunk_size",
+    }
     updated = []
     for key in allowed:
         val = request.form.get(key, "").strip()
