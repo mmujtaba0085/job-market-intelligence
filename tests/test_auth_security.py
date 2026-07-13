@@ -96,7 +96,7 @@ def test_api_keys_are_read_only_and_scope_limited(secured_app):
     assert client.get("/admin", headers=headers).status_code == 403
     assert client.get("/api/jobs?limit=1", headers=headers).status_code == 200
     assert client.get("/api/markets", headers=headers).status_code == 403
-    assert client.get("/export/jobs", headers=headers).status_code == 403
+    assert client.get("/export/skills", headers=headers).status_code == 403
     assert client.post("/api/jobs/quality/analyze", headers=headers, json={"job_ids": []}).status_code == 403
 
 

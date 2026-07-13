@@ -2079,57 +2079,6 @@ def metrics_overview():
     )
 
 
-@app.route("/export/jobs")
-def export_jobs():
-    """Export jobs to CSV."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    # Get all jobs (or apply filters if provided)
-    cursor.execute("""
-        SELECT job_id, title, company, location, country, remote_type, 
-               posted_date, source_name, salary_min, salary_max, currency
-        FROM active_jobs
-        ORDER BY posted_date DESC
-    """)
-    
-    jobs = cursor.fetchall()
-
-    name_map = None
-    if not show_source_names():
-        cursor.execute("SELECT DISTINCT source_name FROM active_jobs ORDER BY source_name")
-        name_map = obscure_source_map([r["source_name"] for r in cursor.fetchall()])
-
-    conn.close()
-
-    # Create CSV
-    output = io.StringIO()
-    writer = csv.writer(output)
-
-    # Header
-    writer.writerow(['Job ID', 'Title', 'Company', 'Location', 'Country', 'Remote Type',
-                     'Posted Date', 'Source', 'Salary Min', 'Salary Max', 'Currency'])
-
-    # Data
-    for job in jobs:
-        source = job['source_name']
-        if name_map is not None:
-            source = name_map.get(source, source)
-        writer.writerow([
-            job['job_id'], job['title'], job['company'], job['location'],
-            job['country'], job['remote_type'], job['posted_date'], source,
-            job['salary_min'], job['salary_max'], job['currency']
-        ])
-    
-    # Create response
-    output.seek(0)
-    response = make_response(output.getvalue())
-    response.headers['Content-Type'] = 'text/csv'
-    response.headers['Content-Disposition'] = f'attachment; filename=jobs_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv'
-    
-    return response
-
-
 @app.route("/export/skills")
 def export_skills():
     """Export skills frequency to CSV."""
