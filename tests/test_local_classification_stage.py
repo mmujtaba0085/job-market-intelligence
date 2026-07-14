@@ -150,6 +150,24 @@ def test_reclassify_clears_stale_state_on_downgrade(conn, monkeypatch):
     assert queued["status"] == "pending"
 
 
+def test_empty_batch_does_not_reset_cursor_to_null(conn):
+    # If a call selects zero rows (e.g. after_job_id is already past the end
+    # of the table), the UPDATE must leave any existing cursor_job_id alone
+    # rather than overwriting it back to NULL - which would make a
+    # local_full_backfill run's next tick restart from the beginning.
+    from src.classification.local_stage import reclassify_all
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, cursor_job_id, started_at) VALUES ('run3', 'local_full_backfill', 'manual', 2, datetime('now'))"
+    )
+    conn.commit()
+
+    result = reclassify_all(conn, run_id="run3", limit=1, after_job_id=999)  # no jobs beyond id 999
+    assert result["processed"] == 0
+
+    run3 = conn.execute("SELECT cursor_job_id FROM classification_runs WHERE run_id = 'run3'").fetchone()
+    assert run3["cursor_job_id"] == 2  # unchanged, not reset to NULL
+
+
 def test_reclassify_all_after_job_id_resumes_past_prior_chunk(conn):
     # Without after_job_id, two successive limit=1 calls would both select
     # job_id=1 forever (ORDER BY job_id LIMIT 1 is deterministic) - a

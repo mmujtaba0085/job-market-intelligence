@@ -102,9 +102,14 @@ def _run_batch(conn, run_id: str, rows: list) -> dict[str, int]:
             queued += 1
 
     conn.execute(
+        # COALESCE(?, cursor_job_id) - an empty batch (rows=[]) leaves
+        # cursor_job_id as the Python None it started as; without COALESCE
+        # that would overwrite an existing cursor back to NULL, which would
+        # restart a local_full_backfill run from the beginning on its next
+        # tick instead of leaving the cursor where a prior chunk left it.
         """UPDATE classification_runs
            SET jobs_processed = jobs_processed + ?, jobs_classified = jobs_classified + ?,
-               jobs_queued_groq = jobs_queued_groq + ?, cursor_job_id = ?
+               jobs_queued_groq = jobs_queued_groq + ?, cursor_job_id = COALESCE(?, cursor_job_id)
            WHERE run_id = ?""",
         (processed, classified, queued, cursor_job_id, run_id),
     )

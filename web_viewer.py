@@ -3076,6 +3076,7 @@ def admin_classification():
 def admin_classification_run_local():
     import uuid
     from src.classification.local_stage import classify_pending_jobs
+    from src.pipeline_monitor import get_config
     from src.storage.db import get_connection
     run_id = str(uuid.uuid4())[:8]
     conn = get_connection()
@@ -3085,25 +3086,33 @@ def admin_classification_run_local():
     )
     conn.commit()
     try:
-        classify_pending_jobs(conn, run_id=run_id)
+        # Capped, same reasoning as the scheduler's own local_incremental tick:
+        # an admin click must return within a normal request/proxy timeout, not
+        # hang for the ~68 minutes a full fresh-deploy backlog would take.
+        cfg = get_config()
+        chunk_size = int(cfg.get("classification_local_chunk_size", 500))
+        result = classify_pending_jobs(conn, run_id=run_id, limit=chunk_size)
         conn.execute("UPDATE classification_runs SET status='success', finished_at=datetime('now') WHERE run_id=?", (run_id,))
         conn.commit()
+        remaining = conn.execute("SELECT COUNT(*) FROM jobs WHERE field_classification_attempted_at IS NULL").fetchone()[0]
     finally:
         conn.close()
-    return jsonify({"run_id": run_id, "status": "started"})
+    return jsonify({"run_id": run_id, "status": "started", **result, "remaining": remaining})
 
 
 @app.route("/admin/classification/full-reclassify/preview", methods=["POST"])
 @require_admin
 def admin_classification_full_reclassify_preview():
     from src.market_classifier import classify_job
+    from src.pipeline_monitor import get_config
     from src.storage.db import get_connection
     conn = get_connection()
+    confidence_threshold = float(get_config().get("classification_confidence_threshold", 0.62))
     rows = conn.execute("SELECT job_id, title, raw_description, field_category_id FROM jobs LIMIT 500").fetchall()
     would_change = 0
     for row in rows:
         match = classify_job(row["title"], row["raw_description"] or "")
-        new_id = match.market_id if (match.market_id and match.confidence >= 0.62) else None
+        new_id = match.market_id if (match.market_id and match.confidence >= confidence_threshold) else None
         if new_id != row["field_category_id"]:
             would_change += 1
     conn.close()
@@ -3135,6 +3144,7 @@ def admin_classification_full_reclassify_confirm():
 def admin_classification_groq_run_now():
     import uuid
     from src.classification.groq_stage import process_groq_queue
+    from src.pipeline_monitor import get_config
     from src.storage.db import get_connection
     conn = get_connection()
     run = conn.execute("SELECT run_id FROM classification_runs WHERE run_type='groq_backlog' AND status='running' LIMIT 1").fetchone()
@@ -3145,7 +3155,11 @@ def admin_classification_groq_run_now():
             (run_id,),
         )
         conn.commit()
-    result = process_groq_queue(conn, run_id=run_id, statuses=("pending",))
+    # Capped to one chunk per click, same reasoning as run-local above - an
+    # unbounded call here would be ~1,480 sequential Groq API calls on a full
+    # backlog, far past any request/proxy timeout.
+    chunk_size = int(get_config().get("classification_groq_chunk_size", 25))
+    result = process_groq_queue(conn, run_id=run_id, statuses=("pending",), limit=chunk_size)
     conn.close()
     return jsonify({"run_id": run_id, **result})
 

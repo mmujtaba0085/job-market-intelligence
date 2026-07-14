@@ -101,11 +101,21 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
     local_chunk_size = int(cfg.get("classification_local_chunk_size", DEFAULT_LOCAL_CHUNK_SIZE))
     groq_chunk_size = int(cfg.get("classification_groq_chunk_size", DEFAULT_GROQ_CHUNK_SIZE))
 
-    # local_incremental: always-on, never load-gated (small volume, cheap).
+    # local_incremental: always-on, never load-gated. Capped to local_chunk_size
+    # per tick, NOT unbounded - on a fresh deploy every existing job has
+    # field_classification_attempted_at IS NULL, so an uncapped call here would
+    # be one single-transaction pass over the entire ~110k-job backlog (~68min
+    # measured cost), holding SQLite's single-writer lock the whole time and
+    # blocking every other write site-wide (ingestion, click tracking, admin
+    # actions). Capping it needs no cursor/continuation logic the way
+    # local_full_backfill does: field_classification_attempted_at IS NULL is
+    # itself the natural "what's left" filter, so each tick's chunk is simply
+    # its own complete, independent local_incremental run, and the backlog
+    # drains gradually, one chunk per 60s tick, without ever locking for long.
     if _has_pending_local_work(conn) and not _any_run_active(conn, "local_incremental"):
         run_id = _start_run(conn, "local_incremental", trigger="schedule")
         try:
-            classify_pending_jobs(conn, run_id=run_id)
+            classify_pending_jobs(conn, run_id=run_id, limit=local_chunk_size)
             _finish_run(conn, run_id, status="success")
         except Exception as exc:  # noqa: BLE001
             logger.error("[classification_scheduler] local_incremental failed: %s", exc)

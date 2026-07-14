@@ -94,6 +94,28 @@ def test_tick_launches_local_incremental_when_pending_work_exists(conn):
     assert run["status"] == "success"
 
 
+def test_local_incremental_is_capped_to_chunk_size_not_unbounded(conn):
+    # Regression test: on a fresh deploy every existing job has
+    # field_classification_attempted_at IS NULL - an uncapped call here would
+    # be one long-held transaction over the whole backlog. With chunk_size=1
+    # and 3 pending jobs, one tick must process exactly 1, leaving 2 pending
+    # (and the completed run must still mark itself 'success', not hang).
+    conn.execute("INSERT INTO jobs (job_id, title) VALUES (2, 'Data Analyst')")
+    conn.execute("INSERT INTO jobs (job_id, title) VALUES (3, 'Product Manager')")
+    conn.execute("INSERT INTO pipeline_config (key, value, updated_at) VALUES ('classification_local_chunk_size', '1', datetime('now'))")
+    conn.commit()
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    run_scheduler_tick(conn, last_request_at=now, now=now)
+
+    attempted_count = conn.execute("SELECT COUNT(*) FROM jobs WHERE field_classification_attempted_at IS NOT NULL").fetchone()[0]
+    assert attempted_count == 1  # only one chunk processed, not all 3
+
+    run = conn.execute("SELECT status FROM classification_runs WHERE run_type = 'local_incremental'").fetchone()
+    assert run["status"] == "success"  # each chunk's run completes on its own, no cursor/continuation needed
+
+
 def test_tick_does_not_launch_groq_backlog_when_recent_activity(conn):
     conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
     conn.execute("INSERT INTO groq_classification_queue (job_id, status, created_at) VALUES (1, 'pending', datetime('now'))")

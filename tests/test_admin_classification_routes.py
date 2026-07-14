@@ -95,6 +95,16 @@ def test_dashboard_shows_run_history_and_category_breakdown(admin_client):
     assert "Software Engineering" in html
 
 
+def test_dashboard_renders_config_form_with_current_values(admin_client):
+    r = admin_client.get("/admin/classification")
+    html = r.get_data(as_text=True)
+    assert 'name="classification_confidence_threshold"' in html
+    assert 'name="classification_idle_seconds"' in html
+    assert 'name="classification_retry_cap"' in html
+    assert 'name="classification_local_chunk_size"' in html
+    assert 'name="classification_groq_chunk_size"' in html
+
+
 def test_run_local_classification(admin_client):
     r = admin_client.post("/admin/classification/run-local", data={"csrf_token": "test-csrf"})
     assert r.status_code == 200
@@ -106,8 +116,13 @@ def test_delete_queue_row(admin_client):
     r = admin_client.post("/admin/classification/queue/1/delete", data={"csrf_token": "test-csrf"})
     assert r.status_code == 200
 
+    # Precise check tied to the template's per-row id="queue-row-{{ q.id }}"
+    # attribute (used by the delete button's JS target), not a generic
+    # "pending"/"0" text heuristic that could pass even if deletion silently
+    # failed (those substrings can legitimately appear elsewhere on the page,
+    # e.g. a "Never attempted: 0" stat tile).
     r2 = admin_client.get("/admin/classification")
-    assert "pending" not in r2.get_data(as_text=True).lower() or "0" in r2.get_data(as_text=True)
+    assert 'id="queue-row-1"' not in r2.get_data(as_text=True)
 
 
 def test_full_reclassify_confirm_starts_local_full_backfill_run(admin_client):
