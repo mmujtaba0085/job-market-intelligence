@@ -407,6 +407,24 @@ def test_reclassify_all_after_job_id_resumes_past_prior_chunk(conn):
 
     run2 = conn.execute("SELECT cursor_job_id FROM classification_runs WHERE run_id = 'run2'").fetchone()
     assert run2["cursor_job_id"] == 2  # advanced past job 1, not stuck reprocessing it
+
+
+def test_empty_batch_does_not_reset_cursor_to_null(conn):
+    # If a call selects zero rows (e.g. after_job_id is already past the end
+    # of the table), the UPDATE must leave any existing cursor_job_id alone
+    # rather than overwriting it back to NULL - which would make a
+    # local_full_backfill run's next tick restart from the beginning.
+    from src.classification.local_stage import reclassify_all
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, cursor_job_id, started_at) VALUES ('run3', 'local_full_backfill', 'manual', 2, datetime('now'))"
+    )
+    conn.commit()
+
+    result = reclassify_all(conn, run_id="run3", limit=1, after_job_id=999)  # no jobs beyond id 999
+    assert result["processed"] == 0
+
+    run3 = conn.execute("SELECT cursor_job_id FROM classification_runs WHERE run_id = 'run3'").fetchone()
+    assert run3["cursor_job_id"] == 2  # unchanged, not reset to NULL
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -526,9 +544,14 @@ def _run_batch(conn, run_id: str, rows: list) -> dict[str, int]:
             queued += 1
 
     conn.execute(
+        # COALESCE(?, cursor_job_id) - an empty batch (rows=[]) leaves
+        # cursor_job_id as the Python None it started as; without COALESCE
+        # that would overwrite an existing cursor back to NULL, which would
+        # restart a local_full_backfill run from the beginning on its next
+        # tick instead of leaving the cursor where a prior chunk left it.
         """UPDATE classification_runs
            SET jobs_processed = jobs_processed + ?, jobs_classified = jobs_classified + ?,
-               jobs_queued_groq = jobs_queued_groq + ?, cursor_job_id = ?
+               jobs_queued_groq = jobs_queued_groq + ?, cursor_job_id = COALESCE(?, cursor_job_id)
            WHERE run_id = ?""",
         (processed, classified, queued, cursor_job_id, run_id),
     )
@@ -567,7 +590,7 @@ def reclassify_all(conn, run_id: str, limit: int | None = None, after_job_id: in
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_local_classification_stage.py -v`
-Expected: PASS (8 tests)
+Expected: PASS (9 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1194,6 +1217,28 @@ def test_tick_launches_local_incremental_when_pending_work_exists(conn):
     assert run["status"] == "success"
 
 
+def test_local_incremental_is_capped_to_chunk_size_not_unbounded(conn):
+    # Regression test: on a fresh deploy every existing job has
+    # field_classification_attempted_at IS NULL - an uncapped call here would
+    # be one long-held transaction over the whole backlog. With chunk_size=1
+    # and 3 pending jobs, one tick must process exactly 1, leaving 2 pending
+    # (and the completed run must still mark itself 'success', not hang).
+    conn.execute("INSERT INTO jobs (job_id, title) VALUES (2, 'Data Analyst')")
+    conn.execute("INSERT INTO jobs (job_id, title) VALUES (3, 'Product Manager')")
+    conn.execute("INSERT INTO pipeline_config (key, value, updated_at) VALUES ('classification_local_chunk_size', '1', datetime('now'))")
+    conn.commit()
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    run_scheduler_tick(conn, last_request_at=now, now=now)
+
+    attempted_count = conn.execute("SELECT COUNT(*) FROM jobs WHERE field_classification_attempted_at IS NOT NULL").fetchone()[0]
+    assert attempted_count == 1  # only one chunk processed, not all 3
+
+    run = conn.execute("SELECT status FROM classification_runs WHERE run_type = 'local_incremental'").fetchone()
+    assert run["status"] == "success"  # each chunk's run completes on its own, no cursor/continuation needed
+
+
 def test_tick_does_not_launch_groq_backlog_when_recent_activity(conn):
     conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
     conn.execute("INSERT INTO groq_classification_queue (job_id, status, created_at) VALUES (1, 'pending', datetime('now'))")
@@ -1464,11 +1509,21 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
     local_chunk_size = int(cfg.get("classification_local_chunk_size", DEFAULT_LOCAL_CHUNK_SIZE))
     groq_chunk_size = int(cfg.get("classification_groq_chunk_size", DEFAULT_GROQ_CHUNK_SIZE))
 
-    # local_incremental: always-on, never load-gated (small volume, cheap).
+    # local_incremental: always-on, never load-gated. Capped to local_chunk_size
+    # per tick, NOT unbounded - on a fresh deploy every existing job has
+    # field_classification_attempted_at IS NULL, so an uncapped call here would
+    # be one single-transaction pass over the entire ~110k-job backlog (~68min
+    # measured cost), holding SQLite's single-writer lock the whole time and
+    # blocking every other write site-wide (ingestion, click tracking, admin
+    # actions). Capping it needs no cursor/continuation logic the way
+    # local_full_backfill does: field_classification_attempted_at IS NULL is
+    # itself the natural "what's left" filter, so each tick's chunk is simply
+    # its own complete, independent local_incremental run, and the backlog
+    # drains gradually, one chunk per 60s tick, without ever locking for long.
     if _has_pending_local_work(conn) and not _any_run_active(conn, "local_incremental"):
         run_id = _start_run(conn, "local_incremental", trigger="schedule")
         try:
-            classify_pending_jobs(conn, run_id=run_id)
+            classify_pending_jobs(conn, run_id=run_id, limit=local_chunk_size)
             _finish_run(conn, run_id, status="success")
         except Exception as exc:  # noqa: BLE001
             logger.error("[classification_scheduler] local_incremental failed: %s", exc)
@@ -1527,7 +1582,7 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest tests/test_classification_scheduling.py -v`
-Expected: PASS (14 tests)
+Expected: PASS (15 tests)
 
 - [ ] **Step 5: Wire into `_auto_scheduler_loop` and add the `before_request` hook**
 
@@ -1577,6 +1632,7 @@ git commit -m "feat: add load-aware scheduling for classification backfill work"
 **Files:**
 - Modify: `web_viewer.py` (new `/admin/classification*` routes)
 - Create: `templates/admin_classification.html`
+- Modify: `templates/admin_dashboard.html` (nav card linking to the new page — the admin index otherwise has no way to reach it except a direct URL)
 - Test: `tests/test_admin_classification_routes.py`
 
 **Interfaces:**
@@ -1674,6 +1730,16 @@ def test_dashboard_shows_run_history_and_category_breakdown(admin_client):
     assert "Software Engineering" in html
 
 
+def test_dashboard_renders_config_form_with_current_values(admin_client):
+    r = admin_client.get("/admin/classification")
+    html = r.get_data(as_text=True)
+    assert 'name="classification_confidence_threshold"' in html
+    assert 'name="classification_idle_seconds"' in html
+    assert 'name="classification_retry_cap"' in html
+    assert 'name="classification_local_chunk_size"' in html
+    assert 'name="classification_groq_chunk_size"' in html
+
+
 def test_run_local_classification(admin_client):
     r = admin_client.post("/admin/classification/run-local", data={"csrf_token": "test-csrf"})
     assert r.status_code == 200
@@ -1685,8 +1751,13 @@ def test_delete_queue_row(admin_client):
     r = admin_client.post("/admin/classification/queue/1/delete", data={"csrf_token": "test-csrf"})
     assert r.status_code == 200
 
+    # Precise check tied to the template's per-row id="queue-row-{{ q.id }}"
+    # attribute (used by the delete button's JS target), not a generic
+    # "pending"/"0" text heuristic that could pass even if deletion silently
+    # failed (those substrings can legitimately appear elsewhere on the page,
+    # e.g. a "Never attempted: 0" stat tile).
     r2 = admin_client.get("/admin/classification")
-    assert "pending" not in r2.get_data(as_text=True).lower() or "0" in r2.get_data(as_text=True)
+    assert 'id="queue-row-1"' not in r2.get_data(as_text=True)
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1753,6 +1824,7 @@ def admin_classification():
 def admin_classification_run_local():
     import uuid
     from src.classification.local_stage import classify_pending_jobs
+    from src.pipeline_monitor import get_config
     from src.storage.db import get_connection
     run_id = str(uuid.uuid4())[:8]
     conn = get_connection()
@@ -1762,25 +1834,33 @@ def admin_classification_run_local():
     )
     conn.commit()
     try:
-        classify_pending_jobs(conn, run_id=run_id)
+        # Capped, same reasoning as the scheduler's own local_incremental tick:
+        # an admin click must return within a normal request/proxy timeout, not
+        # hang for the ~68 minutes a full fresh-deploy backlog would take.
+        cfg = get_config()
+        chunk_size = int(cfg.get("classification_local_chunk_size", 500))
+        result = classify_pending_jobs(conn, run_id=run_id, limit=chunk_size)
         conn.execute("UPDATE classification_runs SET status='success', finished_at=datetime('now') WHERE run_id=?", (run_id,))
         conn.commit()
+        remaining = conn.execute("SELECT COUNT(*) FROM jobs WHERE field_classification_attempted_at IS NULL").fetchone()[0]
     finally:
         conn.close()
-    return jsonify({"run_id": run_id, "status": "started"})
+    return jsonify({"run_id": run_id, "status": "started", **result, "remaining": remaining})
 
 
 @app.route("/admin/classification/full-reclassify/preview", methods=["POST"])
 @require_admin
 def admin_classification_full_reclassify_preview():
     from src.market_classifier import classify_job
+    from src.pipeline_monitor import get_config
     from src.storage.db import get_connection
     conn = get_connection()
+    confidence_threshold = float(get_config().get("classification_confidence_threshold", 0.62))
     rows = conn.execute("SELECT job_id, title, raw_description, field_category_id FROM jobs LIMIT 500").fetchall()
     would_change = 0
     for row in rows:
         match = classify_job(row["title"], row["raw_description"] or "")
-        new_id = match.market_id if (match.market_id and match.confidence >= 0.62) else None
+        new_id = match.market_id if (match.market_id and match.confidence >= confidence_threshold) else None
         if new_id != row["field_category_id"]:
             would_change += 1
     conn.close()
@@ -1812,6 +1892,7 @@ def admin_classification_full_reclassify_confirm():
 def admin_classification_groq_run_now():
     import uuid
     from src.classification.groq_stage import process_groq_queue
+    from src.pipeline_monitor import get_config
     from src.storage.db import get_connection
     conn = get_connection()
     run = conn.execute("SELECT run_id FROM classification_runs WHERE run_type='groq_backlog' AND status='running' LIMIT 1").fetchone()
@@ -1822,7 +1903,11 @@ def admin_classification_groq_run_now():
             (run_id,),
         )
         conn.commit()
-    result = process_groq_queue(conn, run_id=run_id, statuses=("pending",))
+    # Capped to one chunk per click, same reasoning as run-local above - an
+    # unbounded call here would be ~1,480 sequential Groq API calls on a full
+    # backlog, far past any request/proxy timeout.
+    chunk_size = int(get_config().get("classification_groq_chunk_size", 25))
+    result = process_groq_queue(conn, run_id=run_id, statuses=("pending",), limit=chunk_size)
     conn.close()
     return jsonify({"run_id": run_id, **result})
 
@@ -1901,6 +1986,46 @@ Note: `queue_id` in the test is `1` (SQLite `AUTOINCREMENT` starting at 1 for th
       <button onclick="runGroqNow()" class="btn" style="background:#059669;color:#fff">Process Groq Backlog Now</button>
     </div>
     <div id="action-msg" style="margin-top:0.75rem;font-size:0.875rem;color:#6b7280"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <h3 style="margin:0 0 1rem">Settings</h3>
+    <form id="config-form">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;margin-bottom:0.75rem">
+        <label style="font-size:0.8rem">
+          Confidence threshold
+          <input name="classification_confidence_threshold" type="number" min="0" max="1" step="0.01"
+            value="{{ config.get('classification_confidence_threshold', '0.62') }}"
+            style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
+        </label>
+        <label style="font-size:0.8rem">
+          Idle seconds (backfill gate)
+          <input name="classification_idle_seconds" type="number" min="10" max="3600"
+            value="{{ config.get('classification_idle_seconds', '300') }}"
+            style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
+        </label>
+        <label style="font-size:0.8rem">
+          Groq retry cap
+          <input name="classification_retry_cap" type="number" min="1" max="20"
+            value="{{ config.get('classification_retry_cap', '5') }}"
+            style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
+        </label>
+        <label style="font-size:0.8rem">
+          Local chunk size
+          <input name="classification_local_chunk_size" type="number" min="10" max="5000"
+            value="{{ config.get('classification_local_chunk_size', '500') }}"
+            style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
+        </label>
+        <label style="font-size:0.8rem">
+          Groq chunk size
+          <input name="classification_groq_chunk_size" type="number" min="1" max="100"
+            value="{{ config.get('classification_groq_chunk_size', '25') }}"
+            style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
+        </label>
+      </div>
+      <button type="submit" class="btn" style="font-size:0.8rem;padding:0.4rem 1rem">Save settings</button>
+      <span id="config-msg" style="font-size:0.8rem;color:#6b7280;margin-left:0.5rem"></span>
+    </form>
   </div>
 
   <div class="card" style="margin-bottom:1.5rem">
@@ -2014,8 +2139,43 @@ async function deleteQueueRow(id) {
   const r = await fetch(`/admin/classification/queue/${id}/delete`, { method: 'POST', body: fd });
   if (r.ok) document.getElementById(`queue-row-${id}`).remove();
 }
+
+document.getElementById('config-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  fd.append('csrf_token', csrf);
+  const r = await fetch('/admin/classification/config', { method: 'POST', body: fd });
+  const data = await r.json();
+  const msg = document.getElementById('config-msg');
+  msg.textContent = r.ok ? `Saved: ${data.updated.join(', ')}` : 'Save failed';
+  msg.style.color = r.ok ? '#059669' : '#dc2626';
+});
 </script>
 {% endblock %}
+```
+
+- [ ] **Step 4b: Add a nav card from `/admin` to `/admin/classification`**
+
+In `templates/admin_dashboard.html`, immediately after the existing Pipeline Monitor card (search for `onclick="window.location.href='/admin/pipeline'"`), add a matching card:
+
+```html
+        <!-- Classification Pipeline -->
+        <div class="card" style="cursor: pointer; transition: transform 0.2s;" onclick="window.location.href='/admin/classification'">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <div style="font-size: 3rem;">🏷️</div>
+                <div>
+                    <h2 style="margin: 0; color: #1f2937;">Classification Pipeline</h2>
+                    <p style="color: #6b7280; margin: 0.5rem 0 0 0; font-size: 0.875rem;">
+                        Field-taxonomy coverage, run history, and the Groq fallback queue
+                    </p>
+                </div>
+            </div>
+            <div style="margin-top: 1.5rem;">
+                <a href="/admin/classification" class="btn" style="display: inline-block; width: 100%; text-align: center; text-decoration: none;">
+                    Open Classification Pipeline →
+                </a>
+            </div>
+        </div>
 ```
 
 - [ ] **Step 5: Run test to verify it passes**
@@ -2031,7 +2191,7 @@ Expected: full baseline + all new tests from Tasks 1-5 passing, no regressions.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add web_viewer.py templates/admin_classification.html tests/test_admin_classification_routes.py
+git add web_viewer.py templates/admin_classification.html templates/admin_dashboard.html tests/test_admin_classification_routes.py
 git commit -m "feat: add /admin/classification dashboard, run controls, and queue management"
 ```
 
@@ -2040,4 +2200,5 @@ git commit -m "feat: add /admin/classification dashboard, run controls, and queu
 ## Post-implementation notes (not separate tasks, but must not be forgotten)
 
 - No `docker compose build`/deploy is part of this plan — deployment is a separate, explicit step after the full-branch review, following the same VPS workflow used earlier this session (git pull, `docker compose build web`, `docker compose up -d web`, verify `/healthz`).
-- The first real `local_incremental` tick after deploy will process the *entire* current backlog of never-attempted jobs (all ~110k, since `field_classification_attempted_at` starts NULL for every existing row) — not just newly-ingested ones. Given the ~68-minute full-catalog cost measured during brainstorming, consider whether to pre-seed `field_classification_attempted_at` for existing jobs via a one-time backfill script (leaving only genuinely new jobs for the always-on incremental path), or accept that the first `local_incremental` run will be unusually large. This wasn't explicitly decided in the spec — flag it to the user before or during deployment rather than silently picking one.
+- ~~The first real `local_incremental` tick after deploy will process the *entire* current backlog...~~ **Resolved by the final-review fix round**: `local_incremental` is now capped to `local_chunk_size` per tick (same as every other run type in this plan), so it never holds one long transaction over the whole backlog — it drains gradually, one bounded chunk per 60s tick, with no pre-seed script needed. `run_scheduler_tick`'s existing "each tick's chunk is its own complete run" behavior (no cursor needed, since `field_classification_attempted_at IS NULL` is itself the natural progress filter) makes this a one-line fix, not a new mechanism.
+- **Confirmed via `gunicorn.conf.py`: this app runs 4 workers, not 1.** Each worker process starts its own `_auto_scheduler_loop` thread (module-level, per-process). `_any_run_active()`'s check-then-`_start_run()` is not atomic, so two workers' scheduler threads could both start a run of the same type in the same tick window. This mirrors an already-existing, already-accepted race in the pre-existing `pipeline_runs` ingest/crawl scheduler (same non-atomic pattern, same codebase convention) — not a regression this feature introduces — and is self-limiting in practice (duplicate work on the same `field_classification_attempted_at IS NULL` jobs converges harmlessly, and the stale-`processing`-row reclaim guards against a permanently stuck state). Not fixed in this plan; noted here for awareness, matching the existing codebase's own risk tolerance for this class of race rather than introducing new distributed-locking machinery beyond what the rest of the app already has.
