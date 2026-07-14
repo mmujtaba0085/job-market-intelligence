@@ -26,6 +26,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import time
 
 import requests
 
@@ -89,14 +90,23 @@ class HimalayasCollector(BaseCollector):
                 resp = requests.get(_BASE_URL, params=params, timeout=_TIMEOUT)
                 
                 if resp.status_code == 429:
-                    logger.warning("[himalayas] Rate limited (429), stopping")
-                    break
-                
+                    error_count += 1
+                    if error_count >= max_errors:
+                        logger.warning("[himalayas] Rate limited (429) after %d retries, stopping", max_errors)
+                        break
+                    retry_after = int(resp.headers.get("Retry-After", 30))
+                    logger.warning("[himalayas] Rate limited (429), sleeping %ds and retrying offset %d", retry_after, offset)
+                    time.sleep(retry_after)
+                    continue
+
                 if resp.status_code >= 500:
                     error_count += 1
                     if error_count >= max_errors:
                         logger.warning("[himalayas] Too many 5xx errors, stopping")
                         break
+                    backoff = 2 * error_count
+                    logger.warning("[himalayas] HTTP %d at offset %d, sleeping %ds and retrying (%d/%d)", resp.status_code, offset, backoff, error_count, max_errors)
+                    time.sleep(backoff)
                     continue
                 
                 if resp.status_code != 200:
@@ -192,9 +202,12 @@ class HimalayasCollector(BaseCollector):
 
             except requests.Timeout:
                 error_count += 1
-                logger.warning("[himalayas] Timeout at offset %d (%d/%d)", offset, error_count, max_errors)
                 if error_count >= max_errors:
+                    logger.warning("[himalayas] Timeout at offset %d (%d/%d), no more retries", offset, error_count, max_errors)
                     break
+                backoff = 2 * error_count
+                logger.warning("[himalayas] Timeout at offset %d (%d/%d), sleeping %ds and retrying", offset, error_count, max_errors, backoff)
+                time.sleep(backoff)
             except Exception as e:
                 error_count += 1
                 logger.error("[himalayas] Error at offset %d: %s (%d/%d)", offset, e, error_count, max_errors)

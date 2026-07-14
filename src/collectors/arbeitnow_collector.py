@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -46,21 +47,29 @@ class ArbeitnowCollector(BaseCollector):
         max_jobs = market.get("max_jobs_per_source", 200)
         page = 1
         max_pages = 20  # Raised from 5 to reach max_jobs_per_source=500
+        page_retry_count = 0
+        max_page_retries = 3  # bounds the 429 retry below - a stuck rate limit must not loop forever
 
         keywords = market.get("keywords", [])
 
         while len(results) < max_jobs and page <= max_pages:
             self._wait()
-            
+
             try:
                 params = {"page": str(page)}
-                
+
                 logger.debug("[arbeitnow] Fetching page %d", page)
                 resp = requests.get(_BASE_URL, params=params, timeout=_TIMEOUT)
-                
+
                 if resp.status_code == 429:
-                    logger.warning("[arbeitnow] Rate limited (429), stopping collection")
-                    break
+                    page_retry_count += 1
+                    if page_retry_count > max_page_retries:
+                        logger.warning("[arbeitnow] Rate limited (429) on page %d after %d retries, stopping collection", page, max_page_retries)
+                        break
+                    retry_after = int(resp.headers.get("Retry-After", 30))
+                    logger.warning("[arbeitnow] Rate limited (429), sleeping %ds and retrying page %d (%d/%d)", retry_after, page, page_retry_count, max_page_retries)
+                    time.sleep(retry_after)
+                    continue
                 
                 if resp.status_code != 200:
                     logger.warning("[arbeitnow] HTTP %d on page %d, skipping", resp.status_code, page)
@@ -118,6 +127,7 @@ class ArbeitnowCollector(BaseCollector):
 
                 logger.debug("[arbeitnow] Page %d: collected %d matching jobs", page, len([j for j in jobs_data if not keywords or self._matches_keywords(j, keywords)]))
                 page += 1
+                page_retry_count = 0
 
             except requests.Timeout:
                 logger.warning("[arbeitnow] Timeout on page %d", page)

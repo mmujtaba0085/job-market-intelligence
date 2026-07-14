@@ -40,6 +40,7 @@ account_slug for each account.
 from __future__ import annotations
 
 import logging
+import time
 
 import requests
 from bs4 import BeautifulSoup
@@ -54,6 +55,7 @@ _BASE_URL = "https://apply.workable.com"
 _LIST_URL_TMPL = _BASE_URL + "/api/v1/widget/accounts/{slug}"
 _DETAIL_URL_TMPL = _BASE_URL + "/api/v1/accounts/{slug}/jobs/{shortcode}"
 _TIMEOUT = 15
+_MAX_ATTEMPTS = 3
 _UA = "Mozilla/5.0 (compatible; JobMarketIntelligenceBot/1.0; +research)"
 
 _WORKPLACE_TO_REMOTE_TYPE = {
@@ -77,16 +79,58 @@ class WorkableCollector(BaseCollector):
     # ── HTTP ─────────────────────────────────────────────────────────────────
 
     def _get_json(self, url: str) -> dict | None:
-        try:
-            resp = requests.get(url, headers={"User-Agent": _UA}, timeout=_TIMEOUT)
-            resp.raise_for_status()
-            return resp.json()
-        except requests.RequestException as exc:
-            logger.warning("[%s] Request failed for %s: %s", self.source_id, url, exc)
-            return None
-        except ValueError as exc:  # JSON decode error
-            logger.warning("[%s] Invalid JSON from %s: %s", self.source_id, url, exc)
-            return None
+        """
+        Fetch and parse one JSON endpoint, retrying transient failures
+        (429, 5xx, timeouts, connection errors) instead of dropping the
+        job on the first hiccup - confirmed in production that this
+        collector's per-job detail fetch alone hit 125-133 429s in a
+        single ingest run, each one previously causing that job to be
+        silently skipped entirely with no run-level error ever recorded.
+        Mirrors the retry/backoff pattern already proven correct in
+        findwork_crawler.py's _fetch_page().
+        """
+        for attempt in range(_MAX_ATTEMPTS):
+            try:
+                resp = requests.get(url, headers={"User-Agent": _UA}, timeout=_TIMEOUT)
+
+                if resp.status_code == 429:
+                    retry_after = int(resp.headers.get("Retry-After", 30))
+                    logger.warning("[%s] Rate limited (429) on %s, sleeping %ds", self.source_id, url, retry_after)
+                    time.sleep(retry_after)
+                    continue
+
+                if resp.status_code >= 500:
+                    if attempt < _MAX_ATTEMPTS - 1:
+                        logger.warning("[%s] HTTP %d for %s, will retry", self.source_id, resp.status_code, url)
+                        time.sleep(2 * (attempt + 1))
+                        continue
+                    logger.warning("[%s] HTTP %d for %s, no more retries", self.source_id, resp.status_code, url)
+                    return None
+
+                resp.raise_for_status()
+                return resp.json()
+            except requests.Timeout:
+                if attempt < _MAX_ATTEMPTS - 1:
+                    logger.warning("[%s] Timeout for %s, will retry", self.source_id, url)
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                logger.warning("[%s] Timeout for %s, no more retries", self.source_id, url)
+                return None
+            except requests.HTTPError as exc:
+                # Definitive client error (404, 401, ...) - not transient, don't retry.
+                logger.warning("[%s] Request failed for %s: %s", self.source_id, url, exc)
+                return None
+            except requests.RequestException as exc:
+                if attempt < _MAX_ATTEMPTS - 1:
+                    logger.warning("[%s] Request error for %s: %s, will retry", self.source_id, url, exc)
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                logger.warning("[%s] Request failed for %s: %s", self.source_id, url, exc)
+                return None
+            except ValueError as exc:  # JSON decode error
+                logger.warning("[%s] Invalid JSON from %s: %s", self.source_id, url, exc)
+                return None
+        return None
 
     # ── Description assembly ────────────────────────────────────────────────
 
