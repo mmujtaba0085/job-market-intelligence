@@ -36,8 +36,14 @@ from config.settings import (
 )
 from src.storage.models import JobNormalized, SkillSignal, WeeklyMetric
 
+try:
+    import fcntl  # Unix only - not available on Windows, guarded for local dev
+except ImportError:
+    fcntl = None
+
 # ─── Migration path ───────────────────────────────────────────────────────────
 _MIGRATIONS_DIR = Path(__file__).parent / "migrations"
+_MIGRATION_LOCK_PATH = _MIGRATIONS_DIR.parent / ".migrations.lock"
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +59,35 @@ def get_connection() -> sqlite3.Connection:
 
 
 def run_migrations() -> None:
-    """Idempotently apply all SQL migration files in order."""
+    """
+    Idempotently apply all SQL migration files in order.
+
+    File-locked on Unix (a no-op on Windows, where fcntl doesn't exist -
+    local dev/tests run single-process, so there's no concurrent-writer
+    race to guard against there). Without this lock, gunicorn's N worker
+    processes each import web_viewer.py independently at startup, and each
+    one calls this function - on a deploy carrying real schema changes, all
+    of them race to write the same DDL to the same SQLite file at once.
+    Confirmed on a real deploy: this raised "database is locked" in every
+    worker, which gunicorn treated as "worker failed to boot" and shut the
+    entire master process down (Docker's restart policy happened to save
+    it on retry, once the migration was already applied and there was
+    nothing left to race over - not a fix, just luck).
+    """
+    if fcntl is None:
+        _run_migrations_impl()
+        return
+
+    _MIGRATION_LOCK_PATH.touch(exist_ok=True)
+    with open(_MIGRATION_LOCK_PATH, "r+") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            _run_migrations_impl()
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def _run_migrations_impl() -> None:
     conn = get_connection()
     migration_files = sorted(_MIGRATIONS_DIR.glob("*.sql"))
     with conn:
