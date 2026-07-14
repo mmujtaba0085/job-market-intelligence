@@ -66,6 +66,7 @@ _TIMEOUT = 15
 _MAX_DATES_PER_RUN = 200
 _BACKFILL_WINDOW_DAYS = 270  # ~9 months of history; older ads are past relevance for this market
 _CONSECUTIVE_404_THRESHOLD = 30
+_RECENT_RECHECK_DAYS = 14  # see _fetch_raw's recheck pass docstring below
 _EARLIEST_SAFETY_FLOOR = date(2010, 1, 1)  # hard stop in case 404 detection ever misfires
 _STATE_FILE = Path("data/pakistanjobsbank_state.json")
 _UA = "Mozilla/5.0 (compatible; JobMarketIntelligenceBot/1.0; +research)"
@@ -375,6 +376,33 @@ class PakistanJobsBankCollector(BaseCollector):
                     "[pakistanjobsbank] Backfill complete: reached %d-day window floor (%s)",
                     _BACKFILL_WINDOW_DAYS, floor_date,
                 )
+
+        # ── Recent recheck: some ads get added to their nominal date's page
+        # days after that date's page first went live (confirmed directly
+        # against production: a date the forward frontier had already
+        # marked "crawled" with 0 jobs had 328 real jobs when independently
+        # re-fetched days later). The forward frontier above only ever
+        # visits a date once and permanently advances past it, and the
+        # backward frontier that would otherwise eventually retry old dates
+        # is disabled for good once backfill_complete=True - so without
+        # this, a date checked before its content landed loses that content
+        # forever. Re-fetching an unchanged date is harmless: the same jobs
+        # just get deduplicated downstream by url_hash.
+        if budget > 0 and state.get("newest_date_crawled"):
+            newest = date.fromisoformat(state["newest_date_crawled"])
+            recheck_floor = max(
+                date.today() - timedelta(days=_RECENT_RECHECK_DAYS),
+                _EARLIEST_SAFETY_FLOOR,
+            )
+            cursor = recheck_floor
+            while budget > 0 and cursor <= newest:
+                self._wait()
+                status, jobs = self._fetch_date_page(cursor)
+                dates_crawled += 1
+                budget -= 1
+                if status not in (404, 0) and jobs:
+                    results.extend(jobs)
+                cursor += timedelta(days=1)
 
         if max_jobs is not None and len(results) > max_jobs:
             results = results[:max_jobs]
