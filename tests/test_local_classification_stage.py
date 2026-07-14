@@ -148,3 +148,20 @@ def test_reclassify_clears_stale_state_on_downgrade(conn, monkeypatch):
 
     queued = conn.execute("SELECT status FROM groq_classification_queue WHERE job_id = 1").fetchone()
     assert queued["status"] == "pending"
+
+
+def test_reclassify_all_after_job_id_resumes_past_prior_chunk(conn):
+    # Without after_job_id, two successive limit=1 calls would both select
+    # job_id=1 forever (ORDER BY job_id LIMIT 1 is deterministic) - a
+    # multi-tick local_full_backfill run would never advance. after_job_id
+    # must let the second call pick up job_id=2 instead.
+    from src.classification.local_stage import reclassify_all
+    first = reclassify_all(conn, run_id="run1", limit=1)
+    assert first["processed"] == 1
+
+    conn.execute("INSERT INTO classification_runs (run_id, run_type, trigger, started_at) VALUES ('run2', 'local_full_backfill', 'manual', datetime('now'))")
+    second = reclassify_all(conn, run_id="run2", limit=1, after_job_id=1)
+    assert second["processed"] == 1
+
+    run2 = conn.execute("SELECT cursor_job_id FROM classification_runs WHERE run_id = 'run2'").fetchone()
+    assert run2["cursor_job_id"] == 2  # advanced past job 1, not stuck reprocessing it

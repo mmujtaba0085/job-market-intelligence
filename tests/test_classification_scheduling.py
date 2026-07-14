@@ -160,6 +160,36 @@ def test_tick_does_not_start_second_groq_backlog_if_one_already_running(conn):
     assert count == 1  # still just the pre-existing one, no duplicate
 
 
+def test_local_full_backfill_advances_across_ticks_not_stuck_on_first_chunk(conn):
+    # Regression test: reclassify_all() has no natural "already done" filter
+    # (unlike classify_pending_jobs), so without after_job_id wired through
+    # correctly, two ticks would both reprocess the same first job forever.
+    conn.execute("INSERT INTO jobs (job_id, title) VALUES (2, 'Data Analyst')")
+    conn.execute("INSERT INTO jobs (job_id, title) VALUES (3, 'Product Manager')")
+    conn.execute("INSERT INTO pipeline_config (key, value, updated_at) VALUES ('classification_local_chunk_size', '1', datetime('now'))")
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES ('backfill1', 'local_full_backfill', 'manual', 'running', datetime('now'))"
+    )
+    conn.commit()
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    long_idle = now - timedelta(seconds=400)
+
+    run_scheduler_tick(conn, last_request_at=long_idle, now=now)
+    after_tick_1 = conn.execute("SELECT cursor_job_id FROM classification_runs WHERE run_id = 'backfill1'").fetchone()
+    assert after_tick_1["cursor_job_id"] == 1
+
+    run_scheduler_tick(conn, last_request_at=long_idle, now=now)
+    after_tick_2 = conn.execute("SELECT cursor_job_id, status FROM classification_runs WHERE run_id = 'backfill1'").fetchone()
+    assert after_tick_2["cursor_job_id"] == 2  # advanced past job 1, not stuck reprocessing it
+
+    run_scheduler_tick(conn, last_request_at=long_idle, now=now)
+    after_tick_3 = conn.execute("SELECT cursor_job_id, status FROM classification_runs WHERE run_id = 'backfill1'").fetchone()
+    assert after_tick_3["cursor_job_id"] == 3
+    assert after_tick_3["status"] == "success"  # all 3 jobs processed, run completed
+
+
 def test_tick_launches_groq_retry_when_never_run_before(conn, monkeypatch):
     conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
     conn.execute("INSERT INTO groq_classification_queue (job_id, status, attempt_count, created_at) VALUES (1, 'failed_technical', 1, datetime('now'))")

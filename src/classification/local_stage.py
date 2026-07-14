@@ -121,10 +121,20 @@ def classify_pending_jobs(conn, run_id: str, limit: int | None = None) -> dict[s
     return _run_batch(conn, run_id, rows)
 
 
-def reclassify_all(conn, run_id: str, limit: int | None = None) -> dict[str, int]:
-    """Re-run classification for every job, regardless of prior attempts."""
-    query = "SELECT job_id, title, raw_description FROM jobs ORDER BY job_id"
+def reclassify_all(conn, run_id: str, limit: int | None = None, after_job_id: int | None = None) -> dict[str, int]:
+    """Re-run classification for every job, regardless of prior attempts.
+
+    after_job_id resumes a chunked local_full_backfill run from where the
+    previous chunk's cursor_job_id left off - without it, every call would
+    re-select the same first `limit` job_ids by job_id order forever, and a
+    multi-tick backfill would never advance past its first chunk."""
+    query = "SELECT job_id, title, raw_description FROM jobs"
+    params: list = []
+    if after_job_id is not None:
+        query += " WHERE job_id > ?"
+        params.append(after_job_id)
+    query += " ORDER BY job_id"
     if limit:
         query += f" LIMIT {int(limit)}"
-    rows = conn.execute(query).fetchall()
+    rows = conn.execute(query, params).fetchall()
     return _run_batch(conn, run_id, rows)
