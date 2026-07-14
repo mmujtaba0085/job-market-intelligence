@@ -3018,6 +3018,167 @@ def admin_pipeline_logs(run_id: str):
     return render_template("admin_pipeline_logs.html", run_id=run_id, log_content=content)
 
 
+# ═══════════════════════════════════════════════════════════════════
+# ADMIN: CLASSIFICATION PIPELINE
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route("/admin/classification")
+@require_admin
+def admin_classification():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    total = cursor.execute("SELECT COUNT(*) FROM active_jobs").fetchone()[0]
+    classified_local = cursor.execute(
+        "SELECT COUNT(*) FROM active_jobs WHERE field_classification_method = 'local_hybrid_v1'"
+    ).fetchone()[0]
+    classified_groq = cursor.execute(
+        "SELECT COUNT(*) FROM active_jobs WHERE field_classification_method = 'groq_v1'"
+    ).fetchone()[0]
+    never_attempted = cursor.execute(
+        "SELECT COUNT(*) FROM active_jobs WHERE field_classification_attempted_at IS NULL"
+    ).fetchone()[0]
+    queue_by_status = cursor.execute(
+        "SELECT status, COUNT(*) as n FROM groq_classification_queue GROUP BY status"
+    ).fetchall()
+
+    category_breakdown = cursor.execute("""
+        SELECT jc.name, COUNT(j.job_id) as n
+        FROM job_categories jc
+        LEFT JOIN active_jobs j ON j.field_category_id = jc.category_id
+        WHERE jc.parent_id IS NOT NULL
+        GROUP BY jc.category_id
+        ORDER BY n DESC
+    """).fetchall()
+
+    runs = cursor.execute(
+        "SELECT * FROM classification_runs ORDER BY started_at DESC LIMIT 40"
+    ).fetchall()
+
+    queue_rows = cursor.execute(
+        "SELECT gcq.*, j.title FROM groq_classification_queue gcq JOIN jobs j ON j.job_id = gcq.job_id ORDER BY gcq.created_at DESC LIMIT 100"
+    ).fetchall()
+
+    from src.pipeline_monitor import get_config
+    config = get_config()
+
+    conn.close()
+    return render_template(
+        "admin_classification.html",
+        total=total, classified_local=classified_local, classified_groq=classified_groq,
+        never_attempted=never_attempted, queue_by_status={r["status"]: r["n"] for r in queue_by_status},
+        category_breakdown=category_breakdown, runs=runs, queue_rows=queue_rows, config=config,
+    )
+
+
+@app.route("/admin/classification/run-local", methods=["POST"])
+@require_admin
+def admin_classification_run_local():
+    import uuid
+    from src.classification.local_stage import classify_pending_jobs
+    from src.storage.db import get_connection
+    run_id = str(uuid.uuid4())[:8]
+    conn = get_connection()
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES (?, 'local_incremental', 'manual', 'running', datetime('now'))",
+        (run_id,),
+    )
+    conn.commit()
+    try:
+        classify_pending_jobs(conn, run_id=run_id)
+        conn.execute("UPDATE classification_runs SET status='success', finished_at=datetime('now') WHERE run_id=?", (run_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({"run_id": run_id, "status": "started"})
+
+
+@app.route("/admin/classification/full-reclassify/preview", methods=["POST"])
+@require_admin
+def admin_classification_full_reclassify_preview():
+    from src.market_classifier import classify_job
+    from src.storage.db import get_connection
+    conn = get_connection()
+    rows = conn.execute("SELECT job_id, title, raw_description, field_category_id FROM jobs LIMIT 500").fetchall()
+    would_change = 0
+    for row in rows:
+        match = classify_job(row["title"], row["raw_description"] or "")
+        new_id = match.market_id if (match.market_id and match.confidence >= 0.62) else None
+        if new_id != row["field_category_id"]:
+            would_change += 1
+    conn.close()
+    return jsonify({"sampled": len(rows), "would_change": would_change})
+
+
+@app.route("/admin/classification/full-reclassify/confirm", methods=["POST"])
+@require_admin
+def admin_classification_full_reclassify_confirm():
+    import uuid
+    from src.storage.db import get_connection
+    run_id = str(uuid.uuid4())[:8]
+    conn = get_connection()
+    already = conn.execute("SELECT 1 FROM classification_runs WHERE run_type='local_full_backfill' AND status='running'").fetchone()
+    if already:
+        conn.close()
+        return jsonify({"error": "a full re-classify is already running"}), 409
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES (?, 'local_full_backfill', 'manual', 'running', datetime('now'))",
+        (run_id,),
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({"run_id": run_id, "status": "started"})
+
+
+@app.route("/admin/classification/groq-backlog/run-now", methods=["POST"])
+@require_admin
+def admin_classification_groq_run_now():
+    import uuid
+    from src.classification.groq_stage import process_groq_queue
+    from src.storage.db import get_connection
+    conn = get_connection()
+    run = conn.execute("SELECT run_id FROM classification_runs WHERE run_type='groq_backlog' AND status='running' LIMIT 1").fetchone()
+    run_id = run["run_id"] if run else str(uuid.uuid4())[:8]
+    if not run:
+        conn.execute(
+            "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES (?, 'groq_backlog', 'manual', 'running', datetime('now'))",
+            (run_id,),
+        )
+        conn.commit()
+    result = process_groq_queue(conn, run_id=run_id, statuses=("pending",))
+    conn.close()
+    return jsonify({"run_id": run_id, **result})
+
+
+@app.route("/admin/classification/queue/<int:queue_id>/delete", methods=["POST"])
+@require_admin
+def admin_classification_queue_delete(queue_id: int):
+    from src.storage.db import get_connection
+    conn = get_connection()
+    conn.execute("DELETE FROM groq_classification_queue WHERE id = ?", (queue_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({"deleted": queue_id})
+
+
+@app.route("/admin/classification/config", methods=["POST"])
+@require_admin
+def admin_classification_config():
+    from src.pipeline_monitor import set_config
+    allowed = {
+        "classification_confidence_threshold",
+        "classification_idle_seconds", "classification_retry_cap",
+        "classification_local_chunk_size", "classification_groq_chunk_size",
+    }
+    updated = []
+    for key in allowed:
+        val = request.form.get(key, "").strip()
+        if val:
+            set_config(key, val)
+            updated.append(key)
+    return jsonify({"updated": updated})
+
+
 # ── Auto-scheduler background thread ─────────────────────────────────────────
 
 def _auto_scheduler_loop() -> None:

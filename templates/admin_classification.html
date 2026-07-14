@@ -1,0 +1,155 @@
+{# templates/admin_classification.html #}
+{% extends "base.html" %}
+{% block title %}Classification Pipeline - Admin{% endblock %}
+{% block content %}
+<div class="container" style="max-width:1100px">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+    <div>
+      <h1 style="margin:0">Classification Pipeline</h1>
+      <p style="color:#6b7280;margin:0.25rem 0 0">Field-taxonomy coverage, run history, and the Groq fallback queue</p>
+    </div>
+    <a href="/admin" class="btn" style="background:#f3f4f6;color:#374151;text-decoration:none">← Admin</a>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem">
+    <div class="card"><div style="font-size:0.75rem;color:#6b7280">Total jobs</div><div style="font-size:1.5rem;font-weight:700">{{ total }}</div></div>
+    <div class="card"><div style="font-size:0.75rem;color:#6b7280">Classified (local)</div><div style="font-size:1.5rem;font-weight:700">{{ classified_local }}</div></div>
+    <div class="card"><div style="font-size:0.75rem;color:#6b7280">Classified (Groq)</div><div style="font-size:1.5rem;font-weight:700">{{ classified_groq }}</div></div>
+    <div class="card"><div style="font-size:0.75rem;color:#6b7280">Never attempted</div><div style="font-size:1.5rem;font-weight:700">{{ never_attempted }}</div></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <h3 style="margin:0 0 1rem">Groq queue by status</h3>
+    <div style="display:flex;gap:1.5rem;flex-wrap:wrap">
+      {% for status, n in queue_by_status.items() %}
+      <div><strong>{{ status }}</strong>: {{ n }}</div>
+      {% else %}
+      <div style="color:#9ca3af">Queue is empty.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <h3 style="margin:0 0 1rem">Actions</h3>
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
+      <button onclick="runLocal()" class="btn" style="background:#3b82f6;color:#fff">Run Local Classification</button>
+      <button onclick="previewFullReclassify()" class="btn" style="background:#8b5cf6;color:#fff">Full Re-classify…</button>
+      <button onclick="runGroqNow()" class="btn" style="background:#059669;color:#fff">Process Groq Backlog Now</button>
+    </div>
+    <div id="action-msg" style="margin-top:0.75rem;font-size:0.875rem;color:#6b7280"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <h3 style="margin:0 0 1rem">Category breakdown</h3>
+    <table style="width:100%;font-size:0.875rem;border-collapse:collapse">
+      <tbody>
+        {% for row in category_breakdown %}
+        <tr style="border-bottom:1px solid #f3f4f6">
+          <td style="padding:0.4rem 0">{{ row.name }}</td>
+          <td style="padding:0.4rem 0;text-align:right">{{ row.n }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card" style="margin-bottom:1.5rem">
+    <h3 style="margin:0 0 1rem">Run history</h3>
+    <table style="width:100%;font-size:0.875rem;border-collapse:collapse">
+      <thead><tr style="border-bottom:2px solid #e5e7eb;text-align:left">
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Run ID</th>
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Type</th>
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Trigger</th>
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Status</th>
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Started</th>
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Processed</th>
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Classified</th>
+      </tr></thead>
+      <tbody>
+        {% for r in runs %}
+        <tr style="border-bottom:1px solid #f3f4f6">
+          <td style="padding:0.5rem 0.75rem;font-family:monospace;font-size:0.8rem">{{ r.run_id }}</td>
+          <td style="padding:0.5rem 0.75rem">{{ r.run_type }}</td>
+          <td style="padding:0.5rem 0.75rem;color:#6b7280">{{ r.trigger }}</td>
+          <td style="padding:0.5rem 0.75rem">{{ r.status }}</td>
+          <td style="padding:0.5rem 0.75rem;color:#6b7280;font-size:0.8rem">{{ r.started_at[:16] if r.started_at else '—' }}</td>
+          <td style="padding:0.5rem 0.75rem">{{ r.jobs_processed }}</td>
+          <td style="padding:0.5rem 0.75rem">{{ r.jobs_classified }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="padding:2rem;text-align:center;color:#9ca3af">No runs yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 1rem">Groq queue</h3>
+    <table style="width:100%;font-size:0.875rem;border-collapse:collapse">
+      <thead><tr style="border-bottom:2px solid #e5e7eb;text-align:left">
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Job</th>
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Status</th>
+        <th style="padding:0.5rem 0.75rem;color:#6b7280">Attempts</th>
+        <th style="padding:0.5rem 0.75rem;color:#6b7280"></th>
+      </tr></thead>
+      <tbody>
+        {% for q in queue_rows %}
+        <tr style="border-bottom:1px solid #f3f4f6" id="queue-row-{{ q.id }}">
+          <td style="padding:0.5rem 0.75rem">{{ q.title }}</td>
+          <td style="padding:0.5rem 0.75rem">{{ q.status }}</td>
+          <td style="padding:0.5rem 0.75rem">{{ q.attempt_count }}</td>
+          <td style="padding:0.5rem 0.75rem"><button onclick="deleteQueueRow({{ q.id }})" style="color:#dc2626;background:none;border:none;cursor:pointer;font-size:0.8rem">delete</button></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" style="padding:2rem;text-align:center;color:#9ca3af">Queue is empty.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const csrf = "{{ csrf_token() }}";
+
+async function runLocal() {
+  const msg = document.getElementById('action-msg');
+  msg.textContent = 'Running local classification…';
+  const fd = new FormData(); fd.append('csrf_token', csrf);
+  const r = await fetch('/admin/classification/run-local', { method: 'POST', body: fd });
+  const data = await r.json();
+  msg.textContent = r.ok ? `Done: run_id=${data.run_id}` : (data.error || 'Failed');
+  if (r.ok) setTimeout(() => location.reload(), 1000);
+}
+
+async function previewFullReclassify() {
+  const msg = document.getElementById('action-msg');
+  const fd = new FormData(); fd.append('csrf_token', csrf);
+  const r = await fetch('/admin/classification/full-reclassify/preview', { method: 'POST', body: fd });
+  const data = await r.json();
+  if (!r.ok) { msg.textContent = data.error || 'Preview failed'; return; }
+  const ok = confirm(`Sampled ${data.sampled} jobs; ${data.would_change} would change category. Start full re-classify?`);
+  if (!ok) return;
+  const fd2 = new FormData(); fd2.append('csrf_token', csrf);
+  const r2 = await fetch('/admin/classification/full-reclassify/confirm', { method: 'POST', body: fd2 });
+  const data2 = await r2.json();
+  msg.textContent = r2.ok ? `Started: run_id=${data2.run_id}` : (data2.error || 'Failed to start');
+}
+
+async function runGroqNow() {
+  const msg = document.getElementById('action-msg');
+  msg.textContent = 'Processing Groq backlog…';
+  const fd = new FormData(); fd.append('csrf_token', csrf);
+  const r = await fetch('/admin/classification/groq-backlog/run-now', { method: 'POST', body: fd });
+  const data = await r.json();
+  msg.textContent = r.ok ? `Processed ${data.processed}: ${data.succeeded} succeeded, ${data.failed_technical} failed, ${data.no_match} no match` : (data.error || 'Failed');
+  if (r.ok) setTimeout(() => location.reload(), 1500);
+}
+
+async function deleteQueueRow(id) {
+  const fd = new FormData(); fd.append('csrf_token', csrf);
+  const r = await fetch(`/admin/classification/queue/${id}/delete`, { method: 'POST', body: fd });
+  if (r.ok) document.getElementById(`queue-row-${id}`).remove();
+}
+</script>
+{% endblock %}
