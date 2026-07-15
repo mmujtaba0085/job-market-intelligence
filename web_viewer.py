@@ -3234,6 +3234,83 @@ def admin_classification_config():
     return jsonify({"updated": updated})
 
 
+# ═══════════════════════════════════════════════════════════════════
+# ADMIN: NOTIFICATIONS
+# ═══════════════════════════════════════════════════════════════════
+
+@app.route("/admin/notifications")
+@require_admin
+def admin_notifications():
+    from src.notifications import PAGE_KEYS
+    from src.storage.db import get_operational_connection
+    conn = get_operational_connection()
+    rows = conn.execute(
+        "SELECT * FROM notifications ORDER BY created_at DESC"
+    ).fetchall()
+    conn.close()
+    return render_template("admin_notifications.html", notifications=rows, page_keys=PAGE_KEYS)
+
+
+@app.route("/admin/notifications/create", methods=["POST"])
+@require_admin
+def admin_notifications_create():
+    from datetime import datetime, timedelta, timezone
+    from flask import redirect, url_for
+    from src.notifications import PAGE_KEYS
+    from src.storage.db import get_operational_connection
+
+    heading = request.form.get("heading", "").strip()
+    body = request.form.get("body", "").strip()
+    severity = request.form.get("severity", "info")
+    if severity not in ("info", "warning", "urgent"):
+        severity = "info"
+
+    all_pages = request.form.get("target_pages") == "all"
+    if all_pages:
+        target_pages = "all"
+    else:
+        selected = [p for p in request.form.getlist("pages") if p in PAGE_KEYS]
+        target_pages = ",".join(selected) if selected else "all"
+
+    expires_at = None
+    hours_raw = request.form.get("expires_in_hours", "").strip()
+    if hours_raw:
+        try:
+            hours = float(hours_raw)
+            expires_at = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
+        except ValueError:
+            pass
+
+    if not heading or not body:
+        return jsonify({"error": "heading and body are required"}), 400
+
+    conn = get_operational_connection()
+    conn.execute(
+        "INSERT INTO notifications (heading, body, severity, target_pages, created_at, expires_at) VALUES (?,?,?,?,?,?)",
+        (heading, body, severity, target_pages, datetime.now(timezone.utc).isoformat(), expires_at),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin_notifications"))
+
+
+@app.route("/admin/notifications/<int:notification_id>/remove", methods=["POST"])
+@require_admin
+def admin_notifications_remove(notification_id: int):
+    from datetime import datetime, timezone
+    from flask import redirect, url_for
+    from src.storage.db import get_operational_connection
+
+    conn = get_operational_connection()
+    conn.execute(
+        "UPDATE notifications SET removed_at = ? WHERE id = ? AND removed_at IS NULL",
+        (datetime.now(timezone.utc).isoformat(), notification_id),
+    )
+    conn.commit()
+    conn.close()
+    return redirect(url_for("admin_notifications"))
+
+
 # ── Auto-scheduler background thread ─────────────────────────────────────────
 
 def _scheduler_tick_once(now) -> None:
