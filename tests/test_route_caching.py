@@ -31,6 +31,11 @@ def cached_app(tmp_path, monkeypatch):
 
     import web_viewer
     monkeypatch.setattr(web_viewer, "DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
     web_viewer.app.config.update(TESTING=True)
     web_viewer.cache.clear()
     client = web_viewer.app.test_client()

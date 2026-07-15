@@ -53,6 +53,11 @@ def admin_client(tmp_path, monkeypatch):
     # they'd silently read/write the real dev database (see the same pattern in
     # tests/test_classification_scheduling.py's `conn` fixture).
     monkeypatch.setattr("src.storage.db.DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
     web_viewer.app.config.update(TESTING=True, SECRET_KEY="test-secret")
     web_viewer.cache.clear()
 
