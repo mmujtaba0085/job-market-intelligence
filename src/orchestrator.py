@@ -616,17 +616,6 @@ def main() -> None:
         finish_run(run_id, status="failed", error=str(exc))
         raise
 
-    if _should_recompute_diversity(args):
-        try:
-            recompute_diversity_ranks()
-        except Exception:
-            logger.exception("[diversity_rank] recompute failed; leaving ranks stale until next run")
-        try:
-            recompute_skill_combinations()
-            recompute_top_titles()
-        except Exception:
-            logger.exception("[precomputed_summaries] recompute failed; leaving summaries stale until next run")
-
     finish_run(run_id, status="success", **stats)
 
     if mode == "ingest-only":
@@ -639,6 +628,27 @@ def main() -> None:
             buffer_conn.close()
         if has_buffered:
             rotate()
+
+    # Recompute AFTER the ingest-only rotate() block (not before): all three
+    # functions write via get_connection(), which resolves to whatever is
+    # Serving AT CALL TIME. Running this before rotate() used to mean the
+    # write landed on the file that was about to be demoted (and then
+    # overwritten by _refresh_demoted_file() with the new Serving's
+    # recompute-less content) - the newly-promoted file never received it.
+    # Running it here means get_connection() already resolves to the
+    # post-flip Serving file, so the fresh write only ever touches the file
+    # that's actually live. For weekly mode rotate() is never called, so this
+    # reordering is a no-op there.
+    if _should_recompute_diversity(args):
+        try:
+            recompute_diversity_ranks()
+        except Exception:
+            logger.exception("[diversity_rank] recompute failed; leaving ranks stale until next run")
+        try:
+            recompute_skill_combinations()
+            recompute_top_titles()
+        except Exception:
+            logger.exception("[precomputed_summaries] recompute failed; leaving summaries stale until next run")
 
 
 def _run(args, week_start) -> dict:
