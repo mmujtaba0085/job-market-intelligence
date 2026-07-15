@@ -290,6 +290,18 @@ def _run_operational_migrations_impl(conn: sqlite3.Connection) -> None:
             value      TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS notifications (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            heading      TEXT NOT NULL,
+            body         TEXT NOT NULL,
+            severity     TEXT NOT NULL DEFAULT 'info',
+            target_pages TEXT NOT NULL DEFAULT 'all',
+            created_at   TEXT NOT NULL,
+            expires_at   TEXT,
+            removed_at   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_active ON notifications(removed_at, expires_at);
     """)
     defaults = [
         ("ingest_interval_hours",       "12"),
