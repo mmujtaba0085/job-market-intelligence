@@ -2,6 +2,8 @@ import sqlite3
 
 import pytest
 
+import src.storage.db as db
+
 
 @pytest.fixture()
 def admin_client(tmp_path, monkeypatch):
@@ -136,11 +138,85 @@ def test_full_reclassify_confirm_starts_local_full_backfill_run(admin_client):
     data = r.get_json()
     assert "run_id" in data
 
-    from src.storage.db import get_connection
-    conn = get_connection()
+    from src.storage.db import get_free_connection
+    conn = get_free_connection()
     row = conn.execute(
         "SELECT run_type, status FROM classification_runs WHERE run_id = ?", (data["run_id"],)
     ).fetchone()
     conn.close()
     assert row["run_type"] == "local_full_backfill"
     assert row["status"] == "running"
+
+
+@pytest.fixture()
+def rotating_admin_client(tmp_path, monkeypatch):
+    """Like admin_client, but with Free and Serving as genuinely separate
+    physical files (real run_migrations() bootstrap across serving_a/
+    serving_b/buffer/operational, same rotation-path monkeypatches as
+    tests/test_db_rotation.py's isolated_paths fixture) rather than
+    admin_client's single-file emulation. Needed to prove the admin
+    classification routes actually read/write Free and not Serving - with
+    admin_client's setup the two are literally the same file, so that
+    distinction can't be observed."""
+    monkeypatch.setattr(db, "_DATA_DIR", tmp_path)
+    monkeypatch.setattr(db, "_OPERATIONAL_DB_PATH", tmp_path / "operational.sqlite")
+    monkeypatch.setattr(db, "_SERVING_A_PATH", tmp_path / "serving_a.sqlite")
+    monkeypatch.setattr(db, "_SERVING_B_PATH", tmp_path / "serving_b.sqlite")
+    monkeypatch.setattr(db, "_BUFFER_DB_PATH", tmp_path / "buffer.sqlite")
+    monkeypatch.setattr(db, "_POINTER_PATH", tmp_path / "serving_pointer.txt")
+    monkeypatch.setattr(db, "_ROTATION_LOCK_PATH", tmp_path / ".rotation.lock")
+    monkeypatch.setattr(db, "_MIGRATION_LOCK_PATH", tmp_path / ".migrations.lock")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "jobs.sqlite")
+    db.run_migrations()
+
+    # Seed job_id=1 on Free (the non-Serving side, per db._free_path()) via
+    # upsert_job() rather than hand-rolled INSERT, so every NOT NULL column
+    # on the fully-migrated `jobs` table is satisfied correctly.
+    from src.storage.models import JobNormalized
+    with db.use_free_connection():
+        db.upsert_job(JobNormalized(
+            url_hash="free-1", canonical_hash="c-free-1", description_hash="d-free-1",
+            job_group_id="g-free-1", market_id="m", source_name="s",
+            title="Free-side Job", normalized_title="Free-side Job", normalization_confidence=1.0,
+            company="Acme", country="US", location="Remote", remote_type="remote",
+            posted_date=None, salary_min=None, salary_max=None, currency=None,
+            description_text="desc", url="https://example.com/free-1",
+        ))
+
+    import web_viewer
+    monkeypatch.setattr(web_viewer, "DB_PATH", tmp_path / "jobs.sqlite")
+    web_viewer.app.config.update(TESTING=True, SECRET_KEY="test-secret")
+    web_viewer.cache.clear()
+
+    import src.auth.models as models
+    from pathlib import Path
+    monkeypatch.setattr(models, "AUTH_DB_PATH", Path(tmp_path) / "auth.sqlite")
+    monkeypatch.setenv("ADMIN_PASSWORD", "admin-pass-123")
+    models.init_auth_db()
+
+    client = web_viewer.app.test_client()
+    admin_id = next(u["id"] for u in models.list_users() if u["username"] == "admin")
+    with client.session_transaction() as sess:
+        sess["user_id"] = admin_id
+        sess["_csrf_token"] = "test-csrf"
+    return client
+
+
+def test_admin_classification_dashboard_reads_free_not_serving(rotating_admin_client):
+    with db.use_free_connection():
+        conn = db.get_connection()
+        conn.execute(
+            "UPDATE jobs SET field_classification_method = 'local_hybrid_v1' WHERE job_id = 1"
+        )
+        conn.commit()
+        conn.close()
+
+    resp = rotating_admin_client.get("/admin/classification")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    # Precise check tied to the dashboard's "Classified (local)" stat tile
+    # value, not a bare "1" substring search that could pass for unrelated
+    # reasons - it must reflect the Free-side write, proving the route reads
+    # via get_free_connection() rather than Serving (get_db_connection()),
+    # which would still show 0 here since the write never touched Serving.
+    assert 'Classified (local)</div><div style="font-size:1.5rem;font-weight:700">1</div>' in html

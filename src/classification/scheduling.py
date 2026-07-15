@@ -90,14 +90,16 @@ def _groq_retry_due(conn, now: datetime) -> bool:
 
 def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) -> None:
     from src.classification.groq_stage import process_groq_queue
-    from src.classification.local_stage import classify_pending_jobs
+    from src.classification.local_stage import classify_pending_jobs, reclassify_all
     from src.pipeline_monitor import get_config
 
     # Read once per tick - admin-configurable via /admin/classification's
-    # config form (classification_idle_seconds / _local_chunk_size / _groq_chunk_size),
-    # falling back to the module defaults if unset.
+    # config form (classification_local_chunk_size / _groq_chunk_size),
+    # falling back to the module defaults if unset. classification_idle_seconds
+    # is no longer read here - groq_backlog/local_full_backfill dropped their
+    # idle-gating (Free is never serving live traffic, so there's nothing left
+    # to protect it from; see spec's Classification pipeline changes section).
     cfg = get_config()
-    idle_threshold = int(cfg.get("classification_idle_seconds", DEFAULT_IDLE_SECONDS_THRESHOLD))
     local_chunk_size = int(cfg.get("classification_local_chunk_size", DEFAULT_LOCAL_CHUNK_SIZE))
     groq_chunk_size = int(cfg.get("classification_groq_chunk_size", DEFAULT_GROQ_CHUNK_SIZE))
 
@@ -121,41 +123,35 @@ def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) ->
             logger.error("[classification_scheduler] local_incremental failed: %s", exc)
             _finish_run(conn, run_id, status="failed")
 
-    # groq_backlog: auto-starts on idle, chunked, load-gated. local_full_backfill's
-    # active status can't change between the start-check and the continuation
-    # below (nothing in between writes to it), so it's read once and reused
-    # rather than re-queried.
-    other_active = _any_run_active(conn, "local_full_backfill")
+    # groq_backlog: auto-starts when there's a backlog, chunked. No longer
+    # load-gated - Free is never serving live traffic, so there's nothing to
+    # protect it from (see spec's Classification pipeline changes section).
     if _has_pending_groq_backlog(conn) and not _any_run_active(conn, "groq_backlog"):
-        if should_process_chunk(last_request_at, other_active, now, idle_seconds_threshold=idle_threshold):
-            _start_run(conn, "groq_backlog", trigger="backfill_idle")
-            # Falls through to the continuation branch below on this same tick.
+        _start_run(conn, "groq_backlog", trigger="backfill_idle")
+        # Falls through to the continuation branch below on this same tick.
 
     if _any_run_active(conn, "groq_backlog"):
-        if should_process_chunk(last_request_at, other_active, now, idle_seconds_threshold=idle_threshold):
-            run = conn.execute("SELECT run_id FROM classification_runs WHERE run_type = 'groq_backlog' AND status = 'running' LIMIT 1").fetchone()
-            run_id = run["run_id"]
-            process_groq_queue(conn, run_id=run_id, statuses=("pending",), limit=groq_chunk_size)
-            if not _has_pending_groq_backlog(conn):
-                _finish_run(conn, run_id, status="success")
+        run = conn.execute("SELECT run_id FROM classification_runs WHERE run_type = 'groq_backlog' AND status = 'running' LIMIT 1").fetchone()
+        run_id = run["run_id"]
+        process_groq_queue(conn, run_id=run_id, statuses=("pending",), limit=groq_chunk_size)
+        if not _has_pending_groq_backlog(conn):
+            _finish_run(conn, run_id, status="success")
 
     # local_full_backfill: manual-start only (admin action creates the 'running'
     # row elsewhere); this tick only ever CONTINUES an already-started one.
+    # No longer load-gated, same reasoning as groq_backlog above.
     if _any_run_active(conn, "local_full_backfill"):
-        other_active = _any_run_active(conn, "groq_backlog")
-        if should_process_chunk(last_request_at, other_active, now, idle_seconds_threshold=idle_threshold):
-            from src.classification.local_stage import reclassify_all
-            run = conn.execute("SELECT run_id, cursor_job_id FROM classification_runs WHERE run_type = 'local_full_backfill' AND status = 'running' LIMIT 1").fetchone()
-            run_id = run["run_id"]
-            cursor_job_id = run["cursor_job_id"]
-            remaining = conn.execute("SELECT COUNT(*) FROM jobs WHERE job_id > ?", (cursor_job_id or 0,)).fetchone()[0]
-            # after_job_id is required here - without it, reclassify_all's
-            # ORDER BY job_id LIMIT n query would deterministically re-select
-            # the same first chunk on every tick and the run would never
-            # advance past it (see Task 2's after_job_id addition).
-            reclassify_all(conn, run_id=run_id, limit=local_chunk_size, after_job_id=cursor_job_id)
-            if remaining <= local_chunk_size:
-                _finish_run(conn, run_id, status="success")
+        run = conn.execute("SELECT run_id, cursor_job_id FROM classification_runs WHERE run_type = 'local_full_backfill' AND status = 'running' LIMIT 1").fetchone()
+        run_id = run["run_id"]
+        cursor_job_id = run["cursor_job_id"]
+        remaining = conn.execute("SELECT COUNT(*) FROM jobs WHERE job_id > ?", (cursor_job_id or 0,)).fetchone()[0]
+        # after_job_id is required here - without it, reclassify_all's
+        # ORDER BY job_id LIMIT n query would deterministically re-select
+        # the same first chunk on every tick and the run would never
+        # advance past it (see Task 2's after_job_id addition).
+        reclassify_all(conn, run_id=run_id, limit=local_chunk_size, after_job_id=cursor_job_id)
+        if remaining <= local_chunk_size:
+            _finish_run(conn, run_id, status="success")
 
     # groq_retry: hourly sweep of failed_technical rows under the attempt cap.
     # Deliberately NOT load-gated (Global Constraints: load gating applies only

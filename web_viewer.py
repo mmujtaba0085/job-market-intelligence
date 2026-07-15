@@ -3028,7 +3028,8 @@ def admin_pipeline_logs(run_id: str):
 @app.route("/admin/classification")
 @require_admin
 def admin_classification():
-    conn = get_db_connection()
+    from src.storage.db import get_free_connection
+    conn = get_free_connection()
     cursor = conn.cursor()
 
     total = cursor.execute("SELECT COUNT(*) FROM active_jobs").fetchone()[0]
@@ -3080,7 +3081,7 @@ def admin_classification_run_local():
     import uuid
     from src.classification.local_stage import classify_pending_jobs
     from src.pipeline_monitor import get_config
-    from src.storage.db import get_connection
+    from src.storage.db import get_free_connection as get_connection
     run_id = str(uuid.uuid4())[:8]
     conn = get_connection()
     conn.execute(
@@ -3108,7 +3109,7 @@ def admin_classification_run_local():
 def admin_classification_full_reclassify_preview():
     from src.market_classifier import classify_job
     from src.pipeline_monitor import get_config
-    from src.storage.db import get_connection
+    from src.storage.db import get_free_connection as get_connection
     conn = get_connection()
     confidence_threshold = float(get_config().get("classification_confidence_threshold", 0.62))
     rows = conn.execute("SELECT job_id, title, raw_description, field_category_id FROM jobs LIMIT 500").fetchall()
@@ -3126,7 +3127,7 @@ def admin_classification_full_reclassify_preview():
 @require_admin
 def admin_classification_full_reclassify_confirm():
     import uuid
-    from src.storage.db import get_connection
+    from src.storage.db import get_free_connection as get_connection
     run_id = str(uuid.uuid4())[:8]
     conn = get_connection()
     already = conn.execute("SELECT 1 FROM classification_runs WHERE run_type='local_full_backfill' AND status='running'").fetchone()
@@ -3148,7 +3149,7 @@ def admin_classification_groq_run_now():
     import uuid
     from src.classification.groq_stage import process_groq_queue
     from src.pipeline_monitor import get_config
-    from src.storage.db import get_connection
+    from src.storage.db import get_free_connection as get_connection
     conn = get_connection()
     run = conn.execute("SELECT run_id FROM classification_runs WHERE run_type='groq_backlog' AND status='running' LIMIT 1").fetchone()
     run_id = run["run_id"] if run else str(uuid.uuid4())[:8]
@@ -3170,7 +3171,7 @@ def admin_classification_groq_run_now():
 @app.route("/admin/classification/queue/<int:queue_id>/delete", methods=["POST"])
 @require_admin
 def admin_classification_queue_delete(queue_id: int):
-    from src.storage.db import get_connection
+    from src.storage.db import get_free_connection as get_connection
     conn = get_connection()
     conn.execute("DELETE FROM groq_classification_queue WHERE id = ?", (queue_id,))
     conn.commit()
@@ -3224,7 +3225,7 @@ def _auto_scheduler_loop() -> None:
                         _log.info("Auto-launched %s (was due %s)", mode, nxt_dt.isoformat())
 
             from src.classification.scheduling import run_scheduler_tick
-            from src.storage.db import get_connection as _get_classification_conn
+            from src.storage.db import get_free_connection as _get_classification_conn
             classification_conn = _get_classification_conn()
             try:
                 run_scheduler_tick(classification_conn, last_request_at=_last_request_at, now=now)

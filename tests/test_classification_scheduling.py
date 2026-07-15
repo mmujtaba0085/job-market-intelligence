@@ -125,35 +125,43 @@ def test_local_incremental_is_capped_to_chunk_size_not_unbounded(conn):
     assert run["status"] == "success"  # each chunk's run completes on its own, no cursor/continuation needed
 
 
-def test_tick_does_not_launch_groq_backlog_when_recent_activity(conn):
+def test_groq_backlog_runs_without_idle_gating(conn):
+    # Free is never serving live traffic, so groq_backlog no longer defers to
+    # should_process_chunk()'s idle check - it must run even with zero idle
+    # time (last_request_at == now), which would have blocked it before this
+    # task (see the removed test_tick_does_not_launch_groq_backlog_when_recent_activity).
     conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
     conn.execute("INSERT INTO groq_classification_queue (job_id, status, created_at) VALUES (1, 'pending', datetime('now'))")
     conn.commit()
 
+    from datetime import datetime, timezone
+    from unittest.mock import patch
     from src.classification.scheduling import run_scheduler_tick
+
     now = datetime.now(timezone.utc)
-    run_scheduler_tick(conn, last_request_at=now, now=now)  # zero idle time
+    with patch("src.classification.groq_stage.process_groq_queue", return_value={"processed": 1, "succeeded": 1, "failed_technical": 0, "no_match": 0}) as mock_process:
+        run_scheduler_tick(conn, last_request_at=now, now=now)
+    assert mock_process.called
 
-    runs = conn.execute("SELECT run_type FROM classification_runs WHERE run_type = 'groq_backlog'").fetchall()
-    assert len(runs) == 0
+    run = conn.execute("SELECT run_type, trigger FROM classification_runs WHERE run_type = 'groq_backlog'").fetchone()
+    assert run is not None
+    assert run["trigger"] == "backfill_idle"
 
 
-def test_tick_respects_configured_idle_threshold_override(conn, monkeypatch):
-    conn.execute("INSERT INTO pipeline_config (key, value, updated_at) VALUES ('classification_idle_seconds', '10', datetime('now'))")
-    conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
-    conn.execute("INSERT INTO groq_classification_queue (job_id, status, created_at) VALUES (1, 'pending', datetime('now'))")
+def test_local_full_backfill_runs_without_idle_gating(conn):
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES ('r1', 'local_full_backfill', 'manual', 'running', datetime('now'))"
+    )
     conn.commit()
 
-    from src.classification import groq_stage
-    monkeypatch.setattr(groq_stage, "process_groq_queue", lambda conn, run_id, statuses, **kw: {"processed": 1, "succeeded": 1, "failed_technical": 0, "no_match": 0})
-
+    from datetime import datetime, timezone
+    from unittest.mock import patch
     from src.classification.scheduling import run_scheduler_tick
-    now = datetime.now(timezone.utc)
-    idle_60s = now - timedelta(seconds=60)  # below the 300s default, above the configured 10s
-    run_scheduler_tick(conn, last_request_at=idle_60s, now=now)
 
-    run = conn.execute("SELECT run_type FROM classification_runs WHERE run_type = 'groq_backlog'").fetchone()
-    assert run is not None  # only starts if the 10s config override was actually read, not the 300s default
+    now = datetime.now(timezone.utc)
+    with patch("src.classification.local_stage.reclassify_all", return_value={"processed": 0, "classified": 0, "queued_groq": 0}) as mock_reclassify:
+        run_scheduler_tick(conn, last_request_at=now, now=now)
+    assert mock_reclassify.called
 
 
 def test_tick_launches_groq_backlog_when_idle_and_pending_rows_exist(conn, monkeypatch):
