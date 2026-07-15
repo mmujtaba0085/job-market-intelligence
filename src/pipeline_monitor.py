@@ -12,7 +12,7 @@ import sys
 import uuid
 from datetime import datetime, timezone
 
-from src.storage.db import get_connection
+from src.storage.db import get_operational_connection as get_connection
 
 # ── Run recording ─────────────────────────────────────────────────────────────
 

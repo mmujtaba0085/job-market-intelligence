@@ -59,12 +59,24 @@ def isolated_db(tmp_path, monkeypatch):
     conn.close()
     monkeypatch.setattr(db, "DB_PATH", db_path)
     monkeypatch.setattr(db, "_MIGRATION_LOCK_PATH", tmp_path / ".migrations.lock")
+    # Rotation-DB paths (same shape as tests/test_db_rotation_paths.py's
+    # fixture) so bootstrap + the split migrations operate entirely inside
+    # tmp_path and never touch the real data/ directory. After bootstrap the
+    # real migrations run against serving_a (a copy of the legacy db_path),
+    # so post-run assertions check serving_a, not the untouched legacy file.
+    monkeypatch.setattr(db, "_DATA_DIR", tmp_path)
+    monkeypatch.setattr(db, "_OPERATIONAL_DB_PATH", tmp_path / "operational.sqlite")
+    monkeypatch.setattr(db, "_SERVING_A_PATH", tmp_path / "serving_a.sqlite")
+    monkeypatch.setattr(db, "_SERVING_B_PATH", tmp_path / "serving_b.sqlite")
+    monkeypatch.setattr(db, "_BUFFER_DB_PATH", tmp_path / "buffer.sqlite")
+    monkeypatch.setattr(db, "_POINTER_PATH", tmp_path / "serving_pointer.txt")
+    monkeypatch.setattr(db, "_ROTATION_LOCK_PATH", tmp_path / ".rotation.lock")
     return db_path
 
 
 def test_run_migrations_still_works_with_locking_wrapper(isolated_db):
     db.run_migrations()  # must not raise
-    conn = sqlite3.connect(isolated_db)
+    conn = sqlite3.connect(db._SERVING_A_PATH)
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     assert "job_categories" in tables  # a real migration genuinely ran
 
@@ -72,7 +84,7 @@ def test_run_migrations_still_works_with_locking_wrapper(isolated_db):
 def test_run_migrations_is_idempotent_under_the_lock(isolated_db):
     db.run_migrations()
     db.run_migrations()  # second call must not raise or duplicate seed rows
-    conn = sqlite3.connect(isolated_db)
+    conn = sqlite3.connect(db._SERVING_A_PATH)
     count = conn.execute("SELECT COUNT(*) FROM job_categories").fetchone()[0]
     from config.job_markets import JOB_MARKETS
     assert count == len(JOB_MARKETS)
@@ -93,7 +105,7 @@ def test_lock_acquired_before_and_released_after_migration_work(isolated_db, mon
         return real_flock(fd, operation)
 
     monkeypatch.setattr(db.fcntl, "flock", tracking_flock)
-    monkeypatch.setattr(db, "_run_migrations_impl", lambda: call_order.append("migrate"))
+    monkeypatch.setattr(db, "_run_all_migrations", lambda: call_order.append("migrate"))
 
     db.run_migrations()
 
@@ -105,6 +117,6 @@ def test_no_op_lock_path_still_runs_migrations_on_windows(isolated_db, monkeypat
     # platform actually running this test.
     monkeypatch.setattr(db, "fcntl", None)
     db.run_migrations()
-    conn = sqlite3.connect(isolated_db)
+    conn = sqlite3.connect(db._SERVING_A_PATH)
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     assert "job_categories" in tables

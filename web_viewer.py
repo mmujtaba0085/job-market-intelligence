@@ -217,7 +217,9 @@ init_auth_db()
 def get_db_connection():
     """Get SQLite database connection. Falls back to .shadow.sqlite if main is unavailable."""
     from pathlib import Path as _Path
-    candidates = [DB_PATH, _Path(str(DB_PATH).replace(".sqlite", ".shadow.sqlite"))]
+    from src.storage.db import serving_db_path
+    serving_path = serving_db_path()
+    candidates = [serving_path, _Path(str(serving_path).replace(".sqlite", ".shadow.sqlite"))]
     last_err = None
     for p in candidates:
         if not _Path(str(p)).exists():
@@ -575,7 +577,8 @@ def dashboard():
 def healthz():
     """Container/web health probe with a lightweight SQLite check."""
     try:
-        conn = sqlite3.connect(DB_PATH, timeout=5)
+        from src.storage.db import serving_db_path
+        conn = sqlite3.connect(serving_db_path(), timeout=5)
         conn.execute("SELECT 1")
         conn.close()
         return jsonify({"status": "ok", "db": "ok"}), 200

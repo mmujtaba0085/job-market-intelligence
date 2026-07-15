@@ -17,10 +17,13 @@ Public API:
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
+import os
 import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -47,15 +50,120 @@ _MIGRATION_LOCK_PATH = _MIGRATIONS_DIR.parent / ".migrations.lock"
 
 logger = logging.getLogger(__name__)
 
+# ─── Rotating-DB paths & pointer ──────────────────────────────────────────────
+_DATA_DIR = DB_PATH.parent
+_OPERATIONAL_DB_PATH = _DATA_DIR / "operational.sqlite"
+_SERVING_A_PATH = _DATA_DIR / "serving_a.sqlite"
+_SERVING_B_PATH = _DATA_DIR / "serving_b.sqlite"
+_BUFFER_DB_PATH = _DATA_DIR / "buffer.sqlite"
+_POINTER_PATH = _DATA_DIR / "serving_pointer.txt"
+_ROTATION_LOCK_PATH = _DATA_DIR / ".rotation.lock"
 
-def get_connection() -> sqlite3.Connection:
-    """Return a SQLite connection with foreign keys enabled."""
-    conn = sqlite3.connect(DB_PATH)
+# Which logical target get_connection() resolves to. Defaults to "serving" -
+# only orchestrator.py's ingest-only path (use_buffer_connection) and
+# db_rotation.py's merge step (use_free_connection) ever change this, each
+# scoped to a `with` block so it can never leak into an unrelated request.
+_connection_target: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "connection_target", default="serving"
+)
+
+
+def _serving_path_for(which: str) -> Path:
+    return _SERVING_A_PATH if which == "a" else _SERVING_B_PATH
+
+
+def _read_pointer() -> str:
+    if not _POINTER_PATH.exists():
+        return "a"
+    value = _POINTER_PATH.read_text(encoding="utf-8").strip()
+    return value if value in ("a", "b") else "a"
+
+
+def _write_pointer(which: str) -> None:
+    # Atomic: a reader that calls _read_pointer() mid-write either sees the
+    # old value or the new one, never a truncated/partial file.
+    tmp_path = _POINTER_PATH.with_suffix(_POINTER_PATH.suffix + ".tmp")
+    tmp_path.write_text(which, encoding="utf-8")
+    os.replace(tmp_path, _POINTER_PATH)
+
+
+def _serving_path() -> Path:
+    return _serving_path_for(_read_pointer())
+
+
+def _free_path() -> Path:
+    other = "b" if _read_pointer() == "a" else "a"
+    return _serving_path_for(other)
+
+
+def serving_db_path() -> Path:
+    """Public accessor for callers (web_viewer.py's own get_db_connection())
+    that need the raw path rather than a ready-made connection."""
+    return _serving_path()
+
+
+def _connect(path: Path) -> sqlite3.Connection:
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")   # better concurrent read perf
-    conn.execute("PRAGMA busy_timeout = 5000")  # wait up to 5s on a write-lock collision instead of failing immediately
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
+
+
+def get_connection() -> sqlite3.Connection:
+    """Return a SQLite connection with foreign keys enabled.
+
+    Resolves dynamically: Serving by default, or Buffer/Free while
+    use_buffer_connection()/use_free_connection() is active in the current
+    context (see docs/superpowers/specs/2026-07-15-rotating-db-architecture-design.md).
+    """
+    target = _connection_target.get()
+    if target == "buffer":
+        path = _BUFFER_DB_PATH
+    elif target == "free":
+        path = _free_path()
+    else:
+        path = _serving_path()
+    return _connect(path)
+
+
+def get_free_connection() -> sqlite3.Connection:
+    """Always the non-Serving of serving_a/serving_b. Used by the
+    classification pipeline and db_rotation.py's merge step."""
+    return _connect(_free_path())
+
+
+def get_buffer_connection() -> sqlite3.Connection:
+    """Always buffer.sqlite. Used by ingest-only ingestion writes and
+    db_rotation.py's merge-then-clear step."""
+    return _connect(_BUFFER_DB_PATH)
+
+
+def get_operational_connection() -> sqlite3.Connection:
+    """pipeline_config / pipeline_runs only - never rotates."""
+    conn = sqlite3.connect(_OPERATIONAL_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 5000")
+    return conn
+
+
+@contextmanager
+def use_buffer_connection():
+    token = _connection_target.set("buffer")
+    try:
+        yield
+    finally:
+        _connection_target.reset(token)
+
+
+@contextmanager
+def use_free_connection():
+    token = _connection_target.set("free")
+    try:
+        yield
+    finally:
+        _connection_target.reset(token)
 
 
 def run_migrations() -> None:
@@ -75,20 +183,114 @@ def run_migrations() -> None:
     nothing left to race over - not a fix, just luck).
     """
     if fcntl is None:
-        _run_migrations_impl()
+        _run_all_migrations()
         return
 
     _MIGRATION_LOCK_PATH.touch(exist_ok=True)
     with open(_MIGRATION_LOCK_PATH, "r+") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         try:
-            _run_migrations_impl()
+            _run_all_migrations()
         finally:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
-def _run_migrations_impl() -> None:
-    conn = get_connection()
+def _run_all_migrations() -> None:
+    _bootstrap_rotation_files()
+
+    op_conn = sqlite3.connect(_OPERATIONAL_DB_PATH)
+    op_conn.row_factory = sqlite3.Row
+    try:
+        with op_conn:
+            _run_operational_migrations_impl(op_conn)
+    finally:
+        op_conn.close()
+
+    for path in (_SERVING_A_PATH, _SERVING_B_PATH, _BUFFER_DB_PATH):
+        rotating_conn = sqlite3.connect(path)
+        rotating_conn.row_factory = sqlite3.Row
+        try:
+            _run_rotating_migrations_impl(rotating_conn)
+        finally:
+            rotating_conn.close()
+
+
+def _bootstrap_rotation_files() -> None:
+    """One-time split of the legacy single-file DB_PATH into operational.sqlite
+    (pipeline_config/pipeline_runs) + serving_a.sqlite (everything else),
+    run once under run_migrations()'s lock. Guarded by _POINTER_PATH existing
+    - once that's written, bootstrap already happened and this is a no-op.
+    serving_b.sqlite and buffer.sqlite are always created fresh (empty) by
+    _run_rotating_migrations_impl() below, never copied from legacy data.
+    The legacy DB_PATH file is left on disk untouched (not deleted) - nothing
+    writes to it after this point, but it remains as a manual recovery copy
+    and stays usable by scripts/warehouse_rollout.py's --source argument."""
+    if _POINTER_PATH.exists():
+        return
+
+    if DB_PATH.exists() and DB_PATH.stat().st_size > 0:
+        if not _SERVING_A_PATH.exists():
+            _sqlite_file_backup(DB_PATH, _SERVING_A_PATH)
+        if not _OPERATIONAL_DB_PATH.exists():
+            _sqlite_file_backup(DB_PATH, _OPERATIONAL_DB_PATH)
+
+    _write_pointer("a")
+    logger.info("[db] Bootstrapped rotating DB files")
+
+
+def _sqlite_file_backup(source: Path, destination: Path) -> None:
+    """Whole-file consistent snapshot via SQLite's Online Backup API - same
+    call shape as scripts/warehouse_rollout.py::_sqlite_backup()."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    source_conn = sqlite3.connect(source)
+    destination_conn = sqlite3.connect(destination)
+    try:
+        source_conn.backup(destination_conn)
+    finally:
+        destination_conn.close()
+        source_conn.close()
+
+
+def _run_operational_migrations_impl(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS pipeline_runs (
+            run_id      TEXT PRIMARY KEY,
+            mode        TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'running',
+            trigger     TEXT NOT NULL DEFAULT 'schedule',
+            started_at  TEXT NOT NULL,
+            finished_at TEXT,
+            duration_seconds INTEGER,
+            jobs_fetched    INTEGER DEFAULT 0,
+            jobs_inserted   INTEGER DEFAULT 0,
+            jobs_deduped    INTEGER DEFAULT 0,
+            skills_extracted INTEGER DEFAULT 0,
+            error       TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started ON pipeline_runs(started_at DESC);
+
+        CREATE TABLE IF NOT EXISTS pipeline_config (
+            key        TEXT PRIMARY KEY,
+            value      TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+    """)
+    defaults = [
+        ("ingest_interval_hours",       "12"),
+        ("crawl_interval_hours",        "4"),
+        ("crawl_max_runtime_minutes",   "30"),
+        ("weekly_day",                  "Sunday"),
+        ("weekly_time",                 "03:00"),
+        ("show_source_names",           "true"),
+    ]
+    for key, value in defaults:
+        conn.execute(
+            "INSERT OR IGNORE INTO pipeline_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
+            (key, value),
+        )
+
+
+def _run_rotating_migrations_impl(conn: sqlite3.Connection) -> None:
     migration_files = sorted(_MIGRATIONS_DIR.glob("*.sql"))
     with conn:
         for mf in migration_files:
@@ -290,45 +492,6 @@ def _run_migrations_impl() -> None:
         # Migration 007b: Dynamic spreadsheet targets + staging review fields
         _ensure_dynamic_sheet_targets(conn)
 
-        # Migration 008: Pipeline monitoring tables
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS pipeline_runs (
-                run_id      TEXT PRIMARY KEY,
-                mode        TEXT NOT NULL,
-                status      TEXT NOT NULL DEFAULT 'running',
-                trigger     TEXT NOT NULL DEFAULT 'schedule',
-                started_at  TEXT NOT NULL,
-                finished_at TEXT,
-                duration_seconds INTEGER,
-                jobs_fetched    INTEGER DEFAULT 0,
-                jobs_inserted   INTEGER DEFAULT 0,
-                jobs_deduped    INTEGER DEFAULT 0,
-                skills_extracted INTEGER DEFAULT 0,
-                error       TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started ON pipeline_runs(started_at DESC);
-
-            CREATE TABLE IF NOT EXISTS pipeline_config (
-                key        TEXT PRIMARY KEY,
-                value      TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            );
-        """)
-        # Seed default config if empty
-        defaults = [
-            ("ingest_interval_hours",       "12"),
-            ("crawl_interval_hours",        "4"),
-            ("crawl_max_runtime_minutes",   "30"),
-            ("weekly_day",                  "Sunday"),
-            ("weekly_time",                 "03:00"),
-            ("show_source_names",           "true"),
-        ]
-        for key, value in defaults:
-            conn.execute(
-                "INSERT OR IGNORE INTO pipeline_config (key, value, updated_at) VALUES (?, ?, datetime('now'))",
-                (key, value),
-            )
-
         # Migration 009: active_jobs view — excludes listing_status = 'hidden'
         # Always recreated so definition stays current.
         conn.execute("DROP VIEW IF EXISTS active_jobs")
@@ -385,8 +548,6 @@ def _run_migrations_impl() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_skills_job_normalized ON skills(job_id, normalized_skill)"
         )
-
-    conn.close()
 
 
 def _extract_sheet_id(value: str | None) -> str:
