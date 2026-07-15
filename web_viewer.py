@@ -2970,11 +2970,19 @@ def admin_pipeline_run():
     return jsonify({"run_id": run_id, "mode": mode, "status": "started"})
 
 
+@app.route("/admin/pipeline/rotate", methods=["POST"])
+@require_admin
+def admin_pipeline_rotate():
+    from src.db_rotation import rotate
+    result = rotate()
+    return jsonify(result)
+
+
 @app.route("/admin/pipeline/config", methods=["POST"])
 @require_admin
 def admin_pipeline_config():
     from src.pipeline_monitor import set_config
-    allowed = {"ingest_interval_hours", "crawl_interval_hours", "crawl_max_runtime_minutes"}
+    allowed = {"ingest_interval_hours", "crawl_interval_hours", "crawl_max_runtime_minutes", "rotation_max_interval_hours"}
     updated = []
     for key in allowed:
         val = request.form.get(key, "").strip()

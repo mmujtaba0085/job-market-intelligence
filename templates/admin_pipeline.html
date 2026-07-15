@@ -54,7 +54,7 @@
       <!-- Interval config -->
       <form id="config-form" style="margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid #e5e7eb">
         <h4 style="margin:0 0 0.75rem;font-size:0.8rem;text-transform:uppercase;letter-spacing:.05em;color:#6b7280">Adjust Intervals</h4>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:0.75rem">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.5rem;margin-bottom:0.75rem">
           <label style="font-size:0.8rem">
             Ingest (h)
             <input name="ingest_interval_hours" type="number" min="1" max="168"
@@ -71,6 +71,12 @@
             Crawl max (min)
             <input name="crawl_max_runtime_minutes" type="number" min="5" max="120"
               value="{{ config.crawl_max_runtime_minutes }}"
+              style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
+          </label>
+          <label style="font-size:0.8rem">
+            Rotation (h)
+            <input name="rotation_max_interval_hours" type="number" min="1" max="72"
+              value="{{ config.rotation_max_interval_hours }}"
               style="width:100%;margin-top:0.25rem;padding:0.35rem;border:1px solid #d1d5db;border-radius:4px">
           </label>
         </div>
@@ -109,6 +115,12 @@
           style="background:#d97706;color:#fff;border:none;border-radius:6px;padding:0.75rem 1rem;cursor:pointer;text-align:left;font-size:0.875rem">
           <strong>Report-only</strong>
           <span style="display:block;font-size:0.75rem;opacity:.8;margin-top:2px">Recompute analytics + regenerate report (no new collection)</span>
+        </button>
+
+        <button onclick="triggerRotate()" class="run-btn"
+          style="background:#0891b2;color:#fff;border:none;border-radius:6px;padding:0.75rem 1rem;cursor:pointer;text-align:left;font-size:0.875rem">
+          <strong>Rotate Now</strong>
+          <span style="display:block;font-size:0.75rem;opacity:.8;margin-top:2px">Merge Buffer into Free, flip Serving pointer</span>
         </button>
       </div>
       <div id="run-msg" style="margin-top:0.75rem;font-size:0.875rem;color:#6b7280;display:none"></div>
@@ -207,6 +219,36 @@ async function triggerRun(mode) {
   } catch(e) {
     msg.style.color = '#dc2626';
     msg.textContent = 'Network error';
+    btn.disabled = false;
+    btn.style.opacity = '1';
+  }
+}
+
+async function triggerRotate() {
+  const btn = document.querySelector('button[onclick="triggerRotate()"]');
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  const msg = document.getElementById('run-msg');
+  msg.style.display = 'block';
+  msg.style.color = '#6b7280';
+  msg.textContent = 'Rotating…';
+
+  try {
+    const r = await fetch('/admin/pipeline/rotate', { method: 'POST', headers: {'X-CSRFToken': csrf} });
+    const data = await r.json();
+    if (r.ok) {
+      msg.style.color = '#059669';
+      msg.textContent = data.rotated
+        ? `Rotated: merged ${data.merged} job(s), now serving ${data.new_serving}.`
+        : 'Skipped: site busy, try again shortly.';
+    } else {
+      msg.style.color = '#dc2626';
+      msg.textContent = data.error || 'Failed to rotate';
+    }
+  } catch(e) {
+    msg.style.color = '#dc2626';
+    msg.textContent = 'Network error';
+  } finally {
     btn.disabled = false;
     btn.style.opacity = '1';
   }
