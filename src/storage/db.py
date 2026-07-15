@@ -1041,7 +1041,29 @@ def insert_skills(signals: list[SkillSignal]) -> int:
 
 
 def upsert_weekly_metric(metric: WeeklyMetric) -> None:
-    """Insert or replace a weekly_metrics row (idempotent)."""
+    """
+    Insert or replace a weekly_metrics row (idempotent).
+
+    Writes to BOTH serving-slot files, not just whichever is currently
+    "Serving". This is called from the weekly/report-only pipeline mode - a
+    separate, far less frequent process than the ingest-only cycle that
+    flips the Serving pointer every 12h. A single-file write here would
+    reliably get destroyed: the next ingest-only rotation's
+    _refresh_demoted_file() overwrites whichever file just got demoted with
+    a copy of the new Serving file, and there are ~14 such rotations between
+    one weekly run and the next - so no matter which file the write landed
+    on, some later rotation was guaranteed to clobber it before the next
+    weekly run could refresh it. Confirmed happening in production: the
+    weekly timer ran successfully days ago, but weekly_metrics was found
+    completely empty on the live Serving file. Writing to both files means
+    whichever one rotation promotes to "Serving" already has this row.
+    """
+    _upsert_weekly_metric_on_current_connection(metric)
+    with use_free_connection():
+        _upsert_weekly_metric_on_current_connection(metric)
+
+
+def _upsert_weekly_metric_on_current_connection(metric: WeeklyMetric) -> None:
     conn = get_connection()
     try:
         with conn:
