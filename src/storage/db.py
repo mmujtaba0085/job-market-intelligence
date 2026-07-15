@@ -217,20 +217,36 @@ def _run_all_migrations() -> None:
 
 def _bootstrap_rotation_files() -> None:
     """One-time split of the legacy single-file DB_PATH into operational.sqlite
-    (pipeline_config/pipeline_runs) + serving_a.sqlite (everything else),
-    run once under run_migrations()'s lock. Guarded by _POINTER_PATH existing
-    - once that's written, bootstrap already happened and this is a no-op.
-    serving_b.sqlite and buffer.sqlite are always created fresh (empty) by
-    _run_rotating_migrations_impl() below, never copied from legacy data.
-    The legacy DB_PATH file is left on disk untouched (not deleted) - nothing
-    writes to it after this point, but it remains as a manual recovery copy
-    and stays usable by scripts/warehouse_rollout.py's --source argument."""
+    (pipeline_config/pipeline_runs) + serving_a.sqlite AND serving_b.sqlite
+    (both get the full legacy dataset - see below for why), run once under
+    run_migrations()'s lock. Guarded by _POINTER_PATH existing - once that's
+    written, bootstrap already happened and this is a no-op. buffer.sqlite
+    is always created fresh (empty) by _run_rotating_migrations_impl() below
+    - Buffer is genuinely meant to start empty (only ever holds not-yet-
+    merged new ingestion). The legacy DB_PATH file is left on disk untouched
+    (not deleted) - nothing writes to it after this point, but it remains as
+    a manual recovery copy and stays usable by scripts/warehouse_rollout.py's
+    --source argument.
+
+    Both serving_a AND serving_b must start with the real data, not just
+    serving_a: db_rotation.py's rotate() assumes Free is always a
+    roughly-current mirror of Serving (each prior rotation's "refresh the
+    demoted file" step is what keeps them in sync going forward) - an
+    assumption that's only true starting with the SECOND rotation. On a
+    fresh deploy, the scheduler's first idle tick has no last_rotation_at
+    to compare against and rotates immediately (see _auto_scheduler_loop) -
+    if Free (serving_b) had been left empty here, that first rotation would
+    promote an empty file to Serving, losing the live site's access to
+    every pre-existing job until manually recovered. Confirmed in production:
+    exactly this happened on this feature's first deploy before this fix."""
     if _POINTER_PATH.exists():
         return
 
     if DB_PATH.exists() and DB_PATH.stat().st_size > 0:
         if not _SERVING_A_PATH.exists():
             _sqlite_file_backup(DB_PATH, _SERVING_A_PATH)
+        if not _SERVING_B_PATH.exists():
+            _sqlite_file_backup(DB_PATH, _SERVING_B_PATH)
         if not _OPERATIONAL_DB_PATH.exists():
             _sqlite_file_backup(DB_PATH, _OPERATIONAL_DB_PATH)
 

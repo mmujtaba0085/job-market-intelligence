@@ -191,6 +191,19 @@ def test_bootstrap_migrates_legacy_single_file_data_into_serving_a_and_operation
     serving_conn.close()
     assert row is not None and row["title"] == "Legacy Job"
 
+    # Regression coverage for a real production incident: Free (serving_b)
+    # must ALSO be seeded with the legacy data, not just Serving - otherwise
+    # the very first rotation (which fires on the scheduler's first idle
+    # tick, since there's no last_rotation_at yet to compare against)
+    # promotes an empty Free to Serving, silently losing live access to
+    # every pre-existing job until manually recovered. This happened for
+    # real on this feature's first deploy before _bootstrap_rotation_files()
+    # was fixed to seed both files.
+    free_conn = db.get_free_connection()
+    free_row = free_conn.execute("SELECT title FROM jobs WHERE url_hash = 'legacy-hash'").fetchone()
+    free_conn.close()
+    assert free_row is not None and free_row["title"] == "Legacy Job"
+
     op_conn = db.get_operational_connection()
     cfg_row = op_conn.execute("SELECT value FROM pipeline_config WHERE key = 'ingest_interval_hours'").fetchone()
     op_conn.close()
