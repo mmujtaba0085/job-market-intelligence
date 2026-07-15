@@ -39,6 +39,35 @@ def _tokens(text: str) -> set[str]:
     return set(_TOKEN_RE.findall((text or "").lower()))
 
 
+def _boundary_pattern(phrase: str) -> re.Pattern:
+    """
+    Word-boundary-aware match for a keyword phrase. A plain substring check
+    (`phrase in text`) also matches a short phrase embedded inside an
+    unrelated longer word - confirmed in production: the keyword "cto"
+    (it.product) matched "Assistant Director" and "Inspectors" purely
+    because "director"/"inspectors" contain "cto" embedded in them
+    (dire-CTO-r, inspe-CTO-rs), misclassifying ~11% of all it.product-tagged
+    jobs. Uses this module's own token character set ([a-z0-9+#.], same as
+    _TOKEN_RE) rather than regex's built-in \\b, since \\b is tied to \\w
+    and doesn't behave correctly around keywords that start/end with '.',
+    '+', or '#' (e.g. ".net", "c++") the way this codebase's own token
+    definition does.
+    """
+    return re.compile(rf"(?<![a-z0-9+#.]){re.escape(phrase)}(?![a-z0-9+#.])")
+
+
+# Precomputed once at import time (LEAF_MARKETS is a fixed module-level
+# constant) rather than recompiling a regex per keyword on every
+# classify_job() call.
+_COMPILED_KEYWORDS: dict[str, list[tuple[str, str, re.Pattern, set[str]]]] = {
+    market["market_id"]: [
+        (keyword, keyword.lower(), _boundary_pattern(keyword.lower()), _tokens(keyword.lower()))
+        for keyword in market["keywords"]
+    ]
+    for market in LEAF_MARKETS
+}
+
+
 def classify_job(title: str, description: str = "", source_tags: list[str] | None = None) -> MarketMatch:
     """Return a primary leaf and related leaf tags; low-confidence jobs stay unclassified."""
     title_lower = _strip_noise((title or "").lower())
@@ -50,19 +79,17 @@ def classify_job(title: str, description: str = "", source_tags: list[str] | Non
     for market in LEAF_MARKETS:
         score = 0.0
         evidence: list[str] = []
-        for keyword in market["keywords"]:
-            phrase = keyword.lower()
-            phrase_tokens = _tokens(phrase)
-            if phrase in title_lower:
+        for keyword, phrase, pattern, phrase_tokens in _COMPILED_KEYWORDS[market["market_id"]]:
+            if pattern.search(title_lower):
                 score += 5.0
                 evidence.append(f"title:{keyword}")
             elif phrase_tokens and phrase_tokens <= title_tokens:
                 score += 3.5
                 evidence.append(f"title_tokens:{keyword}")
-            elif phrase in source_text:
+            elif pattern.search(source_text):
                 score += 2.5
                 evidence.append(f"source_tag:{keyword}")
-            elif phrase in desc_lower:
+            elif pattern.search(desc_lower):
                 score += 1.0
                 evidence.append(f"description:{keyword}")
             else:
