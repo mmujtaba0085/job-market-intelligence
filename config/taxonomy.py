@@ -20,7 +20,7 @@ SKILL_TAXONOMY: dict[str, list[str]] = {
     # ── Programming languages ──────────────────────────────────────────────────
     "programming": [
         "python", "r", "java", "scala", "c++", "c#", "julia",
-        "sql", "bash", "go", "rust", "typescript", "javascript",
+        "sql", "bash", "rust", "typescript", "javascript",
         "kotlin", "swift",
     ],
 
@@ -128,8 +128,8 @@ SKILL_TAXONOMY: dict[str, list[str]] = {
 
     # ── Soft / domain skills ──────────────────────────────────────────────────
     "soft_skills": [
-        "communication", "leadership", "teamwork", "problem solving",
-        "research", "agile", "scrum",
+        "teamwork", "problem solving",
+        "agile", "scrum",
     ],
 }
 
