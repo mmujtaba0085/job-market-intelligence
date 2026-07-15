@@ -794,26 +794,44 @@ def dashboard_top_skills():
 
 @app.route("/api/dashboard/geo")
 def dashboard_geo():
-    """Get geographic distribution."""
+    """
+    Get geographic distribution.
+
+    Every active job must land in exactly one returned bucket - the sum of
+    `count` across the response must equal the active job total, with no
+    silent drops. This used to WHERE-exclude NULL/blank/'unknown'/'global'
+    countries entirely (~19% of active jobs vanished from the chart with no
+    indication they existed) and separately LIMIT 15, which silently
+    truncated the long tail of real countries (and, historically, raw US
+    state codes like "MA" that used to leak into `country` - see
+    src/utils/country_inference.py and scripts/backfill_us_state_country_codes.py)
+    once there were more than 15 distinct values. Now every job is bucketed
+    (NULL/blank/'unknown' -> "Unknown", 'global' -> "Remote / Global", else
+    the country as stored) and no LIMIT is applied - the frontend already
+    slices to the top 10 for the doughnut chart itself (see
+    static/js/dashboard.js loadGeoChart()), so nothing about the visible
+    chart changes; only the underlying data completeness does.
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     cursor.execute("""
-        SELECT country, COUNT(*) as count
+        SELECT
+          CASE
+            WHEN country IS NULL OR TRIM(country) = '' OR LOWER(TRIM(country)) = 'unknown' THEN 'Unknown'
+            WHEN LOWER(TRIM(country)) = 'global' THEN 'Remote / Global'
+            ELSE country
+          END AS country,
+          COUNT(*) as count
         FROM active_jobs
-        WHERE country IS NOT NULL
-          AND TRIM(country) != ''
-          AND LOWER(country) != 'unknown'
-          AND LOWER(country) != 'global'
-        GROUP BY country
+        GROUP BY 1
         ORDER BY count DESC
-        LIMIT 15
     """)
-    
-    geo = [{"country": row["country"], "count": row["count"]} 
+
+    geo = [{"country": row["country"], "count": row["count"]}
            for row in cursor.fetchall()]
     conn.close()
-    
+
     return jsonify(geo)
 
 

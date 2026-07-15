@@ -38,6 +38,7 @@ import requests
 
 from src.collectors.base_collector import BaseCollector
 from src.storage.models import JobRaw
+from src.utils.country_inference import infer_country
 
 logger = logging.getLogger(__name__)
 
@@ -350,30 +351,16 @@ class FindworkCollector(BaseCollector):
     # ------------------------------------------------------------------
 
     def _extract_country(self, location: str) -> str:
-        """Extract country from location string."""
-        if not location:
-            return "Unknown"
-
-        if "," in location:
-            country_part = location.split(",")[-1].strip()
-            cl = country_part.lower()
-            if "us" in cl or "usa" in cl or "united states" in cl:
-                return "United States"
-            elif "uk" in cl or "united kingdom" in cl:
-                return "United Kingdom"
-            elif "germany" in cl or "deutschland" in cl:
-                return "Germany"
-            elif "france" in cl:
-                return "France"
-            elif "canada" in cl:
-                return "Canada"
-            elif "australia" in cl:
-                return "Australia"
-            elif "netherlands" in cl:
-                return "Netherlands"
-            return country_part
-
-        return "Unknown"
+        """
+        Extract country from location string via the shared country-
+        inference helper (src.utils.country_inference.infer_country)
+        instead of the previous inline comma-split, which fell through to
+        returning the raw trailing fragment verbatim (e.g. "MA" for
+        "Boston, MA") whenever it didn't match one of a handful of
+        hardcoded country names. infer_country's keyword table and
+        US-state-abbreviation lookup cover this correctly instead.
+        """
+        return infer_country(location)
 
     def _parse_date(self, date_str: str) -> str:
         """Parse ISO date to YYYY-MM-DD."""

@@ -599,3 +599,177 @@ class TestLiveDatabase:
         improved = sum(1 for row in rows if enrich_job(row["job_id"], dict(row), _NullConn()).changed)
         pct = improved / len(rows) * 100
         assert pct >= 5, f"Only {improved}/{len(rows)} rows would improve ({pct:.0f}%)"
+
+
+# ===========================================================================
+# 9. COUNTRY INFERENCE — US STATE ABBREVIATIONS
+# ===========================================================================
+class TestCountryInferenceStateAbbreviations:
+    """
+    Regression coverage for the geo-dashboard fix: a raw 2-letter US state
+    abbreviation (e.g. "MA", "VA") must never end up as the literal
+    `country` value fed into the dashboard - src.utils.country_inference
+    .infer_country() already resolves "City, ST" locations to "United
+    States" (it has since the shared module was introduced), so every
+    collector that builds `country` from a free-text location string must
+    route through it instead of a naive comma-split that falls back to the
+    raw fragment. jooble_collector.py, findwork_crawler.py, and
+    findwork_collector.py used to do exactly that; this class covers both
+    the shared helper directly and those three collectors' fixed call
+    sites.
+    """
+
+    def test_infer_country_resolves_city_state_abbreviations(self):
+        from src.utils.country_inference import infer_country
+        cases = {
+            "Boston, MA": "United States",
+            "Quincy, MA": "United States",       # not in the big-city keyword list - exercises the ", ST" fallback
+            "Reston, VA": "United States",
+            "Warrendale, PA": "United States",
+            "Denver, CO": "United States",
+            "Cincinnati, OH": "United States",
+            "Tampa, FL": "United States",
+            "High Point, NC": "United States",
+            "Olympia, WA": "United States",
+            "Washington, DC": "United States",
+        }
+        for location, expected in cases.items():
+            got = infer_country(location)
+            assert got == expected, f"infer_country({location!r}) = {got!r}, expected {expected!r}"
+
+    def test_infer_country_never_returns_a_bare_state_code(self):
+        """The specific failure mode this whole fix exists for: feed every
+        one of the 50 states + DC through a generic "City, ST" shape and
+        confirm infer_country() always resolves to "United States" - never
+        hands back the raw 2-letter fragment itself."""
+        from src.utils.country_inference import infer_country
+        from src.enrichment.location_data import US_STATES
+
+        for code, name in US_STATES.items():
+            location = f"Somewhere, {code}"
+            result = infer_country(location)
+            assert result == "United States", (
+                f"infer_country({location!r}) returned {result!r} instead of "
+                f"'United States' (state={name!r}, code={code!r})"
+            )
+
+    def test_jooble_extract_country_resolves_state_abbreviation(self):
+        """jooble_collector.py used to split the raw location on comma and
+        return the trailing fragment verbatim - "Boston, MA" became "MA"."""
+        from src.collectors.jooble_collector import JoobleCollector
+        j = object.__new__(JoobleCollector)
+        assert j._extract_country("Boston, MA", "") == "United States"
+        assert j._extract_country("Austin, TX", "") == "United States"
+        assert j._extract_country("London, UK", "") == "United Kingdom"
+        # Blank location falls back to the market's search-location string,
+        # which is itself now routed through infer_country() too.
+        assert j._extract_country("", "Pakistan") == "Pakistan"
+        assert j._extract_country("", "") == "Unknown"
+
+    def test_findwork_collector_extract_country_resolves_state_abbreviation(self):
+        """findwork_collector.py's old fallback returned the raw trailing
+        comma fragment whenever it wasn't one of ~7 hardcoded country
+        names."""
+        from src.collectors.findwork_collector import FindworkCollector
+        f = object.__new__(FindworkCollector)
+        assert f._extract_country("Warrendale, PA") == "United States"
+        assert f._extract_country("Berlin, Germany") == "Germany"
+        assert f._extract_country("") == "Unknown"
+
+    def test_findwork_crawler_parse_job_resolves_state_abbreviation(self):
+        """findwork_crawler.py built `country` inline in _parse_job() with
+        the same raw comma-split bug as findwork_collector.py."""
+        from src.collectors.findwork_crawler import FindworkCrawler
+        fc = object.__new__(FindworkCrawler)
+        fc.source_id = "findwork_crawl"
+        item = {
+            "url": "https://findwork.dev/job/1",
+            "role": "Backend Engineer",
+            "company_name": "Acme",
+            "location": "Denver, CO",
+            "text": "",
+            "date_posted": "",
+            "remote": False,
+        }
+        job = fc._parse_job(item, is_relevant=True)
+        assert job.parsed_fields["country"] == "United States"
+
+
+class TestBackfillUsStateCountryCodes:
+    """
+    scripts/backfill_us_state_country_codes.py's core update logic
+    (backfill_connection()), exercised directly against a throwaway
+    in-memory sqlite database - never against data/serving_a.sqlite or any
+    real file. Proves it only touches exact state-code matches among
+    active jobs, leaves everything else alone (including a same-named
+    substring like "Malta"), and is a true no-op the second time it runs.
+    """
+
+    def _db(self):
+        import sys; sys.path.insert(0, str(ROOT))
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("""
+            CREATE TABLE jobs (
+                job_id INTEGER PRIMARY KEY,
+                country TEXT,
+                listing_status TEXT DEFAULT 'active'
+            )
+        """)
+        return conn
+
+    def test_updates_only_exact_state_code_matches_among_active_jobs(self):
+        import sys; sys.path.insert(0, str(ROOT))
+        from scripts.backfill_us_state_country_codes import backfill_connection
+
+        conn = self._db()
+        rows = [
+            ("MA", "active"),             # exact match -> updated
+            ("va", "active"),             # lowercase exact match -> updated (UPPER comparison)
+            (" PA ", "active"),           # padded -> updated (TRIM comparison)
+            ("United States", "active"),  # already correct -> untouched
+            ("Canada", "active"),         # unrelated real country -> untouched
+            ("Malta", "active"),          # NOT "MA" -> must not falsely match via substring
+            ("MA", "hidden"),             # not an active job -> must not be touched
+        ]
+        for country, status in rows:
+            conn.execute("INSERT INTO jobs (country, listing_status) VALUES (?, ?)", (country, status))
+        conn.commit()
+
+        updated = backfill_connection(conn, dry_run=False)
+        assert updated == 3
+
+        result = {r["job_id"]: r["country"] for r in conn.execute("SELECT job_id, country FROM jobs")}
+        assert result[1] == "United States"   # "MA" -> fixed
+        assert result[2] == "United States"   # "va" -> fixed
+        assert result[3] == "United States"   # " PA " -> fixed
+        assert result[4] == "United States"   # already correct, untouched
+        assert result[5] == "Canada"          # unrelated country, untouched
+        assert result[6] == "Malta"           # not touched - proves exact match, not substring
+        assert result[7] == "MA"              # hidden job - inactive, must remain untouched
+
+    def test_idempotent_second_run_is_a_no_op(self):
+        import sys; sys.path.insert(0, str(ROOT))
+        from scripts.backfill_us_state_country_codes import backfill_connection
+
+        conn = self._db()
+        conn.execute("INSERT INTO jobs (country, listing_status) VALUES ('MA', 'active')")
+        conn.commit()
+
+        first = backfill_connection(conn, dry_run=False)
+        second = backfill_connection(conn, dry_run=False)
+        assert first == 1
+        assert second == 0
+        assert conn.execute("SELECT country FROM jobs WHERE job_id=1").fetchone()["country"] == "United States"
+
+    def test_dry_run_reports_without_writing(self):
+        import sys; sys.path.insert(0, str(ROOT))
+        from scripts.backfill_us_state_country_codes import backfill_connection
+
+        conn = self._db()
+        conn.execute("INSERT INTO jobs (country, listing_status) VALUES ('MA', 'active')")
+        conn.commit()
+
+        counted = backfill_connection(conn, dry_run=True)
+        assert counted == 1
+        assert conn.execute("SELECT country FROM jobs WHERE job_id=1").fetchone()["country"] == "MA"

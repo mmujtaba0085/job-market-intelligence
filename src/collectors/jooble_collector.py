@@ -35,6 +35,7 @@ from src.collectors.base_collector import BaseCollector
 from src.storage.models import JobRaw
 from src.enrichment.location_resolver import resolve_location
 from src.enrichment.salary import parse_salary
+from src.utils.country_inference import infer_country
 
 logger = logging.getLogger(__name__)
 
@@ -308,18 +309,20 @@ class JoobleCollector(BaseCollector):
         """
         Extract country from location string.
         Jooble location format is typically "City, Country" or "Country".
+
+        Routed through the shared infer_country() helper (same one every
+        other listing-string collector uses) instead of a bare comma-split -
+        the old "split on comma, take the last part verbatim" approach
+        returned raw fragments like "MA" for "Boston, MA" whenever the
+        trailing fragment wasn't literally a full country name.
+        infer_country() resolves "City, ST" US-state abbreviations (and
+        remote/global keywords, and the full country keyword table) instead
+        of leaking them straight into the country column.
         """
         if not location_str:
             # Fall back to search location if available
             if search_location and search_location.strip():
-                return search_location
+                return infer_country(search_location)
             return "Unknown"
-        
-        # Split on comma and take last part as country
-        parts = location_str.split(",")
-        if len(parts) > 1:
-            country = parts[-1].strip()
-            return country if country else "Unknown"
-        
-        # If no comma, assume the whole string is the country
-        return location_str.strip() or "Unknown"
+
+        return infer_country(location_str)

@@ -36,6 +36,7 @@ from src.collectors.base_collector import BaseCollector
 from src.normalizer import normalize_batch
 from src.deduplicator import deduplicate_and_store
 from src.storage.models import JobRaw
+from src.utils.country_inference import infer_country
 
 logger = logging.getLogger(__name__)
 
@@ -210,14 +211,13 @@ class FindworkCrawler(BaseCollector):
         date_posted = item.get("date_posted") or ""
         posted_date = self._parse_date(date_posted)
         
-        # Extract country from location (simple heuristic)
-        country = "Unknown"
-        if location:
-            # Very basic country extraction - could be improved
-            if "United States" in location or "USA" in location or ", " in location:
-                parts = location.split(",")
-                if len(parts) >= 2:
-                    country = parts[-1].strip()
+        # Extract country via the shared country-inference helper (handles
+        # "City, ST" US-state abbreviations, remote/global keywords, and the
+        # full country keyword table - see src/utils/country_inference.py).
+        # The previous inline comma-split fell back to the raw trailing
+        # fragment verbatim (e.g. "MA" for "Boston, MA") whenever it wasn't
+        # literally "United States"/"USA".
+        country = infer_country(location)
         
         # Determine remote type
         is_remote = item.get("remote", False)
