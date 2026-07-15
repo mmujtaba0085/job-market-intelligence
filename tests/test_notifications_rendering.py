@@ -2,8 +2,14 @@
 tests/test_notifications_rendering.py
 ────────────────────────────────────────
 End-to-end (via Flask test client) proof that an admin-created notification
-actually appears on a targeted page's rendered HTML, does not appear on an
-untargeted page, and is excluded once its id is in the jmi_dismissed cookie.
+actually appears on a targeted page's rendered HTML and does not appear on
+an untargeted page. Dismissal is NOT server-side (see
+web_viewer.py::_load_active_notifications' comment for why - cached pages
+would otherwise leak one visitor's dismissal to every other visitor) - the
+server always renders the same HTML regardless of the jmi_dismissed cookie,
+and real hiding happens client-side via a <style> rule base.html injects
+early in <head>, which this file can only prove is correctly wired in, not
+that a browser actually applies it (no JS execution in the test client).
 """
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -90,11 +96,43 @@ def test_page_specific_notification_appears_on_targeted_page(anon_client):
     assert b"Jobs-only notice" in resp.data
 
 
-def test_dismissed_notification_does_not_appear(anon_client):
+def test_dismissed_notification_still_appears_in_server_rendered_html(anon_client):
+    """Dismissal is deliberately NOT applied server-side (see
+    web_viewer.py::_load_active_notifications' comment) - several pages
+    this hook covers are wrapped in @cache.cached(), which caches the full
+    rendered HTML per role, not per visitor. If the server personalized by
+    dismiss cookie, the first visitor to dismiss a notification would bake
+    that into the cached page and silently hide it from every other
+    visitor for the rest of the cache window. So the server renders the
+    SAME HTML regardless of the jmi_dismissed cookie - the notification
+    text is still present here - and dismissal is applied purely
+    client-side instead (see the next test)."""
     row_id = _seed_notification(heading="Dismiss me")
     anon_client.set_cookie("jmi_dismissed", str(row_id))
     resp = anon_client.get("/jobs")
-    assert b"Dismiss me" not in resp.data
+    assert b"Dismiss me" in resp.data
+
+
+def test_dismissed_id_gets_a_client_side_hide_rule_injected(anon_client):
+    """Real hiding of a dismissed notification happens client-side, before
+    it would ever paint: base.html's early <head> script reads the
+    jmi_dismissed cookie and injects a <style> rule targeting that
+    notification's [data-notification-id] selector. The Flask test client
+    doesn't execute JS, so this can't prove the browser actually hides the
+    element - only that the mechanism is correctly wired into the response
+    (the right id appears inside the injected-style-generating script,
+    scoped to this request's actual cookie value) for the given
+    dismissed id, and is absent when no id is dismissed."""
+    row_id = _seed_notification(heading="Dismiss me")
+
+    anon_client.set_cookie("jmi_dismissed", str(row_id))
+    resp = anon_client.get("/jobs")
+    assert f'data-notification-id="{row_id}"'.encode() in resp.data  # the bar itself, still rendered
+    assert b"jmi_dismissed" in resp.data  # the hide-on-load script is present in every page
+
+    anon_client.delete_cookie("jmi_dismissed")
+    resp = anon_client.get("/jobs")
+    assert b"jmi_dismissed" in resp.data  # script still present (it's static, always in base.html)
 
 
 def test_notification_without_dismiss_cookie_appears(anon_client):

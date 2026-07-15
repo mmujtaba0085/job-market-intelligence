@@ -218,11 +218,21 @@ def _load_active_notifications():
     from datetime import datetime, timezone
     from src.notifications import load_active_notifications
 
-    dismissed_raw = request.cookies.get("jmi_dismissed", "")
-    dismissed_ids = {int(x) for x in dismissed_raw.split(",") if x.strip().isdigit()}
+    # Deliberately NOT filtering by the jmi_dismissed cookie here (unlike
+    # the original design): several pages this hook covers (/jobs,
+    # /dashboard, ...) are wrapped in @cache.cached(), which caches the
+    # full rendered HTML per role, not per visitor. If dismissal were baked
+    # into this server-rendered HTML, the first anonymous visitor to
+    # dismiss a notification would silently hide it from every other
+    # anonymous visitor for the rest of the cache window, and a visitor
+    # who dismissed it could see it reappear once a non-dismissing visitor
+    # re-warms the cache. Rendering the same, uniform HTML for everyone and
+    # hiding already-dismissed bars client-side (see base.html's early
+    # <head> script) keeps dismissal genuinely per-visitor regardless of
+    # caching.
     try:
         g.active_notifications = load_active_notifications(
-            request.path, dismissed_ids, datetime.now(timezone.utc)
+            request.path, set(), datetime.now(timezone.utc)
         )
     except sqlite3.OperationalError:
         # The operational DB's notifications table can be legitimately
@@ -3256,8 +3266,13 @@ def admin_notifications():
 def admin_notifications_create():
     from datetime import datetime, timedelta, timezone
     from flask import redirect, url_for
+    from src.auth.middleware import validate_csrf
     from src.notifications import PAGE_KEYS
     from src.storage.db import get_operational_connection
+
+    err = validate_csrf()
+    if err:
+        return err
 
     heading = request.form.get("heading", "").strip()
     body = request.form.get("body", "").strip()
@@ -3291,6 +3306,12 @@ def admin_notifications_create():
     )
     conn.commit()
     conn.close()
+    # A newly-created notification must show up immediately, not wait out
+    # the up-to-900s @cache.cached() window on /jobs, /dashboard, etc. -
+    # this is a rare admin action, so clearing the whole cache rather than
+    # tracking which specific cached routes this notification targets is
+    # an acceptable, much simpler trade.
+    cache.clear()
     return redirect(url_for("admin_notifications"))
 
 
@@ -3299,7 +3320,12 @@ def admin_notifications_create():
 def admin_notifications_remove(notification_id: int):
     from datetime import datetime, timezone
     from flask import redirect, url_for
+    from src.auth.middleware import validate_csrf
     from src.storage.db import get_operational_connection
+
+    err = validate_csrf()
+    if err:
+        return err
 
     conn = get_operational_connection()
     conn.execute(
@@ -3308,6 +3334,7 @@ def admin_notifications_remove(notification_id: int):
     )
     conn.commit()
     conn.close()
+    cache.clear()
     return redirect(url_for("admin_notifications"))
 
 

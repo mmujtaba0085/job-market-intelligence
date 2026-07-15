@@ -100,7 +100,7 @@ document.getElementById('create-form').addEventListener('submit', async (e) => {
   fd.append('csrf_token', csrf);
   fd.append('target_pages', document.getElementById('all-pages-toggle').checked ? 'all' : 'specific');
   const msg = document.getElementById('create-msg');
-  const r = await fetch('/admin/notifications/create', { method: 'POST', body: fd });
+  const r = await fetch('/admin/notifications/create', { method: 'POST', headers: {'X-CSRF-Token': csrf}, body: fd });
   if (r.ok) {
     location.reload();
   } else {
@@ -113,7 +113,7 @@ document.querySelectorAll('.remove-btn').forEach(btn => {
   btn.addEventListener('click', async () => {
     const fd = new FormData();
     fd.append('csrf_token', csrf);
-    const r = await fetch(`/admin/notifications/${btn.dataset.id}/remove`, { method: 'POST', body: fd });
+    const r = await fetch(`/admin/notifications/${btn.dataset.id}/remove`, { method: 'POST', headers: {'X-CSRF-Token': csrf}, body: fd });
     if (r.ok) location.reload();
   });
 });

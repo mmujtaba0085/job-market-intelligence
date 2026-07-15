@@ -141,9 +141,10 @@ def get_buffer_connection() -> sqlite3.Connection:
 
 
 def get_operational_connection() -> sqlite3.Connection:
-    """pipeline_config / pipeline_runs only - never rotates."""
+    """pipeline_config / pipeline_runs / notifications - never rotates."""
     conn = sqlite3.connect(_OPERATIONAL_DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 

@@ -105,7 +105,7 @@ def test_create_inserts_a_row(admin_client):
         "body": "The site will be briefly unavailable at 2am UTC.",
         "severity": "warning",
         "target_pages": "all",
-    })
+    }, headers={"X-CSRF-Token": "test-csrf"})
     assert r.status_code in (200, 302)
 
     from src.storage.db import get_operational_connection
@@ -126,7 +126,7 @@ def test_create_with_specific_pages_joins_them_with_commas(admin_client):
         "severity": "info",
         "target_pages": "jobs",
         "pages": ["jobs", "dashboard"],
-    })
+    }, headers={"X-CSRF-Token": "test-csrf"})
     from src.storage.db import get_operational_connection
     conn = get_operational_connection()
     row = conn.execute("SELECT target_pages FROM notifications WHERE heading = ?", ("Jobs page notice",)).fetchone()
@@ -142,7 +142,7 @@ def test_create_with_expiry_hours_sets_absolute_expires_at(admin_client):
         "severity": "info",
         "target_pages": "all",
         "expires_in_hours": "2",
-    })
+    }, headers={"X-CSRF-Token": "test-csrf"})
     from src.storage.db import get_operational_connection
     conn = get_operational_connection()
     row = conn.execute("SELECT expires_at FROM notifications WHERE heading = ?", ("Temporary notice",)).fetchone()
@@ -162,7 +162,7 @@ def test_create_without_expiry_leaves_expires_at_null(admin_client):
         "body": "Body text.",
         "severity": "info",
         "target_pages": "all",
-    })
+    }, headers={"X-CSRF-Token": "test-csrf"})
     from src.storage.db import get_operational_connection
     conn = get_operational_connection()
     row = conn.execute("SELECT expires_at FROM notifications WHERE heading = ?", ("Permanent-ish notice",)).fetchone()
@@ -182,7 +182,7 @@ def test_remove_sets_removed_at(admin_client):
     row_id = conn.execute("SELECT id FROM notifications WHERE heading = ?", ("To be removed",)).fetchone()["id"]
     conn.close()
 
-    r = admin_client.post(f"/admin/notifications/{row_id}/remove", data={"csrf_token": "test-csrf"})
+    r = admin_client.post(f"/admin/notifications/{row_id}/remove", data={"csrf_token": "test-csrf"}, headers={"X-CSRF-Token": "test-csrf"})
     assert r.status_code in (200, 302)
 
     conn = get_operational_connection()
@@ -204,7 +204,7 @@ def test_removed_notification_stops_appearing_in_active_list(admin_client):
     row_id = conn.execute("SELECT id FROM notifications WHERE heading = ?", ("Active then removed",)).fetchone()["id"]
     conn.close()
 
-    admin_client.post(f"/admin/notifications/{row_id}/remove", data={"csrf_token": "test-csrf"})
+    admin_client.post(f"/admin/notifications/{row_id}/remove", data={"csrf_token": "test-csrf"}, headers={"X-CSRF-Token": "test-csrf"})
 
     result = load_active_notifications("/jobs", set(), datetime.now(timezone.utc))
     assert row_id not in {r["id"] for r in result}

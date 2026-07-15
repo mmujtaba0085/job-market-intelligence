@@ -15,6 +15,26 @@
     })();
     </script>
 
+    <script>
+    (function(){
+        // Server-rendered notification bars are now identical for every
+        // visitor (see web_viewer.py's _load_active_notifications hook) so
+        // cached pages stay correct - dismissal is applied here instead,
+        // client-side, before the bars ever paint. A <style> rule (not
+        // removing elements, which don't exist yet at this point in <head>)
+        // hides each dismissed id's bar the instant it's inserted later
+        // during body parsing, avoiding a flash of an already-dismissed bar.
+        var match = document.cookie.match(/jmi_dismissed=([^;]*)/);
+        if (!match) return;
+        var ids = match[1].split(',').filter(Boolean);
+        if (!ids.length) return;
+        var selector = ids.map(function(id){ return '[data-notification-id="' + id + '"]'; }).join(',');
+        var style = document.createElement('style');
+        style.textContent = selector + '{display:none}';
+        document.head.appendChild(style);
+    })();
+    </script>
+
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@500;600;700;800&family=Public+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
