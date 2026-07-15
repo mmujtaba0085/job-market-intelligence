@@ -42,7 +42,12 @@ def anon_client(tmp_path, monkeypatch):
     monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
     monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
     monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
-    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", tmp_path / "operational.sqlite")
+    # Same reasoning as db_path above: must exist before run_migrations()
+    # runs, or _bootstrap_rotation_files() backs up the real (unpatched)
+    # DB_PATH into it instead of starting genuinely empty.
+    operational_db_path = tmp_path / "operational.sqlite"
+    sqlite3.connect(str(operational_db_path)).close()
+    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", operational_db_path)
     monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
     web_viewer.app.config.update(TESTING=True, SECRET_KEY="test-secret")
     web_viewer.cache.clear()
