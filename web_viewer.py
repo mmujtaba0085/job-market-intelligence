@@ -210,6 +210,35 @@ def _track_last_request_at():
     _last_request_at = datetime.now(timezone.utc)
 
 
+@app.before_request
+def _load_active_notifications():
+    if request.path == "/healthz" or request.path.startswith("/static/"):
+        g.active_notifications = []
+        return
+    from datetime import datetime, timezone
+    from src.notifications import load_active_notifications
+
+    dismissed_raw = request.cookies.get("jmi_dismissed", "")
+    dismissed_ids = {int(x) for x in dismissed_raw.split(",") if x.strip().isdigit()}
+    try:
+        g.active_notifications = load_active_notifications(
+            request.path, dismissed_ids, datetime.now(timezone.utc)
+        )
+    except sqlite3.OperationalError:
+        # The operational DB's notifications table can be legitimately
+        # absent - a not-yet-migrated DB, or (the common case in this
+        # repo's own test suite) an isolated test fixture that builds a
+        # minimal hand-rolled schema without ever calling run_migrations().
+        # An optional announcement bar must never turn every page on the
+        # site into a 500; degrade to "no notifications" instead. Scoped to
+        # sqlite3.OperationalError specifically (not a bare except) so a
+        # real bug in the filtering logic itself - e.g. the naive-vs-aware
+        # datetime TypeError this hook must avoid - still surfaces loudly
+        # instead of being silently swallowed here.
+        logger.warning("[notifications] load_active_notifications failed (DB not migrated?); showing no notifications for %s", request.path, exc_info=True)
+        g.active_notifications = []
+
+
 # ── Initialise auth DB on startup ─────────────────────────────────────────────
 init_auth_db()
 

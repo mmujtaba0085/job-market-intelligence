@@ -122,6 +122,21 @@
             z-index: 100;
         }
 
+        /* ─── Notification bar ───────────────────────────────────────── */
+        .notification-bar { padding: 10px 0; }
+        .notification-bar-inner {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; font-size: 13px;
+        }
+        .notification-text { flex: 1; }
+        .notification-info    { background: var(--accent-bg);  color: var(--accent);  }
+        .notification-warning { background: var(--warning-bg); color: var(--warning); }
+        .notification-urgent  { background: var(--danger-bg);  color: var(--danger);  }
+        .notification-close {
+            background: none; border: none; cursor: pointer;
+            font-size: 18px; line-height: 1; color: inherit; padding: 0 4px;
+        }
+
         .header-inner {
             display: flex;
             align-items: center;
@@ -409,6 +424,8 @@
 <body>
     {% block filter_sidebar %}{% endblock %}
 
+    {% include "_notifications.html" %}
+
     <header>
         <div class="container">
             <div class="header-inner">
@@ -504,6 +521,16 @@
         const next = html.getAttribute("data-theme") === "dark" ? "light" : "dark";
         html.setAttribute("data-theme", next);
         document.cookie = `jmi_theme=${next};path=/;max-age=31536000;SameSite=Lax`;
+    };
+    </script>
+    <script>
+    window.dismissNotification = function(id){
+        var el = document.querySelector('[data-notification-id="' + id + '"]');
+        if (el) el.remove();
+        var match = document.cookie.match(/jmi_dismissed=([^;]*)/);
+        var ids = match ? match[1].split(',').filter(Boolean) : [];
+        if (ids.indexOf(String(id)) === -1) ids.push(String(id));
+        document.cookie = 'jmi_dismissed=' + ids.join(',') + ';path=/;max-age=2592000;SameSite=Lax';
     };
     </script>
     {% block extra_scripts %}{% endblock %}

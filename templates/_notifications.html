@@ -1,0 +1,8 @@
+{% for n in g.active_notifications %}
+<div class="notification-bar notification-{{ n.severity }}" data-notification-id="{{ n.id }}">
+  <div class="container notification-bar-inner">
+    <div class="notification-text"><strong>{{ n.heading }}</strong> {{ n.body }}</div>
+    <button class="notification-close" onclick="dismissNotification({{ n.id }})" aria-label="Dismiss">&times;</button>
+  </div>
+</div>
+{% endfor %}
