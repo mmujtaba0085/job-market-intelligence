@@ -198,6 +198,15 @@ class PakistanJobsBankCollector(BaseCollector):
             ad_title = anchor.get_text(strip=True)
             if not ad_title:
                 continue
+            # The site marks section dividers/category headers with a
+            # "===...===" convention - already filtered out of position
+            # <li> text below, but never checked against the row's own
+            # anchor text. A divider row has no real <ul class="Positions">
+            # items, so it falls through to `titles = [...] or [ad_title]`
+            # and gets stored as if the divider text were itself a job
+            # title. Reject it here instead, before any of that.
+            if ad_title.startswith("===") and ad_title.endswith("==="):
+                continue
             href = anchor["href"]
             ad_url = href if href.startswith("http") else f"{_BASE_URL}{href}"
 

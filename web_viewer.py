@@ -2956,6 +2956,16 @@ def format_date(date_str):
         return date_str
 
 
+@app.template_filter("display_source")
+def display_source(source_name):
+    """Clean display label for source_name. GitHub-collected jobs store
+    "GitHub:owner/repo" internally (useful for debugging/grouping which
+    repo a job came from) but should show a plain "GitHub" label to users."""
+    if source_name and source_name.startswith("GitHub:"):
+        return "GitHub"
+    return source_name
+
+
 @app.template_filter("number_format")
 def number_format(value):
     """Format number with thousands separator."""

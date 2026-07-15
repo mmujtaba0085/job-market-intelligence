@@ -774,16 +774,54 @@ class GitHubRepoCollector(BaseCollector):
         - **[text](url)** -> text
         - **text** -> text
         - [**text**](url) -> text
+        - [[Online Assessment] Title](url) -> [Online Assessment] Title
+          (link text containing its own nested [tag] brackets, e.g.
+          Jobright's "[Online Assessment]"/"[US]" prefixes - see
+          _extract_markdown_link_text for why this needs a bracket-depth
+          scan rather than a single regex)
         """
         if not text:
             return ""
         # First pass: remove bold/italic around links: **[text](url)** -> [text](url)
         text = re.sub(r'(\*+)(\[.+?\]\(.+?\))(\*+)', r'\2', text)
         # Second pass: extract text from markdown links: [text](url) -> text
-        text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+        text = self._extract_markdown_link_text(text)
         # Third pass: remove any remaining markdown bold/italic markers
         text = re.sub(r'[*_]+', '', text)
         return text.strip()
+
+    @staticmethod
+    def _extract_markdown_link_text(text: str) -> str:
+        """[text](url) -> text, where text may itself contain [nested]
+        brackets (e.g. "[[Online Assessment] Foo](url)"). A regex like
+        \\[([^\\]]+)\\]\\(...\\) can't handle this: [^\\]]+ stops at the
+        FIRST ']', which is the inner tag's closing bracket, not the outer
+        link's - the match then fails (no '(' right after) and the whole
+        [text](url) is left completely unstripped in the output, verbatim.
+        Same bracket-depth-counting approach _split_markdown_table_row
+        already uses for pipe-splitting, applied here instead."""
+        result = []
+        i = 0
+        n = len(text)
+        while i < n:
+            if text[i] == '[':
+                depth = 1
+                j = i + 1
+                while j < n and depth > 0:
+                    if text[j] == '[':
+                        depth += 1
+                    elif text[j] == ']':
+                        depth -= 1
+                    j += 1
+                if depth == 0 and j < n and text[j] == '(':
+                    close_paren = text.find(')', j)
+                    if close_paren != -1:
+                        result.append(text[i + 1:j - 1])
+                        i = close_paren + 1
+                        continue
+            result.append(text[i])
+            i += 1
+        return ''.join(result)
 
     def _clean_location(self, s: str) -> str:
         s = self._remove_emojis(self._strip_html(s))

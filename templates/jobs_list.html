@@ -240,10 +240,10 @@
                     <span class="badge badge-onsite">{{ job.remote_type }}</span>
                     {% endif %}
                 </td>
-                <td data-posted="{{ job.posted_date or '' }}">
-                    {% if g.current_user %}{{ job.posted_date or 'N/A' }}{% else %}<span class="gw-cell-lock" onclick="event.stopPropagation();gwShowGate()" title="Sign in to view posted date">{{ icons.lock(12) }}</span>{% endif %}
+                <td data-posted="{{ job.posted_date or (job.first_seen_at[:10] if job.first_seen_at else '') }}">
+                    {% if g.current_user %}{% if job.posted_date %}{{ job.posted_date }}{% elif job.first_seen_at %}{{ job.first_seen_at[:10] }}{% else %}N/A{% endif %}{% else %}<span class="gw-cell-lock" onclick="event.stopPropagation();gwShowGate()" title="Sign in to view posted date">{{ icons.lock(12) }}</span>{% endif %}
                 </td>
-                <td>{{ job.source_name }}</td>
+                <td>{{ job.source_name | display_source }}</td>
                 <td>
                     {% if g.current_user %}
                     <a href="/jobs/{{ job.job_id }}" class="btn" style="padding: 0.25rem 0.75rem; font-size: 0.875rem;">View</a>

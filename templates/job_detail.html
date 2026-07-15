@@ -112,8 +112,8 @@
             {% endif %}
         </div>
         <div class="meta-item">{{ icons.briefcase(16) }} <span>{{ job.remote_type.title() }}</span></div>
-        <div class="meta-item">{{ icons.calendar(16) }} <span>Posted {{ job.posted_date or 'N/A' }}</span></div>
-        <div class="meta-item">{{ icons.link(16) }} <span>Source: {{ job.source_name }}</span></div>
+        <div class="meta-item">{{ icons.calendar(16) }} <span>Posted {% if job.posted_date %}{{ job.posted_date }}{% elif job.first_seen_at %}{{ job.first_seen_at[:10] }}{% else %}N/A{% endif %}</span></div>
+        <div class="meta-item">{{ icons.link(16) }} <span>Source: {{ job.source_name | display_source }}</span></div>
     </div>
 
     {% if job.url %}
@@ -121,6 +121,7 @@
     {% endif %}
 </div>
 
+{% if g.current_user and g.current_user.get('role') == 'admin' %}
 <div class="card" style="margin-bottom:1.25rem;">
     <h3 style="margin-bottom: 1rem; color: var(--text-primary); font-size:1.05rem;">Job Details</h3>
     <table>
@@ -131,15 +132,14 @@
         <tr>
             <th>Salary</th>
             <td>
-                {% if not g.current_user %}
-                <span class="gw-cell-lock" onclick="gwShowGate()" title="Sign in to view salary">{{ icons.lock(12) }} Sign in to view</span>
-                {% elif job.salary_min and job.salary_max %}
+                {% if job.salary_min and job.salary_max %}
                 {{ job.currency or '$' }} {{ '{:,.0f}'.format(job.salary_min) }} - {{ '{:,.0f}'.format(job.salary_max) }}
                 {% elif job.salary_min %}
                 {{ job.currency or '$' }} {{ '{:,.0f}'.format(job.salary_min) }}+
                 {% else %}
                 {{ job.currency or '$' }} Up to {{ '{:,.0f}'.format(job.salary_max) }}
                 {% endif %}
+                {% if job.salary_period == 'hourly' %}/hr{% endif %}
             </td>
         </tr>
         {% endif %}
@@ -148,6 +148,30 @@
         <tr><th>Ingested</th><td>{{ job.ingested_at | format_date }}</td></tr>
     </table>
 </div>
+{% endif %}
+
+{% if job.ad_image_url or job.newspaper %}
+<div class="card" style="margin-bottom:1.25rem;">
+    <h3 style="margin-bottom: 1rem; color: var(--text-primary); font-size:1.05rem;">Original Newspaper Ad{% if job.newspaper %} ({{ job.newspaper }}){% endif %}</h3>
+    {% if job.ad_image_url %}
+    <a href="{{ job.ad_image_url }}" target="_blank" rel="noopener">
+        <img src="{{ job.ad_image_url }}" alt="Original newspaper advertisement" style="max-width: 100%; border-radius: 8px; border: 1px solid var(--border);">
+    </a>
+    {% else %}
+    <p style="font-size:0.85rem; color: var(--text-secondary);">Ad image not available for this listing.</p>
+    {% endif %}
+    {% if job.newspaper %}
+    <p style="margin-top:0.75rem; font-size:0.85rem; color: var(--text-secondary);">
+        How to apply:
+        {% if job.apply_url %}
+        <a href="{{ job.apply_url }}" target="_blank" rel="noopener">{{ job.apply_url }}</a>
+        {% else %}
+        Not provided — see the ad above.
+        {% endif %}
+    </p>
+    {% endif %}
+</div>
+{% endif %}
 
 {% if locations and locations|length > 1 %}
 <div class="card" style="margin-bottom:1.25rem;">
