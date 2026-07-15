@@ -22,6 +22,7 @@ def jobs_app(tmp_path, monkeypatch):
             listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER
         );
         CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
+        CREATE TABLE pipeline_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
     """)
     # Source A: 3 jobs, all recent. Source B: 1 job, older. Without diversity,
     # A's 3 jobs would all outrank B's single job on a plain posted_date sort.
@@ -40,6 +41,14 @@ def jobs_app(tmp_path, monkeypatch):
 
     import web_viewer
     monkeypatch.setattr(web_viewer, "DB_PATH", db_path)
+    # Rotating-DB architecture: point every rotation target at this one isolated
+    # test file (single-file emulation) so the route's serving read and get_config()
+    # both hit the seeded data, never the real data/ directory.
+    monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
     web_viewer.app.config.update(TESTING=True)
     client = web_viewer.app.test_client()
     with client.session_transaction() as sess:
@@ -95,6 +104,7 @@ class TestUnrankedJobsInDiversityView:
                 listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER
             );
             CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
+            CREATE TABLE pipeline_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
         """)
         conn.executemany(
             "INSERT INTO jobs (job_id, title, company, posted_date, ingested_at, source_name, market_id, listing_status, diversity_rank) "
@@ -111,6 +121,14 @@ class TestUnrankedJobsInDiversityView:
 
         import web_viewer
         monkeypatch.setattr(web_viewer, "DB_PATH", db_path)
+        # Rotating-DB architecture: point every rotation target at this one isolated
+        # test file (single-file emulation) so the route's serving read and
+        # get_config() both hit the seeded data, never the real data/ directory.
+        monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
+        monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
+        monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
+        monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
+        monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
         web_viewer.app.config.update(TESTING=True)
         client = web_viewer.app.test_client()
         with client.session_transaction() as sess:

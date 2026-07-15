@@ -41,6 +41,7 @@ def anon_client(tmp_path, monkeypatch):
         CREATE TABLE skill_combinations_summary (skill_a TEXT, skill_b TEXT, co_count INTEGER);
         CREATE TABLE top_titles_summary (title TEXT, count INTEGER);
         CREATE TABLE weekly_metrics (week_start_date TEXT, skill_name TEXT, category TEXT, frequency INTEGER, growth_percentage REAL, mover_score REAL, emerging_flag INTEGER);
+        CREATE TABLE pipeline_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
     """)
     # job_detail() needs a real row to return 200 rather than 404 - job_group_id
     # is left NULL so the view function's job_locations lookup (only reached
@@ -56,6 +57,15 @@ def anon_client(tmp_path, monkeypatch):
 
     import web_viewer
     monkeypatch.setattr(web_viewer, "DB_PATH", db_path)
+    # Rotating-DB architecture: web_viewer.get_db_connection() reads serving_db_path()
+    # and get_config() reads the operational DB. Point every rotation target at this
+    # one isolated test file (single-file emulation) so both hit the seeded data,
+    # never the real data/ directory.
+    monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
     web_viewer.app.config.update(TESTING=True)
     web_viewer.cache.clear()
     return web_viewer.app.test_client()

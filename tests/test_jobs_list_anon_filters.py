@@ -27,6 +27,7 @@ def jobs_app(tmp_path, monkeypatch):
         );
         CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
         CREATE TABLE skills (job_id INTEGER, raw_detected_skill TEXT, normalized_skill TEXT, category TEXT, confidence_score REAL);
+        CREATE TABLE pipeline_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
     """)
     conn.executemany(
         "INSERT INTO jobs (job_id, title, company, posted_date, ingested_at, source_name, market_id, listing_status) "
@@ -45,6 +46,15 @@ def jobs_app(tmp_path, monkeypatch):
 
     import web_viewer
     monkeypatch.setattr(web_viewer, "DB_PATH", db_path)
+    # Rotating-DB architecture: web_viewer.get_db_connection() reads serving_db_path()
+    # and get_config() reads the operational DB. Point every rotation target at this
+    # one isolated test file (single-file emulation) so both hit the seeded data,
+    # never the real data/ directory.
+    monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
     web_viewer.app.config.update(TESTING=True)
     web_viewer.cache.clear()
     return web_viewer.app.test_client()

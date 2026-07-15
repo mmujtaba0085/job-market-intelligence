@@ -48,6 +48,15 @@ def migrated_db(tmp_path, monkeypatch):
 
     import src.storage.db as db
     monkeypatch.setattr(db, "DB_PATH", db_path)
+    # Rotating-DB architecture: get_connection() resolves via serving/operational
+    # paths, not DB_PATH. Point every rotation target at this one isolated test
+    # file so run_migrations() migrates it in place (single-file emulation) and
+    # nothing touches the real data/ directory.
+    monkeypatch.setattr(db, "_SERVING_A_PATH", db_path)
+    monkeypatch.setattr(db, "_SERVING_B_PATH", db_path)
+    monkeypatch.setattr(db, "_BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr(db, "_OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr(db, "_POINTER_PATH", tmp_path / "serving_pointer.txt")
     db.run_migrations()
     return db_path
 

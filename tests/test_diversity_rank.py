@@ -9,6 +9,18 @@ import sqlite3
 import pytest
 
 
+def _point_rotation_paths_at(db, monkeypatch, db_path, tmp_path):
+    """Rotating-DB architecture: get_connection() resolves via serving/operational
+    paths, not DB_PATH. Point every rotation target at this one isolated test file
+    (single-file emulation) so run_migrations() migrates it in place and nothing
+    touches the real data/ directory."""
+    monkeypatch.setattr(db, "_SERVING_A_PATH", db_path)
+    monkeypatch.setattr(db, "_SERVING_B_PATH", db_path)
+    monkeypatch.setattr(db, "_BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr(db, "_OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr(db, "_POINTER_PATH", tmp_path / "serving_pointer.txt")
+
+
 def _make_conn():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -123,6 +135,7 @@ class TestRunMigrationsAddsColumn:
 
         db_path = tmp_path / "jobs.sqlite"
         monkeypatch.setattr(db, "DB_PATH", db_path)
+        _point_rotation_paths_at(db, monkeypatch, db_path, tmp_path)
         db.run_migrations()
 
         conn = sqlite3.connect(str(db_path))
@@ -136,6 +149,7 @@ class TestRunMigrationsAddsColumn:
 
         db_path = tmp_path / "jobs.sqlite"
         monkeypatch.setattr(db, "DB_PATH", db_path)
+        _point_rotation_paths_at(db, monkeypatch, db_path, tmp_path)
         db.run_migrations()
         db.run_migrations()  # must not raise on a second run
 

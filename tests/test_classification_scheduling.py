@@ -49,6 +49,15 @@ def conn(tmp_path, monkeypatch):
     # module-level DB_PATH here so tests see the same isolated tmp file
     # instead of silently reading/depending on the real dev database.
     monkeypatch.setattr("src.storage.db.DB_PATH", db_path)
+    # Rotating-DB architecture: get_connection()/get_operational_connection()
+    # resolve via serving/operational paths, not DB_PATH. Point every rotation
+    # target at this one isolated test file so the scheduler tick and get_config()
+    # both read/write it (single-file emulation), never the real data/ directory.
+    monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
     c = sqlite3.connect(db_path)
     c.row_factory = sqlite3.Row
     c.executescript("""
