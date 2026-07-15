@@ -3232,28 +3232,60 @@ def admin_classification():
 def admin_classification_run_local():
     import uuid
     from src.classification.local_stage import classify_pending_jobs
+    from src.classification.scheduling import _any_run_active
     from src.pipeline_monitor import get_config
+    from src.storage import db
     from src.storage.db import get_free_connection as get_connection
-    run_id = str(uuid.uuid4())[:8]
-    conn = get_connection()
-    conn.execute(
-        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES (?, 'local_incremental', 'manual', 'running', datetime('now'))",
-        (run_id,),
-    )
-    conn.commit()
-    try:
-        # Capped, same reasoning as the scheduler's own local_incremental tick:
-        # an admin click must return within a normal request/proxy timeout, not
-        # hang for the ~68 minutes a full fresh-deploy backlog would take.
-        cfg = get_config()
-        chunk_size = int(cfg.get("classification_local_chunk_size", 500))
-        result = classify_pending_jobs(conn, run_id=run_id, limit=chunk_size)
-        conn.execute("UPDATE classification_runs SET status='success', finished_at=datetime('now') WHERE run_id=?", (run_id,))
-        conn.commit()
-        remaining = conn.execute("SELECT COUNT(*) FROM jobs WHERE field_classification_attempted_at IS NULL").fetchone()[0]
-    finally:
-        conn.close()
-    return jsonify({"run_id": run_id, "status": "started", **result, "remaining": remaining})
+
+    # This manual trigger used to race the automatic scheduler tick (or
+    # itself, on a double-click) with no coordination at all - neither an
+    # _any_run_active() check nor the file lock run_scheduler_tick() uses.
+    # Confirmed happening in production: this route and a scheduled tick
+    # both started a local_incremental run within microseconds of each
+    # other, one hit "database is locked" against the other's in-flight
+    # 5000-row batch, and - since there was no except clause here either -
+    # crashed the request without ever marking its own run 'failed',
+    # leaving an orphaned 'running' row. Reuses the exact same lock
+    # run_scheduler_tick() uses so the two paths can never overlap again.
+    def _run() -> dict:
+        conn = get_connection()
+        try:
+            if _any_run_active(conn, "local_incremental"):
+                return {"run_id": None, "status": "skipped", "reason": "a local_incremental run is already active"}
+            run_id = str(uuid.uuid4())[:8]
+            conn.execute(
+                "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES (?, 'local_incremental', 'manual', 'running', datetime('now'))",
+                (run_id,),
+            )
+            conn.commit()
+            try:
+                # Capped, same reasoning as the scheduler's own local_incremental
+                # tick: an admin click must return within a normal request/proxy
+                # timeout, not hang for the ~68 minutes a full backlog would take.
+                cfg = get_config()
+                chunk_size = int(cfg.get("classification_local_chunk_size", 500))
+                result = classify_pending_jobs(conn, run_id=run_id, limit=chunk_size)
+                conn.execute("UPDATE classification_runs SET status='success', finished_at=datetime('now') WHERE run_id=?", (run_id,))
+                conn.commit()
+            except Exception:
+                conn.execute("UPDATE classification_runs SET status='failed', finished_at=datetime('now') WHERE run_id=?", (run_id,))
+                conn.commit()
+                raise
+            remaining = conn.execute("SELECT COUNT(*) FROM jobs WHERE field_classification_attempted_at IS NULL").fetchone()[0]
+            return {"run_id": run_id, "status": "started", **result, "remaining": remaining}
+        finally:
+            conn.close()
+
+    if db.fcntl is None:
+        return jsonify(_run())
+
+    db._CLASSIFICATION_SCHEDULER_LOCK_PATH.touch(exist_ok=True)
+    with open(db._CLASSIFICATION_SCHEDULER_LOCK_PATH, "r+") as lock_file:
+        db.fcntl.flock(lock_file, db.fcntl.LOCK_EX)
+        try:
+            return jsonify(_run())
+        finally:
+            db.fcntl.flock(lock_file, db.fcntl.LOCK_UN)
 
 
 @app.route("/admin/classification/full-reclassify/preview", methods=["POST"])

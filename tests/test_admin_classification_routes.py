@@ -60,6 +60,7 @@ def admin_client(tmp_path, monkeypatch):
     monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
     monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
     monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
+    monkeypatch.setattr("src.storage.db._CLASSIFICATION_SCHEDULER_LOCK_PATH", tmp_path / ".classification_scheduler.lock")
     web_viewer.app.config.update(TESTING=True, SECRET_KEY="test-secret")
     web_viewer.cache.clear()
 
@@ -117,6 +118,62 @@ def test_run_local_classification(admin_client):
     assert r.status_code == 200
     data = r.get_json()
     assert "run_id" in data
+
+
+# Regression coverage for a real production incident: this manual trigger
+# used to have neither an _any_run_active() check nor the file lock
+# run_scheduler_tick() uses - confirmed in production, this route and a
+# scheduled tick started a local_incremental run within microseconds of
+# each other, one crashed against the other's in-flight batch, and (with
+# no except clause) left an orphaned 'running' row that blocked every
+# future run of this run_type, same failure mode as the scheduler-vs-
+# scheduler race already fixed in src/classification/scheduling.py.
+
+def test_run_local_classification_skips_when_another_run_already_active(admin_client, tmp_path):
+    import sqlite3
+    conn = sqlite3.connect(tmp_path / "jobs.sqlite")
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES ('already-running', 'local_incremental', 'schedule', 'running', datetime('now'))"
+    )
+    conn.commit()
+    conn.close()
+
+    r = admin_client.post("/admin/classification/run-local", data={"csrf_token": "test-csrf"})
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["status"] == "skipped"
+    assert data["run_id"] is None
+
+    conn = sqlite3.connect(tmp_path / "jobs.sqlite")
+    count = conn.execute("SELECT COUNT(*) FROM classification_runs WHERE run_type = 'local_incremental' AND status = 'running'").fetchone()[0]
+    conn.close()
+    assert count == 1  # still just the pre-existing one - no second run started alongside it
+
+
+def test_run_local_classification_marks_run_failed_on_exception_not_orphaned(admin_client, tmp_path, monkeypatch):
+    import sqlite3
+
+    import pytest as _pytest
+    import src.classification.local_stage as local_stage
+
+    def _boom(conn, run_id, limit=None):
+        raise RuntimeError("simulated database is locked")
+
+    monkeypatch.setattr(local_stage, "classify_pending_jobs", _boom)
+
+    # TESTING=True (set in the admin_client fixture) makes Flask re-raise
+    # exceptions instead of turning them into a 500 response - this proves
+    # the exception really does propagate (isn't silently swallowed intead
+    # of failing loudly), while the DB assertion below proves the run row
+    # still gets marked 'failed' rather than orphaned before that re-raise.
+    with _pytest.raises(RuntimeError, match="simulated database is locked"):
+        admin_client.post("/admin/classification/run-local", data={"csrf_token": "test-csrf"})
+
+    conn = sqlite3.connect(tmp_path / "jobs.sqlite")
+    rows = conn.execute("SELECT status FROM classification_runs WHERE trigger = 'manual' AND run_id != 'r1'").fetchall()
+    conn.close()
+    assert len(rows) == 1
+    assert rows[0][0] == "failed"  # marked failed, not left 'running' forever
 
 
 def test_delete_queue_row(admin_client):
