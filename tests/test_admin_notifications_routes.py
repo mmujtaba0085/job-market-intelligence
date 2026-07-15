@@ -29,10 +29,13 @@ import pytest
 
 def _pre_create_rotation_db_files(db) -> None:
     """Must be called AFTER the monkeypatch.setattr() calls that redirect
-    these four path constants into tmp_path, and BEFORE db.run_migrations()
-    - see module docstring for why."""
+    these five path constants into tmp_path, and BEFORE db.run_migrations()
+    - see module docstring for why. _POINTER_PATH pre-created empty is inert
+    (an empty pointer file falls back to "a" in _read_pointer(), same as a
+    missing one) but included for literal parity with the other four."""
     for path in (db._SERVING_A_PATH, db._SERVING_B_PATH, db._BUFFER_DB_PATH, db._OPERATIONAL_DB_PATH):
         sqlite3.connect(str(path)).close()
+    db._POINTER_PATH.touch()
 
 
 @pytest.fixture()
