@@ -612,9 +612,10 @@ def upload_from_staging(
         Dict of {country: {job_type: row_count}} showing what was uploaded
     """
     import sqlite3
-    from config.settings import GOOGLE_SA_JSON_PATH, DB_PATH
-    
-    conn = sqlite3.connect(DB_PATH)
+    from config.settings import GOOGLE_SA_JSON_PATH
+    from src.storage.db import serving_db_path
+
+    conn = sqlite3.connect(serving_db_path())
     conn.row_factory = sqlite3.Row
 
     from src.storage.sheet_targets import get_target_by_id, get_target_for_country
@@ -817,16 +818,16 @@ def upload_from_staging(
             TRACKER_SPREADSHEET_ID,
             TRACKER_DEPLOYMENT_BASE_URL,
             TRACKER_TOKEN,
-            DB_PATH
         )
-        
+        from src.storage.db import serving_db_path
+
         logger.info("[google_sheets] Auto-exporting to Tracker Directory...")
         tracker_stats = export_directory(
             tracker_spreadsheet_id=TRACKER_SPREADSHEET_ID,
             google_sa_json_path=GOOGLE_SA_JSON_PATH,
             tracker_deployment_url=TRACKER_DEPLOYMENT_BASE_URL,
             tracker_token=TRACKER_TOKEN,
-            db_path=DB_PATH
+            db_path=str(serving_db_path())
         )
         logger.info("[google_sheets] Tracker Directory export complete: %s", tracker_stats)
     except Exception as e:

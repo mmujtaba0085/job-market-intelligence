@@ -30,7 +30,6 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Optional
 
-from config.settings import DB_PATH
 from .location_data import (
     US_STATES, US_CITIES, CA_CITIES, CA_PROVINCES,
     UK_CITIES, DE_CITIES, EU_CITIES, COUNTRY_ALIASES,
@@ -536,7 +535,8 @@ def run_batch_enrichment(source: Optional[str] = None, dry_run: bool = False, li
     Returns summary stats.
     """
     import sqlite3 as _sqlite3
-    conn = _sqlite3.connect(str(DB_PATH), timeout=30)
+    from src.storage.db import serving_db_path
+    conn = _sqlite3.connect(str(serving_db_path()), timeout=30)
     conn.row_factory = _sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
 

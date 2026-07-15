@@ -212,3 +212,52 @@ def test_bootstrap_is_a_noop_once_pointer_already_exists(isolated_paths):
     count = conn.execute("SELECT COUNT(*) FROM jobs WHERE url_hash = 'h4'").fetchone()[0]
     conn.close()
     assert count == 1
+
+
+def test_run_batch_enrichment_connects_to_serving_db_not_legacy_db_path(isolated_paths):
+    """
+    Regression test for a bug found in review of the rotating-DB-architecture
+    Task 1 rollout: src/enrichment/auto_enrich.py's run_batch_enrichment() used
+    to open the frozen legacy config.settings.DB_PATH directly via
+    sqlite3.connect(str(DB_PATH), ...) instead of resolving the live rotating
+    file through src.storage.db.serving_db_path(). That meant enrichment
+    writes would silently land in a file the live app never reads.
+
+    This proves the fix by pointing the rotation pointer at serving_b (the
+    non-default file) and confirming run_batch_enrichment() operates on that
+    file: the row it needs to touch lives only in serving_b, and the legacy
+    DB_PATH file must never even get created (sqlite3.connect() creates the
+    file on open, so its absence proves it was never touched).
+    """
+    from src.enrichment.auto_enrich import run_batch_enrichment
+
+    db.run_migrations()
+    db._write_pointer("b")  # rotate away from the default 'a' file
+
+    conn = db.get_connection()  # resolves to serving_b via the pointer
+    conn.execute(
+        "INSERT INTO jobs (market_id, source_name, url, url_hash, canonical_hash, "
+        "description_hash, title, company, country, remote_type, raw_description, "
+        "first_seen_at, last_seen_at, ingested_at) VALUES "
+        "('m','s','u','h5','c5','d5','Engineer','Acme','','unknown',"
+        "'Fully remote position based in Canada.','n','n','n')"
+    )
+    conn.commit()
+    conn.close()
+
+    assert not db.DB_PATH.exists(), "sanity check: legacy DB_PATH must not pre-exist"
+
+    summary = run_batch_enrichment(dry_run=False)
+
+    # The legacy path must never have been touched - sqlite3.connect() would
+    # have created the file on open even before any table access failed.
+    assert not db.DB_PATH.exists()
+
+    # The job row must exist (untouched-by-crash) in serving_b, proving
+    # run_batch_enrichment operated on the pointer-resolved live file.
+    db._write_pointer("b")
+    conn = db.get_connection()
+    row = conn.execute("SELECT * FROM jobs WHERE url_hash = 'h5'").fetchone()
+    conn.close()
+    assert row is not None
+    assert summary["dry_run"] is False

@@ -675,14 +675,14 @@ def _run(args, week_start) -> dict:
                     GOOGLE_SA_JSON_PATH,
                     TRACKER_DEPLOYMENT_BASE_URL,
                     TRACKER_TOKEN,
-                    DB_PATH
                 )
+                from src.storage.db import serving_db_path
                 result = export_directory(
                     tracker_spreadsheet_id=TRACKER_SPREADSHEET_ID,
                     google_sa_json_path=GOOGLE_SA_JSON_PATH,
                     tracker_deployment_url=TRACKER_DEPLOYMENT_BASE_URL,
                     tracker_token=TRACKER_TOKEN,
-                    db_path=DB_PATH
+                    db_path=str(serving_db_path())
                 )
                 if "error" in result:
                     logger.warning("[orchestrator] Tracker export skipped: %s", result["error"])
