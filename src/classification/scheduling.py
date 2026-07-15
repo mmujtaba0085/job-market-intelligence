@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,15 @@ DEFAULT_IDLE_SECONDS_THRESHOLD = 300
 DEFAULT_LOCAL_CHUNK_SIZE = 500
 DEFAULT_GROQ_CHUNK_SIZE = 25
 DEFAULT_RETRY_INTERVAL_SECONDS = 3600
+# A 'running' classification_runs row whose process died (crash, OOM,
+# container redeploy) without ever reaching _finish_run() would otherwise
+# block every future run of the same run_type forever - _any_run_active()
+# has no way to distinguish a genuinely in-progress run from an abandoned
+# one. Confirmed in production: two runs raced to start within the same
+# millisecond, both stuck at 0 progress, and nothing ran for the ~24h
+# after that. 30 minutes is generously above the ~3 minutes a real
+# 5000-job local_incremental chunk has taken in production.
+STALE_RUN_THRESHOLD_SECONDS = 1800
 
 
 def should_process_chunk(
@@ -88,10 +97,68 @@ def _groq_retry_due(conn, now: datetime) -> bool:
     return (now - last_started).total_seconds() >= DEFAULT_RETRY_INTERVAL_SECONDS
 
 
+def _mark_stale_runs_failed(conn, now: datetime) -> None:
+    """
+    A raw string comparison against started_at doesn't work here: rows
+    inserted via SQL's datetime('now') are space-separated with no
+    timezone ('2026-07-16 03:15:22'), while this module's own writes use
+    Python's timezone-aware .isoformat() ('2026-07-16T03:15:22+00:00') -
+    the two formats don't sort consistently against each other as strings
+    (space sorts below 'T', so a datetime('now') row would always look
+    "older" than any Python-isoformat cutoff regardless of its real time).
+    Parse each candidate properly instead, same approach _groq_retry_due()
+    above already uses for the same started_at column.
+    """
+    stale_ids = []
+    for row in conn.execute("SELECT run_id, started_at FROM classification_runs WHERE status = 'running'").fetchall():
+        started = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00").replace(" ", "T"))
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if (now - started).total_seconds() >= STALE_RUN_THRESHOLD_SECONDS:
+            stale_ids.append(row["run_id"])
+
+    for run_id in stale_ids:
+        conn.execute(
+            "UPDATE classification_runs SET status = 'failed', finished_at = ? WHERE run_id = ?",
+            (now.isoformat(), run_id),
+        )
+    if stale_ids:
+        conn.commit()
+
+
 def run_scheduler_tick(conn, last_request_at: datetime | None, now: datetime) -> None:
+    """
+    Public entry point - wraps _run_scheduler_tick_impl() in a cross-process
+    file lock (fcntl, Unix only - a no-op on Windows, same pattern already
+    used for db.run_migrations()) so gunicorn's N independently-started
+    scheduler threads (one per worker process - see web_viewer.py's
+    module-level `_scheduler_thread = Thread(...)`) can never race each
+    other into starting the same classification_runs row twice.
+    """
+    from src.storage import db
+
+    if db.fcntl is None:
+        _run_scheduler_tick_impl(conn, last_request_at, now)
+        return
+
+    db._CLASSIFICATION_SCHEDULER_LOCK_PATH.touch(exist_ok=True)
+    with open(db._CLASSIFICATION_SCHEDULER_LOCK_PATH, "r+") as lock_file:
+        db.fcntl.flock(lock_file, db.fcntl.LOCK_EX)
+        try:
+            _run_scheduler_tick_impl(conn, last_request_at, now)
+        finally:
+            db.fcntl.flock(lock_file, db.fcntl.LOCK_UN)
+
+
+def _run_scheduler_tick_impl(conn, last_request_at: datetime | None, now: datetime) -> None:
     from src.classification.groq_stage import process_groq_queue
     from src.classification.local_stage import classify_pending_jobs, reclassify_all
     from src.pipeline_monitor import get_config
+
+    # Second line of defense beyond the lock above: a run that slipped past
+    # it and then never finished (crashed mid-chunk, killed by a redeploy)
+    # must not block every future tick forever. See STALE_RUN_THRESHOLD_SECONDS.
+    _mark_stale_runs_failed(conn, now)
 
     # Read once per tick - admin-configurable via /admin/classification's
     # config form (classification_local_chunk_size / _groq_chunk_size),

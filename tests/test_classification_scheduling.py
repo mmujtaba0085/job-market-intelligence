@@ -58,6 +58,7 @@ def conn(tmp_path, monkeypatch):
     monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
     monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
     monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
+    monkeypatch.setattr("src.storage.db._CLASSIFICATION_SCHEDULER_LOCK_PATH", tmp_path / ".classification_scheduler.lock")
     c = sqlite3.connect(db_path)
     c.row_factory = sqlite3.Row
     c.executescript("""
@@ -289,3 +290,105 @@ def test_tick_launches_groq_retry_after_interval_elapsed(conn, monkeypatch):
 
     count = conn.execute("SELECT COUNT(*) FROM classification_runs WHERE run_type = 'groq_retry'").fetchone()[0]
     assert count == 2  # the 2-hour-old one plus a new one just launched
+
+
+# ── Cross-worker locking + stale-run recovery ─────────────────────────────
+#
+# Regression coverage for a real production incident: gunicorn's 4 worker
+# processes each start their own copy of the auto-scheduler thread (see
+# web_viewer.py's module-level `_scheduler_thread = Thread(...)`), so up to
+# 4 independent ticks could call run_scheduler_tick() at once with no
+# coordination. Two of them raced to start the same local_incremental run
+# within the same millisecond, both got stuck at 0 progress, and since
+# _any_run_active() has no way to tell a genuinely-running run from an
+# abandoned one, that permanently blocked every future tick - only 5
+# local_incremental runs ever executed in the table's whole history before
+# it wedged. Fixed with (1) an fcntl file lock around the whole tick, same
+# pattern already used for db.run_migrations(), so only one worker's tick
+# can execute at a time, and (2) a staleness timeout that supersedes any
+# 'running' row older than a generous threshold, so a crash/redeploy that
+# manages to slip past the lock can never wedge things permanently again.
+
+def test_lock_acquired_before_and_released_after_tick_work(conn, monkeypatch):
+    import src.storage.db as db
+    if db.fcntl is None:
+        pytest.skip("fcntl is Unix-only; this platform uses the no-op path (covered separately)")
+
+    call_order = []
+    real_flock = db.fcntl.flock
+
+    def tracking_flock(fd, operation):
+        if operation == db.fcntl.LOCK_EX:
+            call_order.append("lock")
+        elif operation == db.fcntl.LOCK_UN:
+            call_order.append("unlock")
+        return real_flock(fd, operation)
+
+    monkeypatch.setattr(db.fcntl, "flock", tracking_flock)
+    monkeypatch.setattr("src.classification.scheduling._run_scheduler_tick_impl", lambda *a, **kw: call_order.append("tick"))
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    run_scheduler_tick(conn, last_request_at=now, now=now)
+
+    assert call_order == ["lock", "tick", "unlock"]
+
+
+def test_no_op_lock_path_still_runs_tick_on_windows(conn, monkeypatch):
+    # Directly exercises the fcntl-unavailable branch regardless of the
+    # platform actually running this test - mirrors
+    # test_no_op_lock_path_still_runs_migrations_on_windows in
+    # tests/test_migration_lock.py.
+    import src.storage.db as db
+    monkeypatch.setattr(db, "fcntl", None)
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    run_scheduler_tick(conn, last_request_at=now, now=now)  # must not raise
+
+    row = conn.execute("SELECT field_classification_attempted_at FROM jobs WHERE job_id = 1").fetchone()
+    assert row["field_classification_attempted_at"] is not None  # tick still did real work
+
+
+def test_stale_running_row_is_superseded_not_left_wedged_forever(conn):
+    now = datetime.now(timezone.utc)
+    abandoned_start = now - timedelta(hours=2)  # long past any real chunk's duration
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES ('zombie', 'local_incremental', 'schedule', 'running', ?)",
+        (abandoned_start.isoformat(),),
+    )
+    conn.commit()
+
+    from src.classification.scheduling import run_scheduler_tick
+    run_scheduler_tick(conn, last_request_at=now, now=now)
+
+    zombie = conn.execute("SELECT status FROM classification_runs WHERE run_id = 'zombie'").fetchone()
+    assert zombie["status"] == "failed"  # superseded, not left running forever
+
+    # And because it was cleared, a fresh local_incremental run for the real
+    # pending job must actually have been allowed to start and complete.
+    fresh = conn.execute(
+        "SELECT status FROM classification_runs WHERE run_type = 'local_incremental' AND run_id != 'zombie'"
+    ).fetchone()
+    assert fresh is not None and fresh["status"] == "success"
+
+
+def test_recently_started_running_row_is_not_touched_by_staleness_check(conn):
+    now = datetime.now(timezone.utc)
+    recent_start = now - timedelta(minutes=2)  # well within a real chunk's expected duration
+    conn.execute(
+        "INSERT INTO classification_runs (run_id, run_type, trigger, status, started_at) VALUES ('genuinely-active', 'local_incremental', 'schedule', 'running', ?)",
+        (recent_start.isoformat(),),
+    )
+    conn.commit()
+
+    from src.classification.scheduling import run_scheduler_tick
+    run_scheduler_tick(conn, last_request_at=now, now=now)
+
+    still_running = conn.execute("SELECT status FROM classification_runs WHERE run_id = 'genuinely-active'").fetchone()
+    assert still_running["status"] == "running"  # not stale yet - must not be touched
+
+    # And the tick must have correctly deferred to it as still active - no
+    # second local_incremental run started alongside it.
+    count = conn.execute("SELECT COUNT(*) FROM classification_runs WHERE run_type = 'local_incremental'").fetchone()[0]
+    assert count == 1
