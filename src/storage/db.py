@@ -282,6 +282,7 @@ def _run_operational_migrations_impl(conn: sqlite3.Connection) -> None:
         ("weekly_day",                  "Sunday"),
         ("weekly_time",                 "03:00"),
         ("show_source_names",           "true"),
+        ("rotation_max_interval_hours", "12"),
     ]
     for key, value in defaults:
         conn.execute(

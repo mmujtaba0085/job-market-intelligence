@@ -477,7 +477,11 @@ def run_pipeline_for_market(
     )
 
     try:
-        if mode in ("weekly", "ingest-only"):
+        if mode == "ingest-only":
+            from src.storage.db import use_buffer_connection
+            with use_buffer_connection():
+                run_ingestion(market, run)
+        elif mode == "weekly":
             run_ingestion(market, run)
 
         if mode in ("weekly", "report-only"):
@@ -624,6 +628,17 @@ def main() -> None:
             logger.exception("[precomputed_summaries] recompute failed; leaving summaries stale until next run")
 
     finish_run(run_id, status="success", **stats)
+
+    if mode == "ingest-only":
+        from src.db_rotation import rotate
+        from src.storage.db import get_buffer_connection
+        buffer_conn = get_buffer_connection()
+        try:
+            has_buffered = buffer_conn.execute("SELECT 1 FROM jobs LIMIT 1").fetchone() is not None
+        finally:
+            buffer_conn.close()
+        if has_buffered:
+            rotate()
 
 
 def _run(args, week_start) -> dict:

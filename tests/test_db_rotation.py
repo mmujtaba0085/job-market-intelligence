@@ -178,3 +178,46 @@ def test_rotate_proceeds_without_last_request_at(isolated_paths):
         db.upsert_job(_job("no-gate-1", "Orchestrator Triggered"))
     result = db_rotation.rotate()
     assert result["rotated"] is True
+
+
+def test_ingest_only_pipeline_writes_land_in_buffer_not_serving(isolated_paths, monkeypatch):
+    from datetime import date
+    from src.orchestrator import run_pipeline_for_market
+    from src.storage.models import JobNormalized
+
+    monkeypatch.setattr(
+        "src.orchestrator.run_ingestion",
+        lambda market, run: db.upsert_job(_job("ingest-only-1", "Buffer Bound")),
+    )
+
+    market = {"market_id": "m", "display_name": "M"}
+    run_pipeline_for_market(market=market, mode="ingest-only", week_start=date(2026, 7, 13))
+
+    buffer_conn = db.get_buffer_connection()
+    buffer_count = buffer_conn.execute("SELECT COUNT(*) FROM jobs WHERE url_hash = 'ingest-only-1'").fetchone()[0]
+    buffer_conn.close()
+    assert buffer_count == 1
+
+    serving_conn = db.get_connection()
+    serving_count = serving_conn.execute("SELECT COUNT(*) FROM jobs WHERE url_hash = 'ingest-only-1'").fetchone()[0]
+    serving_conn.close()
+    assert serving_count == 0
+
+
+def test_weekly_mode_pipeline_writes_land_in_serving_unchanged(isolated_paths, monkeypatch):
+    from datetime import date
+
+    monkeypatch.setattr(
+        "src.orchestrator.run_ingestion",
+        lambda market, run: db.upsert_job(_job("weekly-1", "Serving Bound")),
+    )
+    monkeypatch.setattr("src.orchestrator.run_analytics_and_report", lambda *a, **kw: None)
+
+    from src.orchestrator import run_pipeline_for_market
+    market = {"market_id": "m", "display_name": "M"}
+    run_pipeline_for_market(market=market, mode="weekly", week_start=date(2026, 7, 13))
+
+    serving_conn = db.get_connection()
+    serving_count = serving_conn.execute("SELECT COUNT(*) FROM jobs WHERE url_hash = 'weekly-1'").fetchone()[0]
+    serving_conn.close()
+    assert serving_count == 1  # weekly mode is unchanged by this plan - still writes Serving directly

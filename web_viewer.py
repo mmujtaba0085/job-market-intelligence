@@ -3230,6 +3230,21 @@ def _auto_scheduler_loop() -> None:
                 run_scheduler_tick(classification_conn, last_request_at=_last_request_at, now=now)
             finally:
                 classification_conn.close()
+
+            from src.db_rotation import rotate
+            from src.pipeline_monitor import get_config as _get_rotation_cfg
+            rotation_cfg = _get_rotation_cfg()
+            last_rotation_at = rotation_cfg.get("last_rotation_at")
+            max_interval_hours = int(rotation_cfg.get("rotation_max_interval_hours", 12))
+            rotation_due = True
+            if last_rotation_at:
+                from datetime import timedelta
+                last_dt = datetime.fromisoformat(last_rotation_at.replace("Z", "+00:00"))
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=_tz.utc)
+                rotation_due = now >= last_dt + timedelta(hours=max_interval_hours)
+            if rotation_due:
+                rotate(last_request_at=_last_request_at, now=now)
         except Exception as exc:
             logging.getLogger("auto_scheduler").error("Scheduler error: %s", exc)
 
