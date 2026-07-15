@@ -3207,53 +3207,75 @@ def admin_classification_config():
 
 # ── Auto-scheduler background thread ─────────────────────────────────────────
 
-def _auto_scheduler_loop() -> None:
-    """Check every 60 s whether a scheduled run is due; launch it if so."""
-    import time as _time
-    from datetime import datetime, timezone as _tz
+def _scheduler_tick_once(now) -> None:
+    """One iteration of the auto-scheduler's work, extracted from
+    _auto_scheduler_loop() so it's directly callable/testable without the
+    surrounding time.sleep(60)/while True loop. `now` is passed in (not
+    read internally) so tests can control it precisely.
+
+    Classification tick and the rotation check each get their own
+    try/except - a persistent failure in one (e.g. a bad classification
+    row) must not silently block the other from ever running again. Both
+    used to share one try/except with the ingest/crawl scheduler section
+    above, so a classification exception on every tick would skip the
+    rotation check forever, starving it."""
+    from datetime import timedelta, timezone as _tz
     from src.pipeline_monitor import compute_next_run, get_config, get_running_runs, launch_pipeline
 
     _log = logging.getLogger("auto_scheduler")
+
+    cfg = get_config()
+    for mode in ("ingest-only", "crawl"):
+        nxt = compute_next_run(mode, cfg)
+        if not nxt:
+            continue
+        nxt_dt = datetime.fromisoformat(nxt.replace("Z", "+00:00"))
+        if nxt_dt.tzinfo is None:
+            nxt_dt = nxt_dt.replace(tzinfo=_tz.utc)
+        if now >= nxt_dt:
+            already = [r for r in get_running_runs() if r["mode"] == mode]
+            if not already:
+                launch_pipeline(mode, trigger="schedule")
+                _log.info("Auto-launched %s (was due %s)", mode, nxt_dt.isoformat())
+
+    try:
+        from src.classification.scheduling import run_scheduler_tick
+        from src.storage.db import get_free_connection as _get_classification_conn
+        classification_conn = _get_classification_conn()
+        try:
+            run_scheduler_tick(classification_conn, last_request_at=_last_request_at, now=now)
+        finally:
+            classification_conn.close()
+    except Exception as exc:
+        _log.error("Classification scheduler tick failed: %s", exc)
+
+    try:
+        from src.db_rotation import rotate
+        from src.pipeline_monitor import get_config as _get_rotation_cfg
+        rotation_cfg = _get_rotation_cfg()
+        last_rotation_at = rotation_cfg.get("last_rotation_at")
+        max_interval_hours = int(rotation_cfg.get("rotation_max_interval_hours", 12))
+        rotation_due = True
+        if last_rotation_at:
+            last_dt = datetime.fromisoformat(last_rotation_at.replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=_tz.utc)
+            rotation_due = now >= last_dt + timedelta(hours=max_interval_hours)
+        if rotation_due:
+            rotate(last_request_at=_last_request_at, now=now)
+    except Exception as exc:
+        _log.error("Rotation check failed: %s", exc)
+
+
+def _auto_scheduler_loop() -> None:
+    """Check every 60 s whether a scheduled run is due; launch it if so."""
+    import time as _time
+    from datetime import timezone as _tz
+
     while True:
         _time.sleep(60)
         try:
-            cfg = get_config()
-            now = datetime.now(_tz.utc)
-            for mode in ("ingest-only", "crawl"):
-                nxt = compute_next_run(mode, cfg)
-                if not nxt:
-                    continue
-                nxt_dt = datetime.fromisoformat(nxt.replace("Z", "+00:00"))
-                if nxt_dt.tzinfo is None:
-                    nxt_dt = nxt_dt.replace(tzinfo=_tz.utc)
-                if now >= nxt_dt:
-                    already = [r for r in get_running_runs() if r["mode"] == mode]
-                    if not already:
-                        launch_pipeline(mode, trigger="schedule")
-                        _log.info("Auto-launched %s (was due %s)", mode, nxt_dt.isoformat())
-
-            from src.classification.scheduling import run_scheduler_tick
-            from src.storage.db import get_free_connection as _get_classification_conn
-            classification_conn = _get_classification_conn()
-            try:
-                run_scheduler_tick(classification_conn, last_request_at=_last_request_at, now=now)
-            finally:
-                classification_conn.close()
-
-            from src.db_rotation import rotate
-            from src.pipeline_monitor import get_config as _get_rotation_cfg
-            rotation_cfg = _get_rotation_cfg()
-            last_rotation_at = rotation_cfg.get("last_rotation_at")
-            max_interval_hours = int(rotation_cfg.get("rotation_max_interval_hours", 12))
-            rotation_due = True
-            if last_rotation_at:
-                from datetime import timedelta
-                last_dt = datetime.fromisoformat(last_rotation_at.replace("Z", "+00:00"))
-                if last_dt.tzinfo is None:
-                    last_dt = last_dt.replace(tzinfo=_tz.utc)
-                rotation_due = now >= last_dt + timedelta(hours=max_interval_hours)
-            if rotation_due:
-                rotate(last_request_at=_last_request_at, now=now)
+            _scheduler_tick_once(datetime.now(_tz.utc))
         except Exception as exc:
             logging.getLogger("auto_scheduler").error("Scheduler error: %s", exc)
 

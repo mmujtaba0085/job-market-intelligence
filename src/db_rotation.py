@@ -170,7 +170,25 @@ def _refresh_demoted_file(source: Path, destination: Path) -> None:
     opened the demoted file (read the pointer a moment before the flip)
     keeps reading its own consistent snapshot until it closes; nothing
     blocks, nothing errors. This is deliberately NOT a lock and NOT an
-    in-place overwrite - see the spec's Safety section for why."""
+    in-place overwrite - see the spec's Safety section for why.
+
+    All connections in this app run in WAL mode (db.py's _connect()), and
+    `destination` was Serving until moments ago - it realistically has its
+    own non-empty -wal/-shm sidecars from live traffic. os.replace() only
+    swaps the main file; a stale -wal left next to the fresh one would get
+    replayed by the next connection opened against `destination`, silently
+    reverting it back toward pre-rotation content (PRAGMA integrity_check
+    still reports "ok" - this fails silently, not with an error). The
+    backup itself doesn't have this problem (sqlite3.Connection.backup()
+    operates through a live connection to `source`, which already reflects
+    any of its own WAL content), so only destination's leftover sidecars
+    need cleaning up, not source's."""
     tmp_path = destination.with_suffix(destination.suffix + ".tmp")
     db._sqlite_file_backup(source, tmp_path)
     os.replace(tmp_path, destination)
+    for suffix in ("-wal", "-shm"):
+        sidecar = destination.with_name(destination.name + suffix)
+        try:
+            os.remove(sidecar)
+        except FileNotFoundError:
+            pass

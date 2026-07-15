@@ -130,6 +130,87 @@ def test_rotate_refreshes_demoted_file_and_open_handle_survives_replace(isolated
     assert row is not None and row[0] == "New Job"
 
 
+def test_rotate_cleans_up_stale_wal_on_demoted_file(isolated_paths):
+    """Regression test for a real bug found by the final whole-branch review:
+    all connections in this app run in WAL mode (db.py's _connect()), and the
+    file being demoted was Serving until moments ago - it realistically has
+    its own non-empty -wal sidecar from live traffic. os.replace() only
+    swaps the main .sqlite file; a stale -wal left next to it would get
+    replayed by the next connection opened against the demoted path,
+    silently reverting it back toward pre-rotation content even though
+    PRAGMA integrity_check still reports "ok".
+
+    A real dangling (non-checkpointed) -wal file can only exist on disk
+    while at least one connection to it is still open - SQLite checkpoints
+    and removes the WAL when the last connection closes. That means the
+    fullest reproduction (open connection, leave WAL dangling, rotate()
+    while it's still open, verify no replay) requires os.replace() to
+    succeed against a path with an open handle, which only POSIX allows
+    (same platform split already established in
+    test_rotate_refreshes_demoted_file_and_open_handle_survives_replace,
+    same reason: Windows raises PermissionError instead). Production runs
+    on Linux (gunicorn), so the POSIX branch is what actually matters.
+    """
+    which_before = db._read_pointer()
+    demoted_path = db._serving_path_for(which_before)
+    wal_path = demoted_path.with_name(demoted_path.name + "-wal")
+    shm_path = demoted_path.with_name(demoted_path.name + "-shm")
+
+    if os.name == "posix":
+        # Write directly to the about-to-be-demoted file with
+        # journal_mode=WAL, keeping the connection open (no close/checkpoint)
+        # so a real, non-empty -wal sidecar is still on disk when rotate()
+        # runs below - this mirrors a live Serving file with an in-flight
+        # request at rotation time.
+        lingering_conn = sqlite3.connect(demoted_path, isolation_level=None)
+        lingering_conn.execute("PRAGMA journal_mode=WAL")
+        lingering_conn.execute(
+            "INSERT INTO jobs (market_id, source_name, url, url_hash, canonical_hash, "
+            "description_hash, title, raw_description, first_seen_at, last_seen_at, ingested_at) "
+            "VALUES ('m','s','u','stale-wal-row','c','d','Stale WAL Row','','n','n','n')"
+        )
+
+        assert wal_path.exists() and wal_path.stat().st_size > 0, (
+            "test setup failed to produce a real dangling -wal file - "
+            "reproduction technique needs revisiting, not a finding about rotate()"
+        )
+
+        db_rotation.rotate()
+        lingering_conn.close()
+
+        # No stale sidecars should survive the refresh.
+        assert not wal_path.exists()
+        assert not shm_path.exists()
+
+        # The demoted file's content must match the fresh backup
+        # (new-Serving had zero jobs before rotation) - NOT the stale WAL's
+        # extra row, which would indicate the old generation got silently
+        # replayed back in.
+        fresh_conn = sqlite3.connect(demoted_path)
+        count = fresh_conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+        stale_row = fresh_conn.execute(
+            "SELECT 1 FROM jobs WHERE url_hash = 'stale-wal-row'"
+        ).fetchone()
+        fresh_conn.close()
+        assert count == 0
+        assert stale_row is None
+    else:
+        # Windows: can't hold the WAL dangling across rotate()'s
+        # os.replace() the way POSIX can, so this verifies the fix's actual
+        # mechanism directly instead - plant sidecar files at the demoted
+        # path (arbitrary bytes; this only tests that the cleanup code
+        # removes them, not SQLite's own WAL-replay semantics, which the
+        # POSIX branch above already covers) and confirm rotate() deletes
+        # them as part of refreshing that file.
+        wal_path.write_bytes(b"stale-wal-bytes")
+        shm_path.write_bytes(b"stale-shm-bytes")
+
+        db_rotation.rotate()
+
+        assert not wal_path.exists()
+        assert not shm_path.exists()
+
+
 def test_rotate_lock_prevents_double_merge(isolated_paths, monkeypatch):
     if db.fcntl is None:
         pytest.skip("fcntl is Unix-only")
