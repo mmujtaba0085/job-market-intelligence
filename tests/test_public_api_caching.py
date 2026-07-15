@@ -19,7 +19,8 @@ def app_client(tmp_path, monkeypatch):
     conn.executescript("""
         CREATE TABLE jobs (
             job_id INTEGER PRIMARY KEY,
-            listing_status TEXT, company TEXT
+            listing_status TEXT, company TEXT,
+            posted_date TEXT, first_seen_at TEXT
         );
         CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
     """)

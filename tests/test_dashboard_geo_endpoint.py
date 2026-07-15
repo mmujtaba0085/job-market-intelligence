@@ -28,15 +28,25 @@ import pytest
 def geo_client(tmp_path, monkeypatch):
     db_path = tmp_path / "jobs.sqlite"
     conn = sqlite3.connect(str(db_path))
-    # Minimal schema: dashboard_geo() only ever touches `country`, and
-    # get_db_connection()'s health check only needs active_jobs to exist
-    # and be queryable - see test_skill_combinations_endpoint.py for the
-    # same minimal-schema precedent against a different dashboard endpoint.
+    # Minimal schema: dashboard_geo() only ever touches `country` plus (since
+    # the status/active-window filter landed) `listing_status`, `posted_date`
+    # and `first_seen_at`. get_db_connection()'s health check only needs
+    # active_jobs to exist and be queryable - see
+    # test_skill_combinations_endpoint.py for the same minimal-schema
+    # precedent against a different dashboard endpoint.
+    #
+    # first_seen_at defaults to "right now" so every existing INSERT below
+    # (none of which mention dates at all) lands well inside the default
+    # status=active window without having to touch each one individually -
+    # posted_date stays NULL throughout this fixture, so those same rows
+    # also incidentally exercise the posted_date -> first_seen_at fallback.
     conn.execute("""
         CREATE TABLE jobs (
             job_id INTEGER PRIMARY KEY,
             country TEXT,
-            listing_status TEXT DEFAULT 'active'
+            listing_status TEXT DEFAULT 'active',
+            posted_date TEXT,
+            first_seen_at TEXT DEFAULT (datetime('now'))
         )
     """)
     conn.execute("CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden'")
@@ -134,3 +144,109 @@ def test_hidden_job_excluded_from_total(geo_client):
     geo = r.get_json()
     total = sum(row["count"] for row in geo)
     assert total == 10, "hidden row must not be counted in the active-job bucket total"
+
+
+@pytest.fixture()
+def geo_client_with_mixed_ages(tmp_path, monkeypatch):
+    """A second geo fixture, separate from geo_client's all-recent 10 rows,
+    purpose-built to exercise the status/active-window filter added on top
+    of the bucketing fix: one country posted long ago (must be excluded
+    under status=active, included under status=all), one country with no
+    posted_date at all but a recent first_seen_at (must still count as
+    active - the fallback), and one ordinary recent country as a control.
+    """
+    db_path = tmp_path / "jobs.sqlite"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE jobs (
+            job_id INTEGER PRIMARY KEY,
+            country TEXT,
+            listing_status TEXT DEFAULT 'active',
+            posted_date TEXT,
+            first_seen_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.execute("CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden'")
+
+    from datetime import datetime, timedelta
+    old_date = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+    recent_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
+
+    with conn:
+        # Control: recent posted_date, ordinary country.
+        conn.execute(
+            "INSERT INTO jobs (country, listing_status, posted_date) VALUES ('Canada', 'active', ?)",
+            (recent_date,),
+        )
+        # Old: posted 45 days ago - outside the 1-month window.
+        conn.execute(
+            "INSERT INTO jobs (country, listing_status, posted_date) VALUES ('France', 'active', ?)",
+            (old_date,),
+        )
+        # Fallback: no posted_date at all, but first_seen_at defaults to now.
+        conn.execute(
+            "INSERT INTO jobs (country, listing_status, posted_date) VALUES ('Japan', 'active', NULL)"
+        )
+    conn.close()
+
+    import web_viewer
+    monkeypatch.setattr(web_viewer, "DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
+    web_viewer.app.config.update(TESTING=True)
+    web_viewer.cache.clear()
+    client = web_viewer.app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = 1
+    return client
+
+
+def test_status_active_excludes_job_older_than_one_month(geo_client_with_mixed_ages):
+    r = geo_client_with_mixed_ages.get("/api/dashboard/geo?status=active")
+    assert r.status_code == 200
+    geo = {row["country"]: row["count"] for row in r.get_json()}
+    assert "France" not in geo, f"job posted 45 days ago must be excluded under status=active, got {geo}"
+    assert geo.get("Canada") == 1
+    assert geo.get("Japan") == 1  # fallback job, still active
+
+
+def test_status_all_includes_job_older_than_one_month(geo_client_with_mixed_ages):
+    r = geo_client_with_mixed_ages.get("/api/dashboard/geo?status=all")
+    assert r.status_code == 200
+    geo = {row["country"]: row["count"] for row in r.get_json()}
+    assert geo.get("France") == 1, f"status=all must include jobs regardless of age, got {geo}"
+    assert geo.get("Canada") == 1
+    assert geo.get("Japan") == 1
+
+
+def test_status_active_fallback_to_first_seen_at_when_posted_date_missing(geo_client_with_mixed_ages):
+    """Job 'Japan' has posted_date = NULL but a first_seen_at that defaults
+    to right now - it must still be counted as active via the
+    COALESCE(posted_date, first_seen_at) fallback, not dropped just because
+    posted_date itself is missing."""
+    r = geo_client_with_mixed_ages.get("/api/dashboard/geo?status=active")
+    geo = {row["country"]: row["count"] for row in r.get_json()}
+    assert geo.get("Japan") == 1
+
+
+def test_bucket_total_equals_filtered_total_under_status_active(geo_client_with_mixed_ages):
+    """The bucket-sum-equals-total invariant (see
+    test_bucket_total_equals_active_job_count_no_silent_drops above) must
+    keep holding once a status/window filter is layered on top - the sum
+    must equal the *filtered* count (2: Canada + Japan, France excluded by
+    age), not the unfiltered count of all 3 seeded rows."""
+    r = geo_client_with_mixed_ages.get("/api/dashboard/geo?status=active")
+    geo = r.get_json()
+    total = sum(row["count"] for row in geo)
+    assert total == 2, f"expected 2 (France excluded by age), got {total}; buckets={geo}"
+
+
+def test_default_status_is_active_when_status_param_omitted(geo_client_with_mixed_ages):
+    """/api/dashboard/geo with no ?status= at all must behave exactly like
+    ?status=active (matching /jobs's own default), not like ?status=all."""
+    r = geo_client_with_mixed_ages.get("/api/dashboard/geo")
+    geo = {row["country"]: row["count"] for row in r.get_json()}
+    assert "France" not in geo

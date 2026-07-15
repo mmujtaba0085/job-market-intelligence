@@ -274,6 +274,46 @@ def get_db_connection():
     raise sqlite3.OperationalError(f"Cannot open any DB: {last_err}")
 
 
+def _status_window_clause(status: str, alias: str = "") -> str:
+    """
+    SQL AND-clause fragment for the listing-status + active-window filter
+    shared by /jobs and the /api/dashboard/* widgets that read active_jobs
+    (directly, or via a join back to it). `alias` is an optional table-alias
+    prefix, dot included (e.g. "j." for /jobs's `j` alias and for routes that
+    join back to active_jobs as `j`; "" for dashboard routes that query
+    active_jobs unaliased).
+
+    Four status values, matching the "Listing Status" / "Listings" dropdown
+    in templates/jobs_list.html and templates/dashboard.html:
+      - "active": listing_status is unset/active AND the job is within the
+        last month. Age is measured by posted_date, falling back to
+        first_seen_at when posted_date is NULL/missing - the same fallback
+        already used for date *display* elsewhere (see the posted_date-or-
+        first_seen_at pattern in templates/jobs_list.html and
+        templates/job_detail.html). listing_status alone doesn't age a job
+        out today - nothing currently transitions a job to 'historical' on
+        its own, so almost every row is NULL/'active' on that column - this
+        is what actually makes "Active" mean "posted/seen recently".
+      - "unverified": listing_status is 'historical' or 'unverified' - no
+        age restriction.
+      - "closed": listing_status = 'closed' - no age restriction.
+      - anything else (in particular "all"): no restriction at all - every
+        job, regardless of status or age. This intentionally matches the
+        pre-existing /jobs behavior of falling through to "no filter" for
+        any unrecognized status value, not just the literal string "all".
+    """
+    if status == "active":
+        return (
+            f" AND ({alias}listing_status IS NULL OR {alias}listing_status = 'active')"
+            f" AND date(COALESCE({alias}posted_date, {alias}first_seen_at)) >= date('now', '-1 month')"
+        )
+    if status == "unverified":
+        return f" AND {alias}listing_status IN ('historical','unverified')"
+    if status == "closed":
+        return f" AND {alias}listing_status = 'closed'"
+    return ""  # 'all' (or any unrecognized value) → no filter
+
+
 def show_source_names() -> bool:
     """
     Admins always see real source names (they need them to operate the
@@ -638,24 +678,36 @@ def dashboard_kpis():
     """Get KPI metrics for dashboard."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
+    status = request.args.get("status", "active")
+    status_clause = _status_window_clause(status)
+
     # Total jobs
-    cursor.execute("SELECT COUNT(*) as count FROM active_jobs")
+    cursor.execute(f"SELECT COUNT(*) as count FROM active_jobs WHERE 1=1{status_clause}")
     total_jobs = cursor.fetchone()["count"]
-    
-    # Total skills
-    cursor.execute("SELECT COUNT(DISTINCT normalized_skill) as count FROM skills")
+
+    # Total skills - scoped to skills belonging to in-scope (status/window
+    # filtered) jobs, via a join back to active_jobs on skills.job_id, so
+    # "total skills" respects the same toggle as "total jobs" instead of
+    # always counting every skill ever seen regardless of job age/status.
+    cursor.execute(f"""
+        SELECT COUNT(DISTINCT s.normalized_skill) as count
+        FROM skills s
+        JOIN active_jobs j ON j.job_id = s.job_id
+        WHERE 1=1{_status_window_clause(status, "j.")}
+    """)
     total_skills = cursor.fetchone()["count"]
-    
+
     # Active sources
-    cursor.execute("SELECT COUNT(DISTINCT source_name) as count FROM active_jobs")
+    cursor.execute(f"SELECT COUNT(DISTINCT source_name) as count FROM active_jobs WHERE 1=1{status_clause}")
     active_sources = cursor.fetchone()["count"]
-    
+
     # Remote percentage
-    cursor.execute("""
-        SELECT 
+    cursor.execute(f"""
+        SELECT
             CAST(SUM(CASE WHEN LOWER(remote_type) = 'remote' THEN 1 ELSE 0 END) AS FLOAT) * 100 / COUNT(*) as pct
         FROM active_jobs
+        WHERE 1=1{status_clause}
     """)
     remote_pct = cursor.fetchone()["pct"] or 0
     
@@ -761,7 +813,23 @@ def dashboard_trends():
 
 @app.route("/api/dashboard/top-skills")
 def dashboard_top_skills():
-    """Get top 10 skills for current period, aggregated across all markets."""
+    """
+    Get top 10 skills for current period, aggregated across all markets.
+
+    The primary query reads weekly_metrics (just the latest week_start_date),
+    which - like dashboard_trends/emerging/declining - has no per-job
+    listing_status or posted_date/first_seen_at to filter on: it's already
+    pre-aggregated frequency counts by week, not job rows, and only ever
+    exposes the single latest week. So, same as those three routes, the
+    status/active-window toggle is NOT applied here; there is no "all"
+    (all-time, regardless of age) reading of a table that only ever holds
+    one week's numbers.
+
+    The fallback query (only reached when weekly_metrics has no rows yet,
+    e.g. a fresh/empty deployment) reads the skills table directly and CAN
+    be joined back to active_jobs via skills.job_id, so that path does
+    honor the status/window filter.
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -779,10 +847,13 @@ def dashboard_top_skills():
               for row in cursor.fetchall()]
 
     if not skills:
-        cursor.execute("""
-            SELECT normalized_skill as skill, COUNT(*) as count, category
-            FROM skills
-            GROUP BY normalized_skill, category
+        status = request.args.get("status", "active")
+        cursor.execute(f"""
+            SELECT s.normalized_skill as skill, COUNT(*) as count, s.category
+            FROM skills s
+            JOIN active_jobs j ON j.job_id = s.job_id
+            WHERE 1=1{_status_window_clause(status, "j.")}
+            GROUP BY s.normalized_skill, s.category
             ORDER BY count DESC
             LIMIT 10
         """)
@@ -811,11 +882,18 @@ def dashboard_geo():
     slices to the top 10 for the doughnut chart itself (see
     static/js/dashboard.js loadGeoChart()), so nothing about the visible
     chart changes; only the underlying data completeness does.
+
+    The "every active job lands in exactly one bucket" invariant now holds
+    against the status/window-filtered population, not the whole table: the
+    bucket sum equals the *filtered* active job total (see
+    _status_window_clause) - still no silent drops relative to that total,
+    still no LIMIT.
     """
     conn = get_db_connection()
     cursor = conn.cursor()
+    status = request.args.get("status", "active")
 
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT
           CASE
             WHEN country IS NULL OR TRIM(country) = '' OR LOWER(TRIM(country)) = 'unknown' THEN 'Unknown'
@@ -824,6 +902,7 @@ def dashboard_geo():
           END AS country,
           COUNT(*) as count
         FROM active_jobs
+        WHERE 1=1{_status_window_clause(status)}
         GROUP BY 1
         ORDER BY count DESC
     """)
@@ -840,10 +919,12 @@ def dashboard_sources():
     """Get source performance breakdown."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    cursor.execute("""
+    status = request.args.get("status", "active")
+
+    cursor.execute(f"""
         SELECT source_name, COUNT(*) as count
         FROM active_jobs
+        WHERE 1=1{_status_window_clause(status)}
         GROUP BY source_name
         ORDER BY count DESC
     """)
@@ -921,20 +1002,21 @@ def dashboard_companies():
     """Get top hiring companies."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    cursor.execute("""
+    status = request.args.get("status", "active")
+
+    cursor.execute(f"""
         SELECT company, COUNT(*) as count
         FROM active_jobs
-        WHERE company IS NOT NULL AND company != ''
+        WHERE company IS NOT NULL AND company != ''{_status_window_clause(status)}
         GROUP BY company
         ORDER BY count DESC
         LIMIT 10
     """)
-    
-    companies = [{"company": row["company"], "count": row["count"]} 
+
+    companies = [{"company": row["company"], "count": row["count"]}
                  for row in cursor.fetchall()]
     conn.close()
-    
+
     return jsonify(companies)
 
 
@@ -944,14 +1026,15 @@ def dashboard_location_diversity():
     """Get companies with jobs in most locations."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    cursor.execute("""
-        SELECT 
-            company, 
+    status = request.args.get("status", "active")
+
+    cursor.execute(f"""
+        SELECT
+            company,
             MAX(location_count) as max_locations,
             COUNT(DISTINCT job_group_id) as job_count
         FROM active_jobs
-        WHERE location_count > 1
+        WHERE location_count > 1{_status_window_clause(status)}
         GROUP BY company
         ORDER BY max_locations DESC, job_count DESC
         LIMIT 10
@@ -1560,14 +1643,8 @@ def jobs_list():
     """
     params = []
 
-    # Status filter
-    if current_status == "active":
-        base += " AND (j.listing_status IS NULL OR j.listing_status = 'active')"
-    elif current_status == "unverified":
-        base += " AND j.listing_status IN ('historical','unverified')"
-    elif current_status == "closed":
-        base += " AND j.listing_status = 'closed'"
-    # 'all' → no filter
+    # Status + active-window filter (see _status_window_clause)
+    base += _status_window_clause(current_status, "j.")
 
     if market_filter:
         base += " AND j.market_id = ?"; params.append(market_filter)

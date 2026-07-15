@@ -9,6 +9,7 @@ anonymous requests too - not just hides the UI - while signed-in requests
 still get real filtering.
 """
 import sqlite3
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -23,18 +24,26 @@ def jobs_app(tmp_path, monkeypatch):
             title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT '',
             remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
             source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
-            listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER
+            listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
+            first_seen_at TEXT
         );
         CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
         CREATE TABLE skills (job_id INTEGER, raw_detected_skill TEXT, normalized_skill TEXT, category TEXT, confidence_score REAL);
         CREATE TABLE pipeline_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
     """)
+    # Dates are relative to "now" (not hardcoded past dates) because /jobs's
+    # default status=active now requires posted_date to fall within the last
+    # month (see web_viewer.py::_status_window_clause) - both jobs must stay
+    # inside that window for every test below to keep meaning what it says,
+    # regardless of what day the suite actually runs on.
+    recent_1 = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
+    recent_2 = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
     conn.executemany(
         "INSERT INTO jobs (job_id, title, company, posted_date, ingested_at, source_name, market_id, listing_status) "
         "VALUES (?,?,?,?,?,?,?,?)",
         [
-            (1, "Alpha Job", "Alpha Co", "2026-01-05", "2026-01-05T00:00:00", "A", "m1", "active"),
-            (2, "Beta Job", "Beta Co", "2026-01-04", "2026-01-04T00:00:00", "A", "m2", "active"),
+            (1, "Alpha Job", "Alpha Co", recent_1, f"{recent_1}T00:00:00", "A", "m1", "active"),
+            (2, "Beta Job", "Beta Co", recent_2, f"{recent_2}T00:00:00", "A", "m2", "active"),
         ],
     )
     conn.execute(

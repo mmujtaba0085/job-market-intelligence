@@ -5,6 +5,7 @@ Tests for the /jobs page's diversity-vs-recency sort behavior.
 """
 
 import sqlite3
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -19,21 +20,31 @@ def jobs_app(tmp_path, monkeypatch):
             title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT '',
             remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
             source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
-            listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER
+            listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
+            first_seen_at TEXT
         );
         CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
         CREATE TABLE pipeline_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
     """)
     # Source A: 3 jobs, all recent. Source B: 1 job, older. Without diversity,
     # A's 3 jobs would all outrank B's single job on a plain posted_date sort.
+    # Dates are relative to "now" (not hardcoded past dates), and all still
+    # land within /jobs's default status=active last-month window (see
+    # web_viewer.py::_status_window_clause) - only their relative order
+    # matters to these tests, not their absolute values.
+    today = datetime.now()
+    date_a1 = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+    date_a2 = (today - timedelta(days=2)).strftime("%Y-%m-%d")
+    date_a3 = (today - timedelta(days=3)).strftime("%Y-%m-%d")
+    date_b1 = (today - timedelta(days=6)).strftime("%Y-%m-%d")
     conn.executemany(
         "INSERT INTO jobs (job_id, title, company, posted_date, ingested_at, source_name, market_id, listing_status, diversity_rank) "
         "VALUES (?,?,?,?,?,?,?,?,?)",
         [
-            (1, "Job A1", "Co", "2026-01-06", "2026-01-06T00:00:00", "A", "m1", "active", 1),
-            (2, "Job A2", "Co", "2026-01-05", "2026-01-05T00:00:00", "A", "m1", "active", 2),
-            (3, "Job A3", "Co", "2026-01-04", "2026-01-04T00:00:00", "A", "m1", "active", 3),
-            (4, "Job B1", "Co", "2026-01-01", "2026-01-01T00:00:00", "B", "m1", "active", 1),
+            (1, "Job A1", "Co", date_a1, f"{date_a1}T00:00:00", "A", "m1", "active", 1),
+            (2, "Job A2", "Co", date_a2, f"{date_a2}T00:00:00", "A", "m1", "active", 2),
+            (3, "Job A3", "Co", date_a3, f"{date_a3}T00:00:00", "A", "m1", "active", 3),
+            (4, "Job B1", "Co", date_b1, f"{date_b1}T00:00:00", "B", "m1", "active", 1),
         ],
     )
     conn.commit()
@@ -101,19 +112,25 @@ class TestUnrankedJobsInDiversityView:
                 title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT '',
                 remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
                 source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
-                listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER
+                listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
+                first_seen_at TEXT
             );
             CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
             CREATE TABLE pipeline_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT);
         """)
+        # Relative to "now" (see jobs_app fixture above for why) - both still
+        # land within the default status=active last-month window.
+        today = datetime.now()
+        date_ranked = (today - timedelta(days=10)).strftime("%Y-%m-%d")
+        date_unranked = (today - timedelta(days=1)).strftime("%Y-%m-%d")
         conn.executemany(
             "INSERT INTO jobs (job_id, title, company, posted_date, ingested_at, source_name, market_id, listing_status, diversity_rank) "
             "VALUES (?,?,?,?,?,?,?,?,?)",
             [
-                (1, "Job Ranked", "Co", "2026-01-01", "2026-01-01T00:00:00", "A", "m1", "active", 1),
+                (1, "Job Ranked", "Co", date_ranked, f"{date_ranked}T00:00:00", "A", "m1", "active", 1),
                 # Inserted after the last recompute — no rank assigned yet, but still
                 # posted more recently than the ranked job above.
-                (2, "Job Unranked New", "Co", "2026-01-10", "2026-01-10T00:00:00", "A", "m1", "active", None),
+                (2, "Job Unranked New", "Co", date_unranked, f"{date_unranked}T00:00:00", "A", "m1", "active", None),
             ],
         )
         conn.commit()

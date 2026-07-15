@@ -19,6 +19,7 @@ cases for the public-viewable routes:
      scope-check logic further down in global_auth_gate().
 """
 import sqlite3
+from datetime import datetime
 
 import pytest
 
@@ -34,7 +35,7 @@ def anon_client(tmp_path, monkeypatch):
             remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
             source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
             listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
-            job_group_id INTEGER
+            job_group_id INTEGER, first_seen_at TEXT
         );
         CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
         CREATE TABLE skills (job_id INTEGER, raw_detected_skill TEXT, normalized_skill TEXT, category TEXT, confidence_score REAL);
@@ -49,8 +50,13 @@ def anon_client(tmp_path, monkeypatch):
     # This exact schema (including weekly_metrics, needed by dashboard_kpis'
     # week-over-week trend comparison) was empirically verified against all
     # 6 page routes and all 8 API routes together before being written here.
+    # first_seen_at is set to "now" (posted_date left NULL, exercising the
+    # same fallback as elsewhere) so this job still counts under the
+    # dashboard/jobs routes' default status=active filter, matching what a
+    # real freshly-ingested "Test Job" row would look like.
     conn.execute(
-        "INSERT INTO jobs (job_id, title, company, listing_status) VALUES (1, 'Test Job', 'Test Co', 'active')"
+        "INSERT INTO jobs (job_id, title, company, listing_status, first_seen_at) VALUES (1, 'Test Job', 'Test Co', 'active', ?)",
+        (datetime.now().isoformat(),),
     )
     conn.commit()
     conn.close()
