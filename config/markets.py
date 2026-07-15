@@ -152,44 +152,14 @@ TARGET_MARKETS: list[dict] = [
 
     {
         # ── Identity ─────────────────────────────────────────────────────────
-        "market_id": "tenpearls_jobs",
-        "display_name": "10Pearls Careers",
-
-        # No keyword filter — 10Pearls' own careers board is a small,
-        # finite, single-company catalogue that mixes tech and non-tech
-        # roles (Solutions Architect alongside Account Manager, Talent
-        # Acquisition, ...). Capturing everything is the point of tracking
-        # this specific company, not just its roles that happen to match
-        # generic global tech keywords.
-        "keywords": [],
-        "crawl_keywords": [],
-
-        # ── Geography ─────────────────────────────────────────────────────────
-        "countries": ["Pakistan", "United Kingdom"],
-
-        # ── Filters ───────────────────────────────────────────────────────────
-        "remote_filter": False,
-        "experience_levels": ["entry", "mid", "senior"],
-        "salary_required": False,
-
-        # ── Collection limits (per source per run) ────────────────────────────
-        # Effectively unbounded — the whole board is one page, currently ~70
-        # jobs; TenPearlsCollector always fetches everything currently listed.
-        "max_jobs_per_source": 1_000,
-
-        # ── Restrict this market to just this source ─────────────────────────
-        "source_allowlist": ["tenpearls"],
-    },
-
-    {
-        # ── Identity ─────────────────────────────────────────────────────────
         "market_id": "pakistan_company_boards",
         "display_name": "Pakistan Company Career Boards",
 
-        # No keyword filter — same reasoning as tenpearls_jobs: these are
-        # curated single-company catalogues (PMCL/Jazz alone spans sales,
-        # finance, and marketing roles alongside tech), not a generic
-        # keyword-matched search. A few of these companies (Motive, S&P
+        # No keyword filter — these are curated single-company catalogues
+        # (PMCL/Jazz alone spans sales, finance, and marketing roles
+        # alongside tech; 10Pearls mixes Solutions Architect with Account
+        # Manager and Talent Acquisition), not a generic keyword-matched
+        # search. A few of these companies (Motive, S&P
         # Global, Veeam, Software Finder) are large global employers whose
         # collectors already filter down to Pakistan-relevant postings
         # before returning results, so no additional filtering belongs here.
@@ -213,7 +183,7 @@ TARGET_MARKETS: list[dict] = [
         "source_allowlist": [
             "devsinc", "pmcl", "vyro", "kodifly", "veeam", "motive",
             "spglobal", "contour", "venturedive", "carbonteq",
-            "softwarefinder", "dpl", "xgrid",
+            "softwarefinder", "dpl", "xgrid", "tenpearls",
         ],
     },
 
