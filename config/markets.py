@@ -63,6 +63,12 @@ TARGET_MARKETS: list[dict] = [
         # ── Per-source overrides (only lower, never raise, the global cap) ──────
         "source_overrides": {
             "adzuna": {"max_jobs": 150},
+            # Himalayas was re-enabled at some point after being disabled and,
+            # uncapped, grew to 46.9% of all active jobs (82.8% of the last-
+            # month Active window) across just this market + swe_backend_global
+            # - confirmed against production on 2026-07-16. 50/market caps
+            # future growth to roughly a tenth of its former per-cycle yield.
+            "himalayas": {"max_jobs": 50},
         },
     },
 
@@ -117,6 +123,11 @@ TARGET_MARKETS: list[dict] = [
 
         # ── Collection limits (per source per run) ────────────────────────────
         "max_jobs_per_source": 500,
+
+        # ── Per-source overrides (only lower, never raise, the global cap) ──────
+        "source_overrides": {
+            "himalayas": {"max_jobs": 50},
+        },
     },
 
     {
