@@ -1069,6 +1069,12 @@ with:
             run_ingestion(market, run)
 ```
 
+- [ ] **Step 4b: Note on recompute ordering (no code change — read before Step 5)**
+
+`main()` calls `recompute_diversity_ranks()` / `recompute_skill_combinations()` / `recompute_top_titles()` (around line 615-624) BEFORE `finish_run()`, using the default `get_connection()` (Serving) — not Buffer, not Free. During an ingest-only run, this means those three recomputes still run against the previous rotation's Serving data, not this run's freshly-buffered jobs, until the NEXT rotation merges Buffer in.
+
+This is a deliberate, accepted simplification, not a gap to fix in this task: those recomputes already re-run on every subsequent ingest-only run, so the summaries become correct again one rotation cycle later, and none of the six pages that read them promise real-time freshness. Reworking them to target Buffer/Free would need a second connection-target switch mid-`main()` and isn't asked for by the spec. If this staleness window ever needs closing, the fix is to move these three calls to run right after `rotate()` instead of before `finish_run()` — do not do that as part of this task.
+
 - [ ] **Step 5: Trigger `rotate()` after a successful ingest-only run in `main()`**
 
 In `src/orchestrator.py::main()` (around line 626), replace:
