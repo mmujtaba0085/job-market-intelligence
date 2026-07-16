@@ -230,6 +230,39 @@ def test_local_full_backfill_advances_across_ticks_not_stuck_on_first_chunk(conn
     assert after_tick_3["status"] == "success"  # all 3 jobs processed, run completed
 
 
+def test_groq_retry_is_bounded_to_chunk_size_not_unbounded(conn, monkeypatch):
+    # Regression test for a real production incident: process_groq_queue()
+    # defaults to limit=None (unbounded) unless a caller passes one
+    # explicitly - groq_backlog's call site already does (limit=groq_chunk_size),
+    # but groq_retry's call site never did, so a large failed_technical queue
+    # got processed entirely in one run. Confirmed in production: a groq_retry
+    # run held the cross-process scheduler lock (see the fcntl lock tests
+    # above) for over an hour with zero progress reported, blocking every
+    # other classification run - not a hang, just unboundedly slow.
+    conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
+    conn.execute("INSERT INTO groq_classification_queue (job_id, status, attempt_count, created_at) VALUES (1, 'failed_technical', 1, datetime('now'))")
+    conn.execute("INSERT INTO pipeline_config (key, value, updated_at) VALUES ('classification_groq_chunk_size', '10', datetime('now'))")
+    conn.commit()
+
+    captured_kwargs = {}
+
+    def _fake_process_groq_queue(conn, run_id, statuses, **kwargs):
+        captured_kwargs.update(kwargs)
+        return {"processed": 1, "succeeded": 1, "failed_technical": 0, "no_match": 0}
+
+    from src.classification import groq_stage
+    monkeypatch.setattr(groq_stage, "process_groq_queue", _fake_process_groq_queue)
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    run_scheduler_tick(conn, last_request_at=now, now=now)
+
+    assert captured_kwargs.get("limit") == 10, (
+        f"groq_retry must pass the configured groq_chunk_size as limit, not leave it "
+        f"unbounded (limit=None) - got kwargs {captured_kwargs!r}"
+    )
+
+
 def test_tick_launches_groq_retry_when_never_run_before(conn, monkeypatch):
     conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
     conn.execute("INSERT INTO groq_classification_queue (job_id, status, attempt_count, created_at) VALUES (1, 'failed_technical', 1, datetime('now'))")

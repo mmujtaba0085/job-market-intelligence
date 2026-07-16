@@ -222,12 +222,18 @@ def _run_scheduler_tick_impl(conn, last_request_at: datetime | None, now: dateti
 
     # groq_retry: hourly sweep of failed_technical rows under the attempt cap.
     # Deliberately NOT load-gated (Global Constraints: load gating applies only
-    # to local_full_backfill and groq_backlog) - this is a small-volume, purely
-    # time-based cadence, independent of site traffic.
+    # to local_full_backfill and groq_backlog) - this is a time-based cadence,
+    # independent of site traffic. MUST pass limit=groq_chunk_size the same way
+    # groq_backlog's call below does: process_groq_queue() defaults to
+    # limit=None (unbounded) unless a caller passes one explicitly, and this
+    # call site didn't - confirmed in production, a large failed_technical
+    # queue (this is not actually "small-volume" in practice) held the
+    # cross-process scheduler lock for over an hour with zero progress
+    # reported, blocking every other classification run entirely.
     if _groq_retry_due(conn, now) and not _any_run_active(conn, "groq_retry"):
         run_id = _start_run(conn, "groq_retry", trigger="schedule")
         try:
-            process_groq_queue(conn, run_id=run_id, statuses=("failed_technical",))
+            process_groq_queue(conn, run_id=run_id, statuses=("failed_technical",), limit=groq_chunk_size)
             _finish_run(conn, run_id, status="success")
         except Exception as exc:  # noqa: BLE001
             logger.error("[classification_scheduler] groq_retry failed: %s", exc)
