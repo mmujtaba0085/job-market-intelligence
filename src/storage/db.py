@@ -322,6 +322,21 @@ def _run_operational_migrations_impl(conn: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_job_reports_status ON job_reports(status);
         CREATE INDEX IF NOT EXISTS idx_job_reports_job_url ON job_reports(job_url);
+
+        CREATE TABLE IF NOT EXISTS tickets (
+            ticket_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            category          TEXT NOT NULL,
+            subject           TEXT NOT NULL,
+            details           TEXT NOT NULL,
+            submitter_user_id INTEGER,
+            submitter_email   TEXT,
+            submitter_ip      TEXT NOT NULL,
+            status            TEXT NOT NULL DEFAULT 'open',
+            admin_notes       TEXT,
+            created_at        TEXT NOT NULL,
+            resolved_at       TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
     """)
     defaults = [
         ("ingest_interval_hours",       "12"),
