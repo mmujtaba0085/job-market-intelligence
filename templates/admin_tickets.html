@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Tickets - Admin{% endblock %}
+{% block content %}
+<div class="container" style="max-width:1100px">
+
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem">
+    <div>
+      <h1 style="margin:0">Tickets & Feedback</h1>
+      <p style="color:#6b7280;margin:0.25rem 0 0">Bug reports, feature requests, and general feedback from visitors</p>
+    </div>
+    <a href="/admin" class="btn" style="background:#f3f4f6;color:#374151;text-decoration:none">← Admin</a>
+  </div>
+
+  <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+    <a href="/admin/tickets" class="btn btn-sm {{ 'btn-primary' if current_status == 'open' else 'btn-secondary' }}">Open</a>
+    <a href="/admin/tickets?status=in_progress" class="btn btn-sm {{ 'btn-primary' if current_status == 'in_progress' else 'btn-secondary' }}">In Progress</a>
+    <a href="/admin/tickets?status=resolved" class="btn btn-sm {{ 'btn-primary' if current_status == 'resolved' else 'btn-secondary' }}">Resolved</a>
+    <a href="/admin/tickets?status=dismissed" class="btn btn-sm {{ 'btn-primary' if current_status == 'dismissed' else 'btn-secondary' }}">Dismissed</a>
+    <a href="/admin/tickets?status=all" class="btn btn-sm {{ 'btn-primary' if current_status == 'all' else 'btn-secondary' }}">All</a>
+  </div>
+
+  <div class="card">
+    <div class="table-wrap" style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th>Category</th><th>Subject</th><th>Details</th><th>Submitter</th><th>Submitted</th><th>Status</th><th></th>
+        </tr></thead>
+        <tbody>
+        {% for t in tickets %}
+        <tr>
+          <td>{{ t.category }}</td>
+          <td>{{ t.subject }}</td>
+          <td style="max-width:220px;">{{ t.details }}</td>
+          <td>
+            {% if t.submitter_user_id %}User #{{ t.submitter_user_id }}
+            {% else %}Anonymous{% if t.submitter_email %} ({{ t.submitter_email }}){% endif %}
+            {% endif %}
+          </td>
+          <td><time data-utc="{{ t.created_at }}">{{ t.created_at }}</time></td>
+          <td>
+            <span class="badge badge-{{ 'success' if t.status == 'resolved' else 'danger' if t.status == 'dismissed' else 'info' if t.status == 'in_progress' else 'warning' }}">{{ t.status }}</span>
+            {% if t.admin_notes %}<div style="font-size:0.75rem;color:#6b7280;margin-top:0.25rem;">{{ t.admin_notes }}</div>{% endif %}
+          </td>
+          <td>
+            {% if t.status in ('open', 'in_progress') %}
+            {% if t.status == 'open' %}
+            <form method="post" action="/admin/tickets/{{ t.ticket_id }}/in-progress" style="display:inline-block;margin-bottom:0.25rem;">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-secondary btn-sm">Mark In Progress</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/admin/tickets/{{ t.ticket_id }}/resolve" style="display:inline-block;margin-bottom:0.25rem;">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="text" name="admin_notes" placeholder="Notes (optional)" style="width:120px;font-size:0.75rem;">
+              <button type="submit" class="btn btn-secondary btn-sm">Resolve</button>
+            </form>
+            <form method="post" action="/admin/tickets/{{ t.ticket_id }}/dismiss" style="display:inline-block;">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-secondary btn-sm">Dismiss</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" style="padding:2rem;text-align:center;color:#9ca3af">No tickets here.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -3670,6 +3670,89 @@ def admin_reports_dismiss(report_id):
     return redirect(url_for("admin_reports"))
 
 
+@app.route("/admin/tickets")
+@require_admin
+def admin_tickets():
+    from src.storage.db import get_operational_connection
+    status = request.args.get("status", "open")
+    conn = get_operational_connection()
+    if status == "all":
+        rows = conn.execute("SELECT * FROM tickets ORDER BY created_at DESC").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM tickets WHERE status = ? ORDER BY created_at DESC", (status,)
+        ).fetchall()
+    conn.close()
+    return render_template("admin_tickets.html", tickets=rows, current_status=status)
+
+
+@app.route("/admin/tickets/<int:ticket_id>/in-progress", methods=["POST"])
+@require_admin
+def admin_tickets_in_progress(ticket_id):
+    from flask import redirect, url_for
+    from src.auth.middleware import validate_csrf
+    from src.storage.db import get_operational_connection
+
+    err = validate_csrf()
+    if err:
+        return err
+
+    conn = get_operational_connection()
+    conn.execute(
+        "UPDATE tickets SET status = 'in_progress' WHERE ticket_id = ? AND status IN ('open', 'in_progress')",
+        (ticket_id,),
+    )
+    conn.commit()
+    conn.close()
+    cache.clear()
+    return redirect(url_for("admin_tickets"))
+
+
+@app.route("/admin/tickets/<int:ticket_id>/resolve", methods=["POST"])
+@require_admin
+def admin_tickets_resolve(ticket_id):
+    from flask import redirect, url_for
+    from src.auth.middleware import validate_csrf
+    from src.storage.db import get_operational_connection
+
+    err = validate_csrf()
+    if err:
+        return err
+
+    admin_notes = request.form.get("admin_notes", "").strip()
+    conn = get_operational_connection()
+    conn.execute(
+        "UPDATE tickets SET status = 'resolved', admin_notes = ?, resolved_at = ? WHERE ticket_id = ? AND status IN ('open', 'in_progress')",
+        (admin_notes or None, datetime.now(timezone.utc).isoformat(), ticket_id),
+    )
+    conn.commit()
+    conn.close()
+    cache.clear()
+    return redirect(url_for("admin_tickets"))
+
+
+@app.route("/admin/tickets/<int:ticket_id>/dismiss", methods=["POST"])
+@require_admin
+def admin_tickets_dismiss(ticket_id):
+    from flask import redirect, url_for
+    from src.auth.middleware import validate_csrf
+    from src.storage.db import get_operational_connection
+
+    err = validate_csrf()
+    if err:
+        return err
+
+    conn = get_operational_connection()
+    conn.execute(
+        "UPDATE tickets SET status = 'dismissed', resolved_at = ? WHERE ticket_id = ? AND status IN ('open', 'in_progress')",
+        (datetime.now(timezone.utc).isoformat(), ticket_id),
+    )
+    conn.commit()
+    conn.close()
+    cache.clear()
+    return redirect(url_for("admin_tickets"))
+
+
 # ── Auto-scheduler background thread ─────────────────────────────────────────
 
 def _scheduler_tick_once(now) -> None:
