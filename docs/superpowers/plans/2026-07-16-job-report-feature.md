@@ -480,7 +480,7 @@ In `templates/job_detail.html`, immediately after the `{% if job.url %}...View o
         if (emailEl) body.append('email', emailEl.value);
         fetch('/jobs/' + jobId + '/report', {
             method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': '{{ session.get("_csrf_token", "") }}'},
+            headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': '{{ csrf_token() }}'},
             body: body,
         })
         .then(function(r) { return r.json().then(function(data) { return {ok: r.ok, data: data}; }); })

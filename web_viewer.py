@@ -3568,6 +3568,67 @@ def admin_notifications_remove(notification_id: int):
     return redirect(url_for("admin_notifications"))
 
 
+@app.route("/admin/reports")
+@require_admin
+def admin_reports():
+    from src.storage.db import get_operational_connection
+    status = request.args.get("status", "open")
+    conn = get_operational_connection()
+    if status == "all":
+        rows = conn.execute("SELECT * FROM job_reports ORDER BY created_at DESC").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM job_reports WHERE status = ? ORDER BY created_at DESC", (status,)
+        ).fetchall()
+    conn.close()
+    return render_template("admin_reports.html", reports=rows, current_status=status)
+
+
+@app.route("/admin/reports/<int:report_id>/resolve", methods=["POST"])
+@require_admin
+def admin_reports_resolve(report_id):
+    from flask import redirect, url_for
+    from src.auth.middleware import validate_csrf
+    from src.storage.db import get_operational_connection
+
+    err = validate_csrf()
+    if err:
+        return err
+
+    admin_notes = request.form.get("admin_notes", "").strip()
+    conn = get_operational_connection()
+    conn.execute(
+        "UPDATE job_reports SET status = 'resolved', admin_notes = ?, resolved_at = ? WHERE report_id = ? AND status = 'open'",
+        (admin_notes or None, datetime.now(timezone.utc).isoformat(), report_id),
+    )
+    conn.commit()
+    conn.close()
+    cache.clear()
+    return redirect(url_for("admin_reports"))
+
+
+@app.route("/admin/reports/<int:report_id>/dismiss", methods=["POST"])
+@require_admin
+def admin_reports_dismiss(report_id):
+    from flask import redirect, url_for
+    from src.auth.middleware import validate_csrf
+    from src.storage.db import get_operational_connection
+
+    err = validate_csrf()
+    if err:
+        return err
+
+    conn = get_operational_connection()
+    conn.execute(
+        "UPDATE job_reports SET status = 'dismissed', resolved_at = ? WHERE report_id = ? AND status = 'open'",
+        (datetime.now(timezone.utc).isoformat(), report_id),
+    )
+    conn.commit()
+    conn.close()
+    cache.clear()
+    return redirect(url_for("admin_reports"))
+
+
 # ── Auto-scheduler background thread ─────────────────────────────────────────
 
 def _scheduler_tick_once(now) -> None:

@@ -445,6 +445,8 @@ def submit_ticket():
 
 Confirm `datetime`/`timezone`/`jsonify`/`g` are already imported at module level in `web_viewer.py` (they are, used elsewhere including the job-reports submission route if built) — no new top-level import needed.
 
+**Also add `"submit_ticket"` to `web_viewer.py`'s `_PUBLIC_VIEWABLE_ENDPOINTS` set** (near `_PUBLIC_PATHS`, around line 116) — `global_auth_gate()`'s `before_request` hook redirects anonymous requests to `/auth/login` by default unless the endpoint is explicitly allowlisted there. This was discovered the hard way building the job-report feature's identical route: the endpoint existing and passing CSRF isn't enough, since this hook runs first and doesn't know the route is meant to be public. Match `submit_job_report`'s entry there (added when the job-report feature was built) for the comment style.
+
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `pytest tests/test_ticket_submission.py -v --basetemp=C:/Users/moham/AppData/Local/Temp/claude/d--vs-code-Job-Market-Intelligence/a7f807f9-3c99-49f5-9532-b27cedca2513/scratchpad/pytest-basetemp`
@@ -498,7 +500,7 @@ with:
         if (emailEl) body.append('email', emailEl.value);
         fetch('/tickets', {
             method: 'POST',
-            headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': '{{ session.get("_csrf_token", "") }}'},
+            headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': '{{ csrf_token() }}'},
             body: body,
         })
         .then(function(r) { return r.json().then(function(data) { return {ok: r.ok, data: data}; }); })
