@@ -126,6 +126,37 @@ def test_local_incremental_is_capped_to_chunk_size_not_unbounded(conn):
     assert run["status"] == "success"  # each chunk's run completes on its own, no cursor/continuation needed
 
 
+def test_groq_backlog_failure_is_caught_and_marked_failed_immediately(conn, monkeypatch):
+    # Regression test for a real production incident: this block had no
+    # try/except at all, unlike local_incremental and groq_retry right next
+    # to it. When process_groq_queue() raised, the exception propagated
+    # uncaught past this function entirely, got swallowed by a broader
+    # catch-all in web_viewer.py's _scheduler_tick_once(), and the run's DB
+    # row just sat as 'running' - with no error message ever recorded -
+    # until the (unrelated) 30-minute staleness timeout eventually cleaned
+    # it up. Confirmed in production: three separate groq_backlog runs each
+    # "took" ~30 minutes and left an empty error column, which is exactly
+    # what staleness-timeout cleanup of a silently-crashed run looks like.
+    conn.execute("UPDATE jobs SET field_classification_attempted_at = datetime('now')")
+    conn.execute("INSERT INTO groq_classification_queue (job_id, status, created_at) VALUES (1, 'pending', datetime('now'))")
+    conn.commit()
+
+    from src.classification import groq_stage
+
+    def _boom(conn, run_id, statuses, **kwargs):
+        raise RuntimeError("simulated Groq API failure")
+
+    monkeypatch.setattr(groq_stage, "process_groq_queue", _boom)
+
+    from src.classification.scheduling import run_scheduler_tick
+    now = datetime.now(timezone.utc)
+    run_scheduler_tick(conn, last_request_at=now, now=now)  # must not raise - caught internally
+
+    run = conn.execute("SELECT status FROM classification_runs WHERE run_type = 'groq_backlog'").fetchone()
+    assert run is not None
+    assert run["status"] == "failed"  # marked failed immediately, not left 'running' for staleness to catch later
+
+
 def test_groq_backlog_runs_without_idle_gating(conn):
     # Free is never serving live traffic, so groq_backlog no longer defers to
     # should_process_chunk()'s idle check - it must run even with zero idle

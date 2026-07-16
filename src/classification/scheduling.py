@@ -200,9 +200,22 @@ def _run_scheduler_tick_impl(conn, last_request_at: datetime | None, now: dateti
     if _any_run_active(conn, "groq_backlog"):
         run = conn.execute("SELECT run_id FROM classification_runs WHERE run_type = 'groq_backlog' AND status = 'running' LIMIT 1").fetchone()
         run_id = run["run_id"]
-        process_groq_queue(conn, run_id=run_id, statuses=("pending",), limit=groq_chunk_size)
-        if not _has_pending_groq_backlog(conn):
-            _finish_run(conn, run_id, status="success")
+        try:
+            process_groq_queue(conn, run_id=run_id, statuses=("pending",), limit=groq_chunk_size)
+            if not _has_pending_groq_backlog(conn):
+                _finish_run(conn, run_id, status="success")
+        except Exception as exc:  # noqa: BLE001
+            # This block used to have no exception handling at all, unlike
+            # local_incremental/groq_retry right next to it - a raised
+            # exception propagated uncaught past this whole function, and
+            # the run's DB row just sat as 'running' with no error message
+            # until the (unrelated) 30-minute staleness timeout eventually
+            # cleaned it up. Confirmed in production: three separate
+            # groq_backlog runs each "took" ~30 minutes with an empty error
+            # column - exactly what a silently-crashed run's staleness
+            # cleanup looks like, not real processing time.
+            logger.error("[classification_scheduler] groq_backlog failed: %s", exc)
+            _finish_run(conn, run_id, status="failed")
 
     # local_full_backfill: manual-start only (admin action creates the 'running'
     # row elsewhere); this tick only ever CONTINUES an already-started one.
