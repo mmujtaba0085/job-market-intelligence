@@ -123,6 +123,11 @@ _PUBLIC_VIEWABLE_ENDPOINTS = {
     # deliberately NOT here - fully gated by request: an anonymous click
     # on Skills/Companies/Titles goes straight to /auth/login (the normal
     # global_auth_gate() fallback), not a teased preview.
+    "submit_job_report",
+    # Reporting a bad listing is explicitly a no-sign-in-required action
+    # (see docs/superpowers/specs/2026-07-16-job-report-feature-design.md)
+    # - CSRF + its own per-IP rate limit (src.job_reports.is_rate_limited)
+    # protect the route itself, same as any other public mutation here.
 }
 _PUBLIC_API_READS = {
     "/api/dashboard/kpis", "/api/dashboard/companies", "/api/dashboard/location-diversity",
@@ -2164,6 +2169,49 @@ def job_detail(job_id):
         skills=skills,
         locations=locations
     )
+
+
+@app.route("/jobs/<int:job_id>/report", methods=["POST"])
+def submit_job_report(job_id):
+    from src.auth.middleware import validate_csrf
+    from src.job_reports import create_report, is_rate_limited, validate_report_input
+    from src.storage.db import get_operational_connection
+
+    err = validate_csrf()
+    if err:
+        return err
+
+    conn = get_db_connection()
+    job = conn.execute("SELECT job_id, title, url FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+    conn.close()
+    if job is None:
+        return jsonify({"error": "Job not found"}), 404
+
+    reason_category = request.form.get("reason_category", "")
+    details = request.form.get("details", "").strip()
+    validation_error = validate_report_input(reason_category, details)
+    if validation_error:
+        return jsonify({"error": validation_error}), 400
+
+    reporter_ip = request.remote_addr or "unknown"
+    op_conn = get_operational_connection()
+    try:
+        if is_rate_limited(op_conn, reporter_ip, datetime.now(timezone.utc)):
+            return jsonify({"error": "Too many reports from this IP recently - please try again later"}), 429
+
+        reporter_user_id = g.current_user.get("id") if g.current_user else None
+        reporter_email = None if g.current_user else (request.form.get("email", "").strip() or None)
+
+        create_report(
+            op_conn, job_id=job["job_id"], job_url=job["url"], job_title=job["title"],
+            reason_category=reason_category, details=details,
+            reporter_user_id=reporter_user_id, reporter_email=reporter_email,
+            reporter_ip=reporter_ip, now=datetime.now(timezone.utc),
+        )
+    finally:
+        op_conn.close()
+
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/jobs/<int:job_id>/locations")
