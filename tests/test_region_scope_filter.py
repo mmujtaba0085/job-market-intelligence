@@ -135,6 +135,23 @@ def test_status_defaults_to_all_not_active(region_client):
     assert r.get_json()["total_jobs"] == 4, "old Pakistan job must be included - status defaults to 'all', not 'active'"
 
 
+def test_region_defaults_to_cookie_value_when_no_query_param(region_client):
+    region_client.set_cookie("jmi_region", "all")
+    r = region_client.get("/api/dashboard/kpis")
+    assert r.get_json()["total_jobs"] == 5  # cookie says 'all', no ?region= override
+
+
+def test_explicit_query_param_overrides_cookie(region_client):
+    region_client.set_cookie("jmi_region", "all")
+    r = region_client.get("/api/dashboard/kpis?region=pk")
+    assert r.get_json()["total_jobs"] == 3  # explicit ?region=pk wins over the 'all' cookie
+
+
+def test_default_is_pakistan_when_neither_cookie_nor_query_param_present(region_client):
+    r = region_client.get("/api/dashboard/kpis")
+    assert r.get_json()["total_jobs"] == 3
+
+
 def test_region_and_status_filters_compose_correctly_when_both_explicit(region_client):
     """Seed one Pakistan job that's old (outside the active window) - with
     status=active EXPLICITLY requested, it must be excluded regardless of

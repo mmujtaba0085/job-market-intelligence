@@ -335,6 +335,16 @@ def _region_scope_clause(region: str, alias: str = "") -> str:
     return ""
 
 
+def _default_region() -> str:
+    """
+    Resolves the region default with query-param > cookie > hardcoded 'pk'
+    priority - an explicit ?region= always wins (so the toggle's own reload
+    works), falling back to the visitor's remembered jmi_region cookie,
+    falling back to Pakistan-first for a first-time visitor.
+    """
+    return request.args.get("region") or request.cookies.get("jmi_region", "pk")
+
+
 def show_source_names() -> bool:
     """
     Admins always see real source names (they need them to operate the
@@ -701,7 +711,7 @@ def dashboard_kpis():
     cursor = conn.cursor()
 
     status = request.args.get("status", "all")
-    region = request.args.get("region", "pk")
+    region = _default_region()
     status_clause = _status_window_clause(status)
     region_clause = _region_scope_clause(region)
 
@@ -871,7 +881,7 @@ def dashboard_top_skills():
 
     if not skills:
         status = request.args.get("status", "all")
-        region = request.args.get("region", "pk")
+        region = _default_region()
         cursor.execute(f"""
             SELECT s.normalized_skill as skill, COUNT(*) as count, s.category
             FROM skills s
@@ -944,7 +954,7 @@ def dashboard_sources():
     conn = get_db_connection()
     cursor = conn.cursor()
     status = request.args.get("status", "all")
-    region = request.args.get("region", "pk")
+    region = _default_region()
 
     cursor.execute(f"""
         SELECT source_name, COUNT(*) as count
@@ -1028,7 +1038,7 @@ def dashboard_companies():
     conn = get_db_connection()
     cursor = conn.cursor()
     status = request.args.get("status", "all")
-    region = request.args.get("region", "pk")
+    region = _default_region()
 
     cursor.execute(f"""
         SELECT company, COUNT(*) as count
@@ -1053,7 +1063,7 @@ def dashboard_location_diversity():
     conn = get_db_connection()
     cursor = conn.cursor()
     status = request.args.get("status", "all")
-    region = request.args.get("region", "pk")
+    region = _default_region()
 
     cursor.execute(f"""
         SELECT
@@ -1630,18 +1640,22 @@ def jobs_list():
     date_from      = request.args.get("date_from", "")
     date_to        = request.args.get("date_to", "")
     current_status = request.args.get("status", "all")
-    region         = request.args.get("region", "pk")
+    region         = _default_region()
     sort_param     = request.args.get("sort", "diverse")
 
     # Filtering is a signed-in feature - the sidebar is hidden for anonymous
     # visitors, but a filtered URL can still be typed or shared directly, so
     # the query params must be ignored here too, not just hidden in the UI.
+    # current_status is pinned to the same "all" baseline signed-in visitors
+    # get by default (not the narrower "active") - anonymous visitors are
+    # this app's primary target audience, so they must not be the one group
+    # still seeing status/region compound into an overly narrow default.
     if not g.current_user:
         market_filter = remote_filter = search_query = ""
         country_filter = source_filter = company_filter = ""
         skills_filter = []
         date_from = date_to = ""
-        current_status = "active"
+        current_status = "all"
 
     # Diversity ordering only means anything against the exact population it
     # was computed for: status=active, zero other filters. Any deviation from
@@ -1761,6 +1775,7 @@ def jobs_list():
         current_source=source_filter,
         current_company=company_filter,
         current_status=current_status,
+        current_region=region,
         search_query=search_query,
         skills_filter=skills_filter,
         date_from=date_from,

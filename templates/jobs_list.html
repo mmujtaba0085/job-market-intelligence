@@ -118,6 +118,14 @@
         </div>
 
         <div class="filter-section">
+            <label>Region</label>
+            <select name="region" onchange="document.cookie='jmi_region='+this.value+';path=/;max-age=31536000;SameSite=Lax'; this.form.submit();">
+                <option value="pk" {% if current_region == 'pk' %}selected{% endif %}>Pakistan</option>
+                <option value="all" {% if current_region == 'all' %}selected{% endif %}>All Countries</option>
+            </select>
+        </div>
+
+        <div class="filter-section">
             <label>Remote Type</label>
             <select name="remote_type">
                 <option value="">All Types</option>
@@ -194,12 +202,13 @@
     {% endif %}
 </div>
 
-{% if search_query or current_market or current_remote or current_country or current_source or current_company or skills_filter or date_from or date_to or current_status != 'active' %}
+{% if search_query or current_market or current_remote or current_country or current_source or current_company or skills_filter or date_from or date_to or current_status != 'all' or current_region != 'pk' %}
 <div class="active-filters">
     <strong style="color:var(--text-secondary);font-size:12.5px;">Active Filters:</strong>
     {% if search_query %}<span class="filter-badge">Search: {{ search_query }}</span>{% endif %}
     {% if current_market %}<span class="filter-badge">Market: {{ current_market }}</span>{% endif %}
-    {% if current_status != 'active' %}<span class="filter-badge">Status: {{ current_status }}</span>{% endif %}
+    {% if current_status != 'all' %}<span class="filter-badge">Status: {{ current_status }}</span>{% endif %}
+    {% if current_region != 'pk' %}<span class="filter-badge">Region: All Countries</span>{% endif %}
     {% if current_remote %}<span class="filter-badge">Type: {{ current_remote }}</span>{% endif %}
     {% if current_country %}<span class="filter-badge">Country: {{ current_country }}</span>{% endif %}
     {% if current_source %}<span class="filter-badge">Source: {{ current_source }}</span>{% endif %}

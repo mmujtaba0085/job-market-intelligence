@@ -111,6 +111,32 @@ class TestAnonymousFiltersIgnored:
         html = response.get_data(as_text=True)
         assert "Active Filters:" not in html
 
+    def test_default_status_is_all_not_active_for_anonymous(self, jobs_app):
+        """Anonymous visitors' status is pinned server-side (not just left to
+        the query-param default) - see web_viewer.py::jobs_list()'s
+        anonymous-reset block. That pin must track the same sitewide "all"
+        default signed-in visitors get (see
+        docs/superpowers/plans/2026-07-16-pakistan-first-default-experience.md
+        Task 2), not the old "active" value - anonymous visitors are this
+        app's primary target audience, so they must not be the one group
+        still seeing status+region compound into an overly narrow default."""
+        import sqlite3
+        from datetime import datetime, timedelta
+        import src.storage.db as db
+        conn = sqlite3.connect(db._SERVING_A_PATH)
+        old_date = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+        conn.execute(
+            "INSERT INTO jobs (job_id, title, company, posted_date, ingested_at, source_name, market_id, listing_status) "
+            "VALUES (3, 'Old Job', 'Old Co', ?, ?, 'A', 'm1', 'active')",
+            (old_date, f"{old_date}T00:00:00"),
+        )
+        conn.commit()
+        conn.close()
+
+        response = jobs_app.get("/jobs")  # no ?status= at all, anonymous
+        html = response.get_data(as_text=True)
+        assert "Old Job" in html
+
 
 class TestSignedInFiltersStillWork:
     def test_market_filter_applies_for_signed_in_user(self, signed_in_client):

@@ -24,11 +24,16 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('dashboardStatus').addEventListener('change', function() {
         loadDashboard();
     });
+    document.getElementById('dashboardRegion').addEventListener('change', function() {
+        document.cookie = `jmi_region=${this.value};path=/;max-age=31536000;SameSite=Lax`;
+        loadDashboard();
+    });
 });
 
 function dashboardApi(path) {
-    const status = document.getElementById('dashboardStatus')?.value || 'active';
-    return `${path}?status=${encodeURIComponent(status)}`;
+    const status = document.getElementById('dashboardStatus')?.value || 'all';
+    const region = document.getElementById('dashboardRegion')?.value || 'pk';
+    return `${path}?status=${encodeURIComponent(status)}&region=${encodeURIComponent(region)}`;
 }
 
 function loadDashboard() {
