@@ -128,6 +128,10 @@ _PUBLIC_VIEWABLE_ENDPOINTS = {
     # (see docs/superpowers/specs/2026-07-16-job-report-feature-design.md)
     # - CSRF + its own per-IP rate limit (src.job_reports.is_rate_limited)
     # protect the route itself, same as any other public mutation here.
+    "submit_ticket",
+    # Same reasoning as submit_job_report above - general feedback/tickets
+    # are explicitly no-sign-in-required too (see
+    # docs/superpowers/specs/2026-07-16-general-ticketing-feedback-design.md).
 }
 _PUBLIC_API_READS = {
     "/api/dashboard/kpis", "/api/dashboard/companies", "/api/dashboard/location-diversity",
@@ -2210,6 +2214,43 @@ def submit_job_report(job_id):
         )
     finally:
         op_conn.close()
+
+    return jsonify({"status": "ok"})
+
+
+@app.route("/tickets", methods=["POST"])
+def submit_ticket():
+    from src.auth.middleware import validate_csrf
+    from src.tickets import create_ticket, is_rate_limited, validate_ticket_input
+    from src.storage.db import get_operational_connection
+
+    err = validate_csrf()
+    if err:
+        return err
+
+    category = request.form.get("category", "")
+    subject = request.form.get("subject", "").strip()
+    details = request.form.get("details", "").strip()
+    validation_error = validate_ticket_input(category, subject, details)
+    if validation_error:
+        return jsonify({"error": validation_error}), 400
+
+    submitter_ip = request.remote_addr or "unknown"
+    conn = get_operational_connection()
+    try:
+        if is_rate_limited(conn, submitter_ip, datetime.now(timezone.utc)):
+            return jsonify({"error": "Too many submissions from this IP recently - please try again later"}), 429
+
+        submitter_user_id = g.current_user.get("id") if g.current_user else None
+        submitter_email = None if g.current_user else (request.form.get("email", "").strip() or None)
+
+        create_ticket(
+            conn, category=category, subject=subject, details=details,
+            submitter_user_id=submitter_user_id, submitter_email=submitter_email,
+            submitter_ip=submitter_ip, now=datetime.now(timezone.utc),
+        )
+    finally:
+        conn.close()
 
     return jsonify({"status": "ok"})
 

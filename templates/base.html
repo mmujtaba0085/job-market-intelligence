@@ -506,9 +506,55 @@
 
     <footer>
         <div class="container">
-            <p>&copy; 2026 GreyWave &mdash; job market intelligence, refreshed daily.</p>
+            <p>&copy; 2026 GreyWave &mdash; job market intelligence, refreshed daily.
+                &mdash; <a href="#" onclick="document.getElementById('ticketForm').style.display='block'; this.style.display='none'; return false;" style="color:inherit;text-decoration:underline;">Suggest a feature / report an issue</a>
+            </p>
+            <div id="ticketForm" style="display:none;margin-top:0.75rem;padding:1rem;border:1px solid var(--border-color);border-radius:8px;max-width:480px;box-sizing:border-box;text-align:left;">
+                <label style="display:block;font-size:0.85rem;font-weight:600;margin-bottom:0.4rem;">What's this about?</label>
+                <select id="ticketCategory" style="width:100%;margin-bottom:0.6rem;box-sizing:border-box;">
+                    <option value="bug">Bug &mdash; something's broken</option>
+                    <option value="feature">Feature request &mdash; add or change something</option>
+                    <option value="feedback">General feedback</option>
+                    <option value="other">Other</option>
+                </select>
+                <input type="text" id="ticketSubject" placeholder="Short summary" style="width:100%;margin-bottom:0.6rem;box-sizing:border-box;">
+                <textarea id="ticketDetails" placeholder="Details" style="width:100%;margin-bottom:0.6rem;min-height:70px;box-sizing:border-box;"></textarea>
+                {% if not g.current_user %}
+                <input type="email" id="ticketEmail" placeholder="Your email (optional, if you'd like a response)" style="width:100%;margin-bottom:0.6rem;box-sizing:border-box;">
+                {% endif %}
+                <div id="ticketMsg" style="font-size:0.8rem;margin-bottom:0.5rem;"></div>
+                <button type="button" class="btn" onclick="submitTicket()">Submit</button>
+            </div>
         </div>
     </footer>
+    <script>
+    function submitTicket() {
+        var category = document.getElementById('ticketCategory').value;
+        var subject = document.getElementById('ticketSubject').value;
+        var details = document.getElementById('ticketDetails').value;
+        var emailEl = document.getElementById('ticketEmail');
+        var body = new URLSearchParams({category: category, subject: subject, details: details});
+        if (emailEl) body.append('email', emailEl.value);
+        fetch('/tickets', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRF-Token': '{{ csrf_token() }}'},
+            body: body,
+        })
+        .then(function(r) { return r.json().then(function(data) { return {ok: r.ok, data: data}; }); })
+        .then(function(result) {
+            var msg = document.getElementById('ticketMsg');
+            if (result.ok) {
+                msg.textContent = "Thanks - we'll take a look.";
+                msg.style.color = 'var(--accent-color, green)';
+                document.getElementById('ticketSubject').value = '';
+                document.getElementById('ticketDetails').value = '';
+            } else {
+                msg.textContent = result.data.error || 'Something went wrong.';
+                msg.style.color = 'red';
+            }
+        });
+    }
+    </script>
 
     <script>
     // Convert every <time data-utc="..."> to the browser's local timezone.
