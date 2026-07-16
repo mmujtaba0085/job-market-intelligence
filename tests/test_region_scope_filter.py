@@ -1,0 +1,154 @@
+"""
+tests/test_region_scope_filter.py
+─────────────────────────────────────
+Regression coverage for the Pakistan-first default region scope - see
+docs/superpowers/specs/2026-07-16-pakistan-first-default-experience-design.md.
+
+Follows the fixture pattern established in tests/test_dashboard_geo_endpoint.py:
+a minimal hand-rolled sqlite schema monkeypatched onto every rotating-DB
+target, a signed-in session where a route requires one.
+"""
+import sqlite3
+
+import pytest
+
+
+@pytest.fixture()
+def region_client(tmp_path, monkeypatch):
+    db_path = tmp_path / "jobs.sqlite"
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE jobs (
+            job_id INTEGER PRIMARY KEY,
+            title TEXT DEFAULT '', company TEXT DEFAULT '', location TEXT DEFAULT '', country TEXT,
+            source_name TEXT DEFAULT 'TestSource', remote_type TEXT DEFAULT 'unknown',
+            listing_status TEXT DEFAULT 'active', posted_date TEXT,
+            first_seen_at TEXT DEFAULT (datetime('now')), ingested_at TEXT,
+            market_id TEXT DEFAULT 'm1', location_count INTEGER DEFAULT 1,
+            normalized_title TEXT DEFAULT '', diversity_rank INTEGER
+        )
+    """)
+    conn.execute("CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden'")
+    conn.execute("CREATE TABLE skills (job_id INTEGER, raw_detected_skill TEXT, normalized_skill TEXT, category TEXT, confidence_score REAL)")
+    conn.execute("CREATE TABLE weekly_metrics (market_id TEXT, week_start_date TEXT, week_number INTEGER, skill_name TEXT, category TEXT, frequency INTEGER, growth_percentage REAL, absolute_delta INTEGER, mover_score REAL, emerging_flag INTEGER, declining_flag INTEGER)")
+    conn.execute("CREATE TABLE pipeline_config (key TEXT PRIMARY KEY, value TEXT, updated_at TEXT)")
+
+    with conn:
+        for country in ("Pakistan", "Pakistan", "Global", "United States", "Germany"):
+            conn.execute("INSERT INTO jobs (country) VALUES (?)", (country,))
+    conn.close()
+
+    import web_viewer
+    monkeypatch.setattr(web_viewer, "DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_A_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._SERVING_B_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._BUFFER_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._OPERATIONAL_DB_PATH", db_path)
+    monkeypatch.setattr("src.storage.db._POINTER_PATH", tmp_path / "serving_pointer.txt")
+    web_viewer.app.config.update(TESTING=True, SECRET_KEY="test-secret")
+    web_viewer.cache.clear()
+    client = web_viewer.app.test_client()
+    with client.session_transaction() as sess:
+        sess["user_id"] = 1
+    return client
+
+
+def test_region_scope_clause_pk_restricts_to_pakistan_and_global():
+    from web_viewer import _region_scope_clause
+    assert _region_scope_clause("pk") == " AND country IN ('Pakistan', 'Global')"
+
+
+def test_region_scope_clause_all_is_unrestricted():
+    from web_viewer import _region_scope_clause
+    assert _region_scope_clause("all") == ""
+
+
+def test_region_scope_clause_unrecognized_value_is_unrestricted():
+    from web_viewer import _region_scope_clause
+    assert _region_scope_clause("bogus") == ""
+
+
+def test_region_scope_clause_applies_alias_prefix():
+    from web_viewer import _region_scope_clause
+    assert _region_scope_clause("pk", "j.") == " AND j.country IN ('Pakistan', 'Global')"
+
+
+def test_dashboard_kpis_total_jobs_defaults_to_pakistan_scope(region_client):
+    r = region_client.get("/api/dashboard/kpis")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["total_jobs"] == 3  # 2 Pakistan + 1 Global; US and Germany excluded by default
+
+
+def test_dashboard_kpis_total_jobs_region_all_is_unrestricted(region_client):
+    r = region_client.get("/api/dashboard/kpis?region=all")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["total_jobs"] == 5  # every seeded job
+
+
+def test_jobs_list_defaults_to_pakistan_scope(region_client):
+    r = region_client.get("/jobs")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "(3)</span>" in body  # 2 Pakistan + 1 Global
+
+
+def test_jobs_list_region_all_shows_every_country(region_client):
+    r = region_client.get("/jobs?region=all")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "(5)</span>" in body
+
+
+def test_dashboard_geo_is_not_affected_by_region_scope(region_client):
+    """dashboard_geo() is deliberately excluded from the region filter - it
+    must always show the true, unrestricted country breakdown, since
+    restricting the same column it groups by would make the widget
+    degenerate. Confirmed via the bucket-sum-equals-total invariant already
+    established in test_dashboard_geo_endpoint.py - here, specifically,
+    proving region=pk does NOT shrink the total the way it does for kpis."""
+    r_default = region_client.get("/api/dashboard/geo")
+    r_all = region_client.get("/api/dashboard/geo?region=all")
+    total_default = sum(row["count"] for row in r_default.get_json())
+    total_all = sum(row["count"] for row in r_all.get_json())
+    assert total_default == 5, f"geo must show all 5 jobs regardless of region, got {total_default}"
+    assert total_all == 5
+
+
+def test_status_defaults_to_all_not_active(region_client):
+    """The Active/Historical status default flips from 'active' (last
+    month only) to 'all' (everything) as of this plan - two restrictive
+    defaults (region + age) compounded would show a first-time visitor too
+    little. Seed one old Pakistan job (outside the last-month window) and
+    confirm it's included by default without any ?status= override."""
+    import sqlite3
+    from datetime import datetime, timedelta
+    import src.storage.db as db
+    conn = sqlite3.connect(db._SERVING_A_PATH)
+    old_date = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+    conn.execute("INSERT INTO jobs (country, posted_date) VALUES ('Pakistan', ?)", (old_date,))
+    conn.commit()
+    conn.close()
+
+    r = region_client.get("/api/dashboard/kpis")  # no ?status= at all
+    assert r.get_json()["total_jobs"] == 4, "old Pakistan job must be included - status defaults to 'all', not 'active'"
+
+
+def test_region_and_status_filters_compose_correctly_when_both_explicit(region_client):
+    """Seed one Pakistan job that's old (outside the active window) - with
+    status=active EXPLICITLY requested, it must be excluded regardless of
+    region, proving the two filters combine with AND, not one silently
+    overriding the other. (Default behavior - status defaulting to 'all' -
+    is covered separately above.)"""
+    import sqlite3
+    from datetime import datetime, timedelta
+    import src.storage.db as db
+    conn = sqlite3.connect(db._SERVING_A_PATH)
+    old_date = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+    conn.execute("INSERT INTO jobs (country, posted_date) VALUES ('Pakistan', ?)", (old_date,))
+    conn.commit()
+    conn.close()
+
+    r = region_client.get("/api/dashboard/kpis?status=active")  # region=pk (default), status=active (explicit)
+    assert r.get_json()["total_jobs"] == 3  # the old Pakistan job must NOT be included under status=active

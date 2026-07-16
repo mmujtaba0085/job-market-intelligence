@@ -314,6 +314,27 @@ def _status_window_clause(status: str, alias: str = "") -> str:
     return ""  # 'all' (or any unrecognized value) → no filter
 
 
+def _region_scope_clause(region: str, alias: str = "") -> str:
+    """
+    SQL AND-clause fragment restricting to Pakistan-relevant jobs by
+    default - see
+    docs/superpowers/specs/2026-07-16-pakistan-first-default-experience-design.md.
+
+    'pk' (the default): country IN ('Pakistan', 'Global') - jobs physically
+    in Pakistan, plus jobs explicitly marked open to remote applicants
+    anywhere (sources like Himalayas set country='Global' specifically for
+    genuinely worldwide-open roles). A specific non-Pakistan country value
+    on a remote job (e.g. country='United States') is deliberately NOT
+    included - it's a signal the role is likely restricted to that
+    country in practice, not genuinely open to a Pakistan-based applicant.
+    'all' (or any unrecognized value): no restriction - every job,
+    regardless of country.
+    """
+    if region == "pk":
+        return f" AND {alias}country IN ('Pakistan', 'Global')"
+    return ""
+
+
 def show_source_names() -> bool:
     """
     Admins always see real source names (they need them to operate the
@@ -679,11 +700,13 @@ def dashboard_kpis():
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    status = request.args.get("status", "active")
+    status = request.args.get("status", "all")
+    region = request.args.get("region", "pk")
     status_clause = _status_window_clause(status)
+    region_clause = _region_scope_clause(region)
 
     # Total jobs
-    cursor.execute(f"SELECT COUNT(*) as count FROM active_jobs WHERE 1=1{status_clause}")
+    cursor.execute(f"SELECT COUNT(*) as count FROM active_jobs WHERE 1=1{status_clause}{region_clause}")
     total_jobs = cursor.fetchone()["count"]
 
     # Total skills - scoped to skills belonging to in-scope (status/window
@@ -694,12 +717,12 @@ def dashboard_kpis():
         SELECT COUNT(DISTINCT s.normalized_skill) as count
         FROM skills s
         JOIN active_jobs j ON j.job_id = s.job_id
-        WHERE 1=1{_status_window_clause(status, "j.")}
+        WHERE 1=1{_status_window_clause(status, "j.")}{_region_scope_clause(region, "j.")}
     """)
     total_skills = cursor.fetchone()["count"]
 
     # Active sources
-    cursor.execute(f"SELECT COUNT(DISTINCT source_name) as count FROM active_jobs WHERE 1=1{status_clause}")
+    cursor.execute(f"SELECT COUNT(DISTINCT source_name) as count FROM active_jobs WHERE 1=1{status_clause}{region_clause}")
     active_sources = cursor.fetchone()["count"]
 
     # Remote percentage
@@ -707,7 +730,7 @@ def dashboard_kpis():
         SELECT
             CAST(SUM(CASE WHEN LOWER(remote_type) = 'remote' THEN 1 ELSE 0 END) AS FLOAT) * 100 / COUNT(*) as pct
         FROM active_jobs
-        WHERE 1=1{status_clause}
+        WHERE 1=1{status_clause}{region_clause}
     """)
     remote_pct = cursor.fetchone()["pct"] or 0
     
@@ -847,12 +870,13 @@ def dashboard_top_skills():
               for row in cursor.fetchall()]
 
     if not skills:
-        status = request.args.get("status", "active")
+        status = request.args.get("status", "all")
+        region = request.args.get("region", "pk")
         cursor.execute(f"""
             SELECT s.normalized_skill as skill, COUNT(*) as count, s.category
             FROM skills s
             JOIN active_jobs j ON j.job_id = s.job_id
-            WHERE 1=1{_status_window_clause(status, "j.")}
+            WHERE 1=1{_status_window_clause(status, "j.")}{_region_scope_clause(region, "j.")}
             GROUP BY s.normalized_skill, s.category
             ORDER BY count DESC
             LIMIT 10
@@ -919,12 +943,13 @@ def dashboard_sources():
     """Get source performance breakdown."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    status = request.args.get("status", "active")
+    status = request.args.get("status", "all")
+    region = request.args.get("region", "pk")
 
     cursor.execute(f"""
         SELECT source_name, COUNT(*) as count
         FROM active_jobs
-        WHERE 1=1{_status_window_clause(status)}
+        WHERE 1=1{_status_window_clause(status)}{_region_scope_clause(region)}
         GROUP BY source_name
         ORDER BY count DESC
     """)
@@ -1002,12 +1027,13 @@ def dashboard_companies():
     """Get top hiring companies."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    status = request.args.get("status", "active")
+    status = request.args.get("status", "all")
+    region = request.args.get("region", "pk")
 
     cursor.execute(f"""
         SELECT company, COUNT(*) as count
         FROM active_jobs
-        WHERE company IS NOT NULL AND company != ''{_status_window_clause(status)}
+        WHERE company IS NOT NULL AND company != ''{_status_window_clause(status)}{_region_scope_clause(region)}
         GROUP BY company
         ORDER BY count DESC
         LIMIT 10
@@ -1026,7 +1052,8 @@ def dashboard_location_diversity():
     """Get companies with jobs in most locations."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    status = request.args.get("status", "active")
+    status = request.args.get("status", "all")
+    region = request.args.get("region", "pk")
 
     cursor.execute(f"""
         SELECT
@@ -1034,7 +1061,7 @@ def dashboard_location_diversity():
             MAX(location_count) as max_locations,
             COUNT(DISTINCT job_group_id) as job_count
         FROM active_jobs
-        WHERE location_count > 1{_status_window_clause(status)}
+        WHERE location_count > 1{_status_window_clause(status)}{_region_scope_clause(region)}
         GROUP BY company
         ORDER BY max_locations DESC, job_count DESC
         LIMIT 10
@@ -1602,7 +1629,8 @@ def jobs_list():
     skills_filter  = request.args.getlist("skills")
     date_from      = request.args.get("date_from", "")
     date_to        = request.args.get("date_to", "")
-    current_status = request.args.get("status", "active")
+    current_status = request.args.get("status", "all")
+    region         = request.args.get("region", "pk")
     sort_param     = request.args.get("sort", "diverse")
 
     # Filtering is a signed-in feature - the sidebar is hidden for anonymous
@@ -1645,6 +1673,8 @@ def jobs_list():
 
     # Status + active-window filter (see _status_window_clause)
     base += _status_window_clause(current_status, "j.")
+    # Region scope filter (see _region_scope_clause)
+    base += _region_scope_clause(region, "j.")
 
     if market_filter:
         base += " AND j.market_id = ?"; params.append(market_filter)

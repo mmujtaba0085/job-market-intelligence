@@ -31,7 +31,7 @@ def signed_in_client(tmp_path, monkeypatch):
     conn.executescript("""
         CREATE TABLE jobs (
             job_id INTEGER PRIMARY KEY,
-            title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT '',
+            title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT 'Pakistan',
             remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
             source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
             listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
@@ -96,12 +96,16 @@ def test_status_all_includes_job_older_than_one_month(signed_in_client):
     assert "(3)</span>" in html
 
 
-def test_default_status_matches_explicit_active(signed_in_client):
-    """No ?status= at all must behave exactly like ?status=active."""
+def test_default_status_matches_explicit_all(signed_in_client):
+    """No ?status= at all must behave like ?status=all, not ?status=active -
+    the sitewide default flipped (see
+    docs/superpowers/plans/2026-07-16-pakistan-first-default-experience.md
+    Task 1) so a first-time visitor isn't shown an overly narrow view once
+    the region filter is also narrowing the default scope."""
     response = signed_in_client.get("/jobs")
     html = response.get_data(as_text=True)
-    assert "Old Job" not in html
-    assert "(2)</span>" in html
+    assert "Old Job" in html
+    assert "(3)</span>" in html
 
 
 def test_status_active_fallback_to_first_seen_at_when_posted_date_missing(signed_in_client):

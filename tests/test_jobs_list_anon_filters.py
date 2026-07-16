@@ -21,7 +21,7 @@ def jobs_app(tmp_path, monkeypatch):
     conn.executescript("""
         CREATE TABLE jobs (
             job_id INTEGER PRIMARY KEY,
-            title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT '',
+            title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT 'Pakistan',
             remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
             source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
             listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,

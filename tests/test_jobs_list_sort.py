@@ -17,7 +17,7 @@ def jobs_app(tmp_path, monkeypatch):
     conn.executescript("""
         CREATE TABLE jobs (
             job_id INTEGER PRIMARY KEY,
-            title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT '',
+            title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT 'Pakistan',
             remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
             source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
             listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
@@ -68,8 +68,15 @@ def jobs_app(tmp_path, monkeypatch):
 
 
 class TestDiversitySortDefault:
-    def test_baseline_state_uses_diversity_rank_order(self, jobs_app):
-        response = jobs_app.get("/jobs")
+    def test_active_status_uses_diversity_rank_order(self, jobs_app):
+        """Diversity sort requires status=active explicitly - the sitewide
+        default is now status=all (see
+        docs/superpowers/plans/2026-07-16-pakistan-first-default-experience.md
+        Task 1), which is a non-active status like any other and falls back
+        to plain date order per test_non_active_status_forces_plain_date_order
+        below. This test covers the mechanics of diversity ordering itself,
+        reached via an explicit ?status=active."""
+        response = jobs_app.get("/jobs?status=active")
         html = response.get_data(as_text=True)
         # Diversity order: A1(rank1), B1(rank1), A2(rank2), A3(rank3)
         # B1 should appear before A2/A3 despite being the oldest job overall.
@@ -77,6 +84,18 @@ class TestDiversitySortDefault:
         pos_a2 = html.index("Job A2")
         pos_a3 = html.index("Job A3")
         assert pos_b1 < pos_a2 < pos_a3
+
+    def test_baseline_state_now_defaults_to_plain_date_order(self, jobs_app):
+        """Locks in the new default's effect on this feature: a bare /jobs
+        (no params at all) now resolves status=all internally, which is
+        treated the same as any other non-active status - diversity sort
+        does not activate, matching test_non_active_status_forces_plain_date_order's
+        explicit-status behavior below."""
+        response = jobs_app.get("/jobs")
+        html = response.get_data(as_text=True)
+        pos_a3 = html.index("Job A3")
+        pos_b1 = html.index("Job B1")
+        assert pos_a3 < pos_b1
 
     def test_explicit_sort_recent_uses_plain_date_order(self, jobs_app):
         response = jobs_app.get("/jobs?sort=recent")
@@ -109,7 +128,7 @@ class TestUnrankedJobsInDiversityView:
         conn.executescript("""
             CREATE TABLE jobs (
                 job_id INTEGER PRIMARY KEY,
-                title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT '',
+                title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT 'Pakistan',
                 remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
                 source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
                 listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
@@ -153,7 +172,9 @@ class TestUnrankedJobsInDiversityView:
         return client
 
     def test_unranked_job_appears_and_sorts_after_ranked(self, jobs_app_with_unranked):
-        response = jobs_app_with_unranked.get("/jobs")
+        # Diversity sort requires status=active explicitly now that the
+        # sitewide default is status=all - see TestDiversitySortDefault above.
+        response = jobs_app_with_unranked.get("/jobs?status=active")
         html = response.get_data(as_text=True)
         assert "Job Unranked New" in html  # visible immediately, not hidden pending recompute
         pos_ranked = html.index("Job Ranked")
@@ -162,11 +183,22 @@ class TestUnrankedJobsInDiversityView:
 
 
 class TestSortToggleVisibility:
-    def test_toggle_shown_in_baseline_state(self, jobs_app):
-        response = jobs_app.get("/jobs")
+    def test_toggle_shown_when_status_active(self, jobs_app):
+        # Sort toggle requires status=active explicitly now that the
+        # sitewide default is status=all - see TestDiversitySortDefault above.
+        response = jobs_app.get("/jobs?status=active")
         html = response.get_data(as_text=True)
         assert 'href="/jobs?sort=recent"' in html
         assert 'href="/jobs?sort=diverse"' in html
+
+    def test_toggle_hidden_in_true_baseline_state(self, jobs_app):
+        """A bare /jobs (no params) now resolves status=all internally, so
+        the toggle is hidden by default - matching
+        test_toggle_hidden_when_status_not_active's explicit-status case."""
+        response = jobs_app.get("/jobs")
+        html = response.get_data(as_text=True)
+        assert 'href="/jobs?sort=recent"' not in html
+        assert 'href="/jobs?sort=diverse"' not in html
 
     def test_toggle_hidden_when_filter_active(self, jobs_app):
         response = jobs_app.get("/jobs?company=Co")

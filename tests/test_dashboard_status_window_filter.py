@@ -44,7 +44,7 @@ def dash_client(tmp_path, monkeypatch):
     conn.executescript("""
         CREATE TABLE jobs (
             job_id INTEGER PRIMARY KEY,
-            title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT '',
+            title TEXT, company TEXT, location TEXT DEFAULT '', country TEXT DEFAULT 'Pakistan',
             remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
             source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
             listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
@@ -132,10 +132,13 @@ def test_kpis_status_all_includes_old_job(dash_client):
     assert body["remote_pct"] == round(100.0 / 3, 1), body
 
 
-def test_kpis_default_status_matches_active(dash_client):
+def test_kpis_default_status_matches_all(dash_client):
+    """No ?status= at all must behave like ?status=all, not ?status=active -
+    see docs/superpowers/plans/2026-07-16-pakistan-first-default-experience.md
+    Task 1, which flipped the sitewide default."""
     r = dash_client.get("/api/dashboard/kpis")
     body = r.get_json()
-    assert body["total_jobs"] == 2, body
+    assert body["total_jobs"] == 3, body
 
 
 def test_kpis_total_skills_is_status_window_aware(dash_client):
