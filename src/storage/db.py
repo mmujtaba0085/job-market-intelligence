@@ -304,6 +304,24 @@ def _run_operational_migrations_impl(conn: sqlite3.Connection) -> None:
             removed_at   TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_notifications_active ON notifications(removed_at, expires_at);
+
+        CREATE TABLE IF NOT EXISTS job_reports (
+            report_id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id           INTEGER,
+            job_url          TEXT NOT NULL,
+            job_title        TEXT NOT NULL,
+            reason_category  TEXT NOT NULL,
+            details          TEXT,
+            reporter_user_id INTEGER,
+            reporter_email   TEXT,
+            reporter_ip      TEXT NOT NULL,
+            status           TEXT NOT NULL DEFAULT 'open',
+            admin_notes      TEXT,
+            created_at       TEXT NOT NULL,
+            resolved_at      TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_job_reports_status ON job_reports(status);
+        CREATE INDEX IF NOT EXISTS idx_job_reports_job_url ON job_reports(job_url);
     """)
     defaults = [
         ("ingest_interval_hours",       "12"),
