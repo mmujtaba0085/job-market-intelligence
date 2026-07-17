@@ -1,4 +1,5 @@
 {% import "_brand.html" as brand %}
+{% import "_icons.html" as icons %}
 <!DOCTYPE html>
 <html lang="en" data-theme="light"{% if dark_mode_locked %} data-theme-locked{% endif %}>
 <head>
@@ -395,6 +396,34 @@
         }
         .modal h3 { font-family: 'Figtree', sans-serif; font-size: 16px; margin-bottom: 16px; }
 
+        /* ─── Form modals (report a listing / suggest a feature) ────────
+           Same visual shell as _gating.html's sign-in overlay (backdrop
+           blur, centered card, corner close button) but not conditional
+           on anonymous state - both the report and ticket modals are
+           reachable by everyone, so this can't reuse _gating.html's
+           gw-gate-* classes or its anonymous-only <style> block. */
+        .gw-form-modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 1000;
+            background: rgba(27,25,20,0.42); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+            align-items: center; justify-content: center; padding: 20px;
+        }
+        .gw-form-modal-overlay.open { display: flex; }
+        .gw-form-modal-card {
+            position: relative; width: 100%; max-width: 440px; box-sizing: border-box;
+            max-height: 90vh; overflow-y: auto;
+            background: var(--bg-surface); border: 1px solid var(--border); border-radius: 14px;
+            padding: 28px 24px 24px; text-align: left; box-shadow: var(--shadow-md);
+            animation: gwModalIn 0.18s ease-out;
+        }
+        @keyframes gwModalIn { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
+        .gw-form-modal-close {
+            position: absolute; top: 10px; right: 10px; background: none; border: none; cursor: pointer;
+            color: var(--text-muted); padding: 6px; line-height: 1; border-radius: 6px;
+        }
+        .gw-form-modal-close:hover { color: var(--text-primary); background: var(--bg-elevated); }
+        .gw-form-modal-title { font-family: 'Figtree', sans-serif; font-weight: 700; font-size: 16.5px; color: var(--text-primary); margin-bottom: 4px; }
+        .gw-form-modal-sub { font-size: 12.5px; color: var(--text-secondary); margin-bottom: 16px; }
+
         /* ─── Footer ──────────────────────────────────────────────────── */
         footer {
             background: var(--bg-surface);
@@ -507,26 +536,36 @@
     <footer>
         <div class="container">
             <p>&copy; 2026 GreyWave &mdash; job market intelligence, refreshed daily.
-                &mdash; <a href="#" onclick="document.getElementById('ticketForm').style.display='block'; this.style.display='none'; return false;" style="color:inherit;text-decoration:underline;">Suggest a feature / report an issue</a>
+                &mdash; <a href="#" onclick="gwOpenModal('ticketModalOverlay'); return false;" style="color:inherit;text-decoration:underline;">Suggest a feature / report an issue</a>
             </p>
-            <div id="ticketForm" style="display:none;margin-top:0.75rem;padding:1rem;border:1px solid var(--border-color);border-radius:8px;max-width:480px;box-sizing:border-box;text-align:left;">
-                <label style="display:block;font-size:0.85rem;font-weight:600;margin-bottom:0.4rem;">What's this about?</label>
-                <select id="ticketCategory" style="width:100%;margin-bottom:0.6rem;box-sizing:border-box;">
-                    <option value="bug">Bug &mdash; something's broken</option>
-                    <option value="feature">Feature request &mdash; add or change something</option>
-                    <option value="feedback">General feedback</option>
-                    <option value="other">Other</option>
-                </select>
-                <input type="text" id="ticketSubject" placeholder="Short summary" style="width:100%;margin-bottom:0.6rem;box-sizing:border-box;">
-                <textarea id="ticketDetails" placeholder="Details" style="width:100%;margin-bottom:0.6rem;min-height:70px;box-sizing:border-box;"></textarea>
-                {% if not g.current_user %}
-                <input type="email" id="ticketEmail" placeholder="Your email (optional, if you'd like a response)" style="width:100%;margin-bottom:0.6rem;box-sizing:border-box;">
-                {% endif %}
-                <div id="ticketMsg" style="font-size:0.8rem;margin-bottom:0.5rem;"></div>
-                <button type="button" class="btn" onclick="submitTicket()">Submit</button>
-            </div>
         </div>
     </footer>
+
+    <div id="ticketModalOverlay" class="gw-form-modal-overlay" onclick="if(event.target===this)gwCloseModal('ticketModalOverlay')" role="dialog" aria-modal="true" aria-labelledby="ticketModalTitle">
+        <div class="gw-form-modal-card">
+            <button type="button" class="gw-form-modal-close" onclick="gwCloseModal('ticketModalOverlay')" aria-label="Close">{{ icons.close(16) }}</button>
+            <div id="ticketModalTitle" class="gw-form-modal-title">Suggest a feature or report an issue</div>
+            <div class="gw-form-modal-sub">Bugs, ideas, or anything you'd like changed - we read every one.</div>
+            <label style="display:block;font-size:0.85rem;font-weight:600;margin-bottom:0.4rem;">What's this about?</label>
+            <select id="ticketCategory" class="form-control" style="margin-bottom:0.7rem;box-sizing:border-box;">
+                <option value="bug">Bug &mdash; something's broken</option>
+                <option value="feature">Feature request &mdash; add or change something</option>
+                <option value="feedback">General feedback</option>
+                <option value="other">Other</option>
+            </select>
+            <input type="text" id="ticketSubject" class="form-control" placeholder="Short summary" style="margin-bottom:0.7rem;box-sizing:border-box;">
+            <textarea id="ticketDetails" class="form-control" placeholder="Details" style="margin-bottom:0.7rem;min-height:70px;box-sizing:border-box;resize:vertical;"></textarea>
+            {% if not g.current_user %}
+            <input type="email" id="ticketEmail" class="form-control" placeholder="Your email (optional, if you'd like a response)" style="margin-bottom:0.7rem;box-sizing:border-box;">
+            {% endif %}
+            <div id="ticketMsg" style="font-size:0.8rem;margin-bottom:0.6rem;"></div>
+            <div style="display:flex;gap:0.5rem;">
+                <button type="button" class="btn btn-primary btn-sm" onclick="submitTicket()">Submit</button>
+                <button type="button" class="btn btn-secondary btn-sm" onclick="gwCloseModal('ticketModalOverlay')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script>
     function submitTicket() {
         var category = document.getElementById('ticketCategory').value;
@@ -579,6 +618,22 @@
             localizeTimestamps();
         }
     })();
+    </script>
+    <script>
+    window.gwOpenModal = function(id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.add('open');
+    };
+    window.gwCloseModal = function(id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.remove('open');
+    };
+    document.addEventListener('keydown', function(e) {
+        if (e.key !== 'Escape') return;
+        document.querySelectorAll('.gw-form-modal-overlay.open').forEach(function(el) {
+            el.classList.remove('open');
+        });
+    });
     </script>
     <script>
     window.toggleTheme = function(){
