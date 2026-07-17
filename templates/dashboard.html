@@ -198,11 +198,6 @@
             <option value="unverified">Historical / unverified</option>
             <option value="closed">Closed</option>
         </select>
-        <label for="dashboardRegion" style="color:var(--text-secondary);font-size:12.5px;font-weight:600;">Region</label>
-        <select id="dashboardRegion" class="form-control">
-            <option value="pk">Pakistan</option>
-            <option value="all">All Countries</option>
-        </select>
         <button id="refreshBtn" class="icon-btn secondary">{{ icons.refresh(14) }} Refresh</button>
     </div>
 </div>
@@ -210,16 +205,8 @@
 <!-- KPI Cards -->
 <div class="kpi-grid">
     <div class="kpi-card">
-        <div class="kpi-value" id="kpiJobs"><div class="loading-spinner"></div></div>
-        <div class="kpi-label">Total jobs <span id="kpiJobsTrend" class="kpi-trend"></span></div>
-    </div>
-    <div class="kpi-card">
         <div class="kpi-value" id="kpiSkills"><div class="loading-spinner"></div></div>
         <div class="kpi-label">Skills tracked <span id="kpiSkillsTrend" class="kpi-trend"></span></div>
-    </div>
-    <div class="kpi-card">
-        <div class="kpi-value" id="kpiSources"><div class="loading-spinner"></div></div>
-        <div class="kpi-label">Active sources</div>
     </div>
     <div class="kpi-card">
         <div class="kpi-value" id="kpiRemote"><div class="loading-spinner"></div></div>
@@ -306,15 +293,37 @@
         </table>
     </div>
 
-    <div class="widget" style="grid-column: span 2;">
+    <div style="grid-column: span 2; display:flex; align-items:center; gap:8px; margin-top:0.5rem;">
+        <label for="itRegionSelector" style="color:var(--text-secondary);font-size:12.5px;font-weight:600;">Region</label>
+        <select id="itRegionSelector" class="form-control" style="width:auto;">
+            <option value="pk">Pakistan</option>
+            <option value="all">All Countries</option>
+        </select>
+    </div>
+
+    <div class="widget">
         <div class="widget-header">
-            <h3 class="widget-title"><span class="icon-tile">{{ icons.globe(17) }}</span> Multi-location jobs</h3>
-            <span class="widget-subtitle">Companies hiring across the most locations</span>
+            <h3 class="widget-title"><span class="icon-tile">{{ icons.briefcase(17) }}</span> Recent IT Jobs</h3>
+            <span class="widget-subtitle">Most recent postings</span>
         </div>
-        <table id="locationDiversityTable" class="data-table">
-            <thead><tr><th>Rank</th><th>Company</th><th>Max Locations</th><th>Job Postings</th></tr></thead>
-            <tbody><tr><td colspan="4" class="loading"><div class="loading-spinner"></div></td></tr></tbody>
+        <div id="topItJobsList" class="loading"><div class="loading-spinner"></div></div>
+        <div style="margin-top:0.75rem;text-align:right;">
+            <a id="topItJobsSeeAll" href="/jobs?category=it&region=pk" style="font-size:0.85rem;font-weight:600;color:var(--accent);text-decoration:none;">See all IT jobs →</a>
+        </div>
+    </div>
+
+    <div class="widget">
+        <div class="widget-header">
+            <h3 class="widget-title"><span class="icon-tile">{{ icons.building(17) }}</span> Top Hiring IT Companies</h3>
+            <span class="widget-subtitle">Job count by company</span>
+        </div>
+        <table id="topItCompaniesTable" class="data-table">
+            <thead><tr><th>Rank</th><th>Company</th><th>IT Job Count</th></tr></thead>
+            <tbody><tr><td colspan="3" class="loading"><div class="loading-spinner"></div></td></tr></tbody>
         </table>
+        <div style="margin-top:0.75rem;text-align:right;">
+            <a id="topItCompaniesSeeAll" href="/companies/intelligence?category=it&region=pk" style="font-size:0.85rem;font-weight:600;color:var(--accent);text-decoration:none;">See all IT companies →</a>
+        </div>
     </div>
 </div>
 

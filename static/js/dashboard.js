@@ -14,6 +14,16 @@ function cssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+// Job/company text (title, company, location, country) comes from scraped
+// third-party postings, not user input on this page, but it's still
+// untrusted before it's interpolated into innerHTML - see escapeHtml()'s
+// twin in templates/admin_normalize_titles.html for the same pattern.
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text == null ? '' : text;
+    return div.innerHTML;
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     loadDashboard();
     
@@ -24,15 +34,23 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('dashboardStatus').addEventListener('change', function() {
         loadDashboard();
     });
-    document.getElementById('dashboardRegion').addEventListener('change', function() {
-        document.cookie = `jmi_region=${this.value};path=/;max-age=31536000;SameSite=Lax`;
-        loadDashboard();
+    document.getElementById('itRegionSelector').addEventListener('change', function() {
+        loadTopITJobs();
+        loadTopITCompanies();
     });
 });
 
 function dashboardApi(path) {
     const status = document.getElementById('dashboardStatus')?.value || 'all';
-    const region = document.getElementById('dashboardRegion')?.value || 'pk';
+    return `${path}?status=${encodeURIComponent(status)}`;
+}
+
+// Same shape as dashboardApi(), but for the two IT widgets specifically -
+// reads the local itRegionSelector instead of the (removed) page-level
+// Region control. Page-session-only, no cookie.
+function localItApi(path) {
+    const status = document.getElementById('dashboardStatus')?.value || 'all';
+    const region = document.getElementById('itRegionSelector')?.value || 'pk';
     return `${path}?status=${encodeURIComponent(status)}&region=${encodeURIComponent(region)}`;
 }
 
@@ -46,7 +64,8 @@ function loadDashboard() {
     loadEmergingSkills();
     loadDecliningSkills();
     loadTopCompanies();
-    loadLocationDiversity();
+    loadTopITJobs();
+    loadTopITCompanies();
 }
 
 function updateTime() {
@@ -68,13 +87,9 @@ function loadKPIs() {
     fetch(dashboardApi('/api/dashboard/kpis'))
         .then(response => response.json())
         .then(data => {
-            document.getElementById('kpiJobs').textContent = fmtKpi(data.total_jobs);
-            setTrend(document.getElementById('kpiJobsTrend'), data.jobs_trend);
-
             document.getElementById('kpiSkills').textContent = fmtKpi(data.total_skills);
             setTrend(document.getElementById('kpiSkillsTrend'), data.skills_trend);
-            
-            document.getElementById('kpiSources').textContent = data.active_sources;
+
             document.getElementById('kpiRemote').textContent = data.remote_pct + '%';
         })
         .catch(error => {
@@ -468,33 +483,69 @@ function loadTopCompanies() {
         });
 }
 
-function loadLocationDiversity() {
-    fetch(dashboardApi('/api/dashboard/location-diversity'))
+function loadTopITJobs() {
+    const region = document.getElementById('itRegionSelector')?.value || 'pk';
+    document.getElementById('topItJobsSeeAll').href = `/jobs?category=it&region=${encodeURIComponent(region)}`;
+
+    fetch(localItApi('/api/dashboard/top-it-jobs'))
         .then(response => response.json())
         .then(data => {
-            const tbody = document.querySelector('#locationDiversityTable tbody');
-            
-            if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary); padding: 2rem;">No multi-location postings yet.</td></tr>';
+            const container = document.getElementById('topItJobsList');
+
+            if (!Array.isArray(data) || data.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 2rem;">No IT jobs found for this scope right now.</p>';
                 return;
             }
-            
-            const pinSvg = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><path d="M12 22s7-6.2 7-12A7 7 0 0 0 5 10c0 5.8 7 12 7 12z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>';
 
             const authed = window.GW_AUTHED;
-            const html = data.map((item, index) => `
-                <tr${authed ? '' : ' class="gw-row-gate" onclick="gwShowGate()"'}>
+            const html = data.map(job => {
+                const title = escapeHtml(job.title);
+                const company = escapeHtml(job.company);
+                const place = job.location ? escapeHtml(job.location) : (job.country ? escapeHtml(job.country) : '');
+                return `
+                <div style="padding:0.75rem 0;border-bottom:1px solid var(--border-subtle);">
+                    ${authed
+                        ? `<a href="/jobs/${encodeURIComponent(job.job_id)}" style="color:var(--text-primary);text-decoration:none;font-weight:600;">${title}</a>`
+                        : `<span class="gw-row-gate" onclick="gwShowGate()" style="color:var(--text-primary);font-weight:600;cursor:pointer;">${title}</span>`}
+                    <div style="font-size:0.8rem;color:var(--text-secondary);margin-top:0.2rem;">${company}${place ? ' · ' + place : ''}</div>
+                </div>
+            `;
+            }).join('');
+
+            container.innerHTML = html;
+        })
+        .catch(error => {
+            console.error('Error loading top IT jobs:', error);
+            document.getElementById('topItJobsList').innerHTML = '<p style="color: var(--danger); text-align: center; padding: 2rem;">Something went wrong loading this — try refreshing.</p>';
+        });
+}
+
+function loadTopITCompanies() {
+    const region = document.getElementById('itRegionSelector')?.value || 'pk';
+    document.getElementById('topItCompaniesSeeAll').href = `/companies/intelligence?category=it&region=${encodeURIComponent(region)}`;
+
+    fetch(localItApi('/api/dashboard/top-it-companies'))
+        .then(response => response.json())
+        .then(data => {
+            const tbody = document.querySelector('#topItCompaniesTable tbody');
+
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--text-secondary); padding: 2rem;">Nothing here yet — check back soon.</td></tr>';
+                return;
+            }
+
+            const html = data.map((company, index) => `
+                <tr>
                     <td><strong>#${index + 1}</strong></td>
-                    <td>${item.company}</td>
-                    <td><span style="color: var(--accent); font-weight: 600;">${pinSvg} ${item.max_locations} locations</span></td>
-                    <td>${item.job_count} posting${item.job_count > 1 ? 's' : ''}</td>
+                    <td>${escapeHtml(company.company)}</td>
+                    <td><strong>${company.count}</strong> jobs</td>
                 </tr>
             `).join('');
-            
+
             tbody.innerHTML = html;
         })
         .catch(error => {
-            console.error('Error loading location diversity:', error);
-            document.querySelector('#locationDiversityTable tbody').innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--danger); padding: 2rem;">Something went wrong loading this — try refreshing.</td></tr>';
+            console.error('Error loading top IT companies:', error);
+            document.querySelector('#topItCompaniesTable tbody').innerHTML = '<tr><td colspan="3" style="text-align: center; color: var(--danger); padding: 2rem;">Something went wrong loading this — try refreshing.</td></tr>';
         });
 }
