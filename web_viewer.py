@@ -134,7 +134,7 @@ _PUBLIC_VIEWABLE_ENDPOINTS = {
     # docs/superpowers/specs/2026-07-16-general-ticketing-feedback-design.md).
 }
 _PUBLIC_API_READS = {
-    "/api/dashboard/kpis", "/api/dashboard/companies", "/api/dashboard/location-diversity",
+    "/api/dashboard/kpis", "/api/dashboard/companies", "/api/dashboard/top-it-jobs", "/api/dashboard/top-it-companies",
     # /api/skills/search, /api/skills/combinations, /api/companies/list,
     # /api/titles/top removed along with their pages above - anonymous
     # visitors can no longer reach the pages that call them, and leaving
@@ -720,12 +720,10 @@ def dashboard_kpis():
     cursor = conn.cursor()
 
     status = request.args.get("status", "all")
-    region = _default_region()
     status_clause = _status_window_clause(status)
-    region_clause = _region_scope_clause(region)
 
     # Total jobs
-    cursor.execute(f"SELECT COUNT(*) as count FROM active_jobs WHERE 1=1{status_clause}{region_clause}")
+    cursor.execute(f"SELECT COUNT(*) as count FROM active_jobs WHERE 1=1{status_clause}")
     total_jobs = cursor.fetchone()["count"]
 
     # Total skills - scoped to skills belonging to in-scope (status/window
@@ -736,12 +734,12 @@ def dashboard_kpis():
         SELECT COUNT(DISTINCT s.normalized_skill) as count
         FROM skills s
         JOIN active_jobs j ON j.job_id = s.job_id
-        WHERE 1=1{_status_window_clause(status, "j.")}{_region_scope_clause(region, "j.")}
+        WHERE 1=1{_status_window_clause(status, "j.")}
     """)
     total_skills = cursor.fetchone()["count"]
 
     # Active sources
-    cursor.execute(f"SELECT COUNT(DISTINCT source_name) as count FROM active_jobs WHERE 1=1{status_clause}{region_clause}")
+    cursor.execute(f"SELECT COUNT(DISTINCT source_name) as count FROM active_jobs WHERE 1=1{status_clause}")
     active_sources = cursor.fetchone()["count"]
 
     # Remote percentage
@@ -749,7 +747,7 @@ def dashboard_kpis():
         SELECT
             CAST(SUM(CASE WHEN LOWER(remote_type) = 'remote' THEN 1 ELSE 0 END) AS FLOAT) * 100 / COUNT(*) as pct
         FROM active_jobs
-        WHERE 1=1{status_clause}{region_clause}
+        WHERE 1=1{status_clause}
     """)
     remote_pct = cursor.fetchone()["pct"] or 0
     
@@ -890,12 +888,11 @@ def dashboard_top_skills():
 
     if not skills:
         status = request.args.get("status", "all")
-        region = _default_region()
         cursor.execute(f"""
             SELECT s.normalized_skill as skill, COUNT(*) as count, s.category
             FROM skills s
             JOIN active_jobs j ON j.job_id = s.job_id
-            WHERE 1=1{_status_window_clause(status, "j.")}{_region_scope_clause(region, "j.")}
+            WHERE 1=1{_status_window_clause(status, "j.")}
             GROUP BY s.normalized_skill, s.category
             ORDER BY count DESC
             LIMIT 10
@@ -963,12 +960,11 @@ def dashboard_sources():
     conn = get_db_connection()
     cursor = conn.cursor()
     status = request.args.get("status", "all")
-    region = _default_region()
 
     cursor.execute(f"""
         SELECT source_name, COUNT(*) as count
         FROM active_jobs
-        WHERE 1=1{_status_window_clause(status)}{_region_scope_clause(region)}
+        WHERE 1=1{_status_window_clause(status)}
         GROUP BY source_name
         ORDER BY count DESC
     """)
@@ -1047,12 +1043,11 @@ def dashboard_companies():
     conn = get_db_connection()
     cursor = conn.cursor()
     status = request.args.get("status", "all")
-    region = _default_region()
 
     cursor.execute(f"""
         SELECT company, COUNT(*) as count
         FROM active_jobs
-        WHERE company IS NOT NULL AND company != ''{_status_window_clause(status)}{_region_scope_clause(region)}
+        WHERE company IS NOT NULL AND company != ''{_status_window_clause(status)}
         GROUP BY company
         ORDER BY count DESC
         LIMIT 10
@@ -1065,38 +1060,61 @@ def dashboard_companies():
     return jsonify(companies)
 
 
-@app.route("/api/dashboard/location-diversity")
+@app.route("/api/dashboard/top-it-jobs")
 @cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
-def dashboard_location_diversity():
-    """Get companies with jobs in most locations."""
+def dashboard_top_it_jobs():
+    """
+    Recent Pakistan-relevant IT jobs (or worldwide IT jobs when broadened)
+    for the dashboard's Top IT Jobs widget - see
+    docs/superpowers/specs/2026-07-17-dashboard-region-restructure-design.md.
+
+    Governed by its own local `region` param (pk/all), independent of the
+    removed dashboard-wide Region toggle - _default_region()/the jmi_region
+    cookie are NOT consulted here, this is a page-session-only control.
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
     status = request.args.get("status", "all")
-    region = _default_region()
+    region = request.args.get("region", "pk")
+    country_clause = " AND country = 'Pakistan'" if region == "pk" else ""
 
     cursor.execute(f"""
-        SELECT
-            company,
-            MAX(location_count) as max_locations,
-            COUNT(DISTINCT job_group_id) as job_count
+        SELECT job_id, title, company, location, country, remote_type
         FROM active_jobs
-        WHERE location_count > 1{_status_window_clause(status)}{_region_scope_clause(region)}
+        WHERE field_category_id LIKE 'it.%'{country_clause}{_status_window_clause(status)}
+        ORDER BY COALESCE(posted_date, first_seen_at) DESC
+        LIMIT 7
+    """)
+    jobs = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return jsonify(jobs)
+
+
+@app.route("/api/dashboard/top-it-companies")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
+def dashboard_top_it_companies():
+    """
+    Top companies hiring for IT roles (Pakistan-scoped by default,
+    worldwide when broadened) for the dashboard's Top Hiring IT Companies
+    widget. Same local `region` param pattern as dashboard_top_it_jobs().
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    status = request.args.get("status", "all")
+    region = request.args.get("region", "pk")
+    country_clause = " AND country = 'Pakistan'" if region == "pk" else ""
+
+    cursor.execute(f"""
+        SELECT company, COUNT(*) as count
+        FROM active_jobs
+        WHERE company IS NOT NULL AND company != '' AND field_category_id LIKE 'it.%'{country_clause}{_status_window_clause(status)}
         GROUP BY company
-        ORDER BY max_locations DESC, job_count DESC
+        ORDER BY count DESC
         LIMIT 10
     """)
-    
-    diversity = [
-        {
-            "company": row["company"], 
-            "max_locations": row["max_locations"],
-            "job_count": row["job_count"]
-        } 
-        for row in cursor.fetchall()
-    ]
+    companies = [{"company": row["company"], "count": row["count"]} for row in cursor.fetchall()]
     conn.close()
-    
-    return jsonify(diversity)
+    return jsonify(companies)
 
 
 @app.route("/skills/intelligence")

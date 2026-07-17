@@ -73,20 +73,6 @@ def test_region_scope_clause_applies_alias_prefix():
     assert _region_scope_clause("pk", "j.") == " AND j.country IN ('Pakistan', 'Global')"
 
 
-def test_dashboard_kpis_total_jobs_defaults_to_pakistan_scope(region_client):
-    r = region_client.get("/api/dashboard/kpis")
-    assert r.status_code == 200
-    data = r.get_json()
-    assert data["total_jobs"] == 3  # 2 Pakistan + 1 Global; US and Germany excluded by default
-
-
-def test_dashboard_kpis_total_jobs_region_all_is_unrestricted(region_client):
-    r = region_client.get("/api/dashboard/kpis?region=all")
-    assert r.status_code == 200
-    data = r.get_json()
-    assert data["total_jobs"] == 5  # every seeded job
-
-
 def test_jobs_list_defaults_to_pakistan_scope(region_client):
     r = region_client.get("/jobs")
     assert r.status_code == 200
@@ -118,10 +104,12 @@ def test_dashboard_geo_is_not_affected_by_region_scope(region_client):
 
 def test_status_defaults_to_all_not_active(region_client):
     """The Active/Historical status default flips from 'active' (last
-    month only) to 'all' (everything) as of this plan - two restrictive
-    defaults (region + age) compounded would show a first-time visitor too
-    little. Seed one old Pakistan job (outside the last-month window) and
-    confirm it's included by default without any ?status= override."""
+    month only) to 'all' (everything) - two restrictive defaults (region +
+    age) compounded would show a first-time visitor too little. Seed one
+    old Pakistan job (outside the last-month window) and confirm it's
+    included by default without any ?status= override. Uses /jobs, not
+    /api/dashboard/kpis - the dashboard KPIs route no longer applies
+    region scoping at all as of the dashboard-region-restructure plan."""
     import sqlite3
     from datetime import datetime, timedelta
     import src.storage.db as db
@@ -131,33 +119,34 @@ def test_status_defaults_to_all_not_active(region_client):
     conn.commit()
     conn.close()
 
-    r = region_client.get("/api/dashboard/kpis")  # no ?status= at all
-    assert r.get_json()["total_jobs"] == 4, "old Pakistan job must be included - status defaults to 'all', not 'active'"
+    r = region_client.get("/jobs")  # no ?status= at all
+    assert "(4)</span>" in r.get_data(as_text=True), "old Pakistan job must be included - status defaults to 'all', not 'active'"
 
 
 def test_region_defaults_to_cookie_value_when_no_query_param(region_client):
     region_client.set_cookie("jmi_region", "all")
-    r = region_client.get("/api/dashboard/kpis")
-    assert r.get_json()["total_jobs"] == 5  # cookie says 'all', no ?region= override
+    r = region_client.get("/jobs")
+    assert "(5)</span>" in r.get_data(as_text=True)  # cookie says 'all', no ?region= override
 
 
 def test_explicit_query_param_overrides_cookie(region_client):
     region_client.set_cookie("jmi_region", "all")
-    r = region_client.get("/api/dashboard/kpis?region=pk")
-    assert r.get_json()["total_jobs"] == 3  # explicit ?region=pk wins over the 'all' cookie
+    r = region_client.get("/jobs?region=pk")
+    assert "(3)</span>" in r.get_data(as_text=True)  # explicit ?region=pk wins over the 'all' cookie
 
 
 def test_default_is_pakistan_when_neither_cookie_nor_query_param_present(region_client):
-    r = region_client.get("/api/dashboard/kpis")
-    assert r.get_json()["total_jobs"] == 3
+    r = region_client.get("/jobs")
+    assert "(3)</span>" in r.get_data(as_text=True)
 
 
 def test_region_and_status_filters_compose_correctly_when_both_explicit(region_client):
     """Seed one Pakistan job that's old (outside the active window) - with
     status=active EXPLICITLY requested, it must be excluded regardless of
     region, proving the two filters combine with AND, not one silently
-    overriding the other. (Default behavior - status defaulting to 'all' -
-    is covered separately above.)"""
+    overriding the other. Uses /jobs - see test_status_defaults_to_all_not_active
+    above for why /api/dashboard/kpis is no longer the right vehicle for
+    this."""
     import sqlite3
     from datetime import datetime, timedelta
     import src.storage.db as db
@@ -167,5 +156,5 @@ def test_region_and_status_filters_compose_correctly_when_both_explicit(region_c
     conn.commit()
     conn.close()
 
-    r = region_client.get("/api/dashboard/kpis?status=active")  # region=pk (default), status=active (explicit)
-    assert r.get_json()["total_jobs"] == 3  # the old Pakistan job must NOT be included under status=active
+    r = region_client.get("/jobs?status=active")  # region=pk (default), status=active (explicit)
+    assert "(3)</span>" in r.get_data(as_text=True)  # the old Pakistan job must NOT be included under status=active

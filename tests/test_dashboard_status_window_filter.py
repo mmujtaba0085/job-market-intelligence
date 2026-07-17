@@ -8,11 +8,13 @@ silently ignored the query param dashboard.js already sent on every
 request (see static/js/dashboard.js::dashboardApi()).
 
 Covers dashboard_kpis, dashboard_top-skills (fallback path), sources,
-companies, and location-diversity. dashboard_geo has its own dedicated
-file, tests/test_dashboard_geo_endpoint.py, extended alongside today's
-bucketing fix rather than duplicated here. dashboard_trends/emerging/
+and companies. dashboard_geo has its own dedicated file,
+tests/test_dashboard_geo_endpoint.py. dashboard_trends/emerging/
 declining are explicitly out of scope - they read weekly_metrics, a
 pre-aggregated-by-week table with no per-job age/status to filter on.
+location-diversity's status-window tests were removed when that route
+was deleted in favor of dashboard_top_it_jobs/dashboard_top_it_companies
+- see tests/test_dashboard_top_it_widgets.py for their coverage.
 
 Follows the fixture pattern established in tests/test_dashboard_geo_endpoint.py
 and tests/test_jobs_list_sort.py: a minimal hand-rolled sqlite schema
@@ -209,24 +211,4 @@ def test_companies_fallback_job_counted_as_active(dash_client):
     first_seen_at - and must still appear under status=active."""
     r = dash_client.get("/api/dashboard/companies?status=active")
     companies = {row["company"] for row in r.get_json()}
-    assert "Gamma Inc" in companies
-
-
-# ── dashboard_location-diversity ────────────────────────────────────────
-# Base query already restricts to location_count > 1 regardless of status,
-# which excludes "Recent Job" (location_count=1) from every case below -
-# only "Old Job" (2) and "Fallback Job" (3) are ever candidates.
-
-def test_location_diversity_status_active_excludes_old_job(dash_client):
-    r = dash_client.get("/api/dashboard/location-diversity?status=active")
-    assert r.status_code == 200
-    companies = {row["company"] for row in r.get_json()}
-    assert "Beta Co" not in companies, companies
-    assert "Gamma Inc" in companies
-
-
-def test_location_diversity_status_all_includes_old_job(dash_client):
-    r = dash_client.get("/api/dashboard/location-diversity?status=all")
-    companies = {row["company"] for row in r.get_json()}
-    assert "Beta Co" in companies, companies
     assert "Gamma Inc" in companies

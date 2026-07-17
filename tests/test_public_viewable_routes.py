@@ -35,7 +35,7 @@ def anon_client(tmp_path, monkeypatch):
             remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
             source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
             listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
-            job_group_id INTEGER, first_seen_at TEXT
+            job_group_id INTEGER, first_seen_at TEXT, field_category_id TEXT
         );
         CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
         CREATE TABLE skills (job_id INTEGER, raw_detected_skill TEXT, normalized_skill TEXT, category TEXT, confidence_score REAL);
@@ -85,7 +85,7 @@ def test_anonymous_request_reaches_public_page_routes(anon_client):
 
 def test_anonymous_request_reaches_public_api_routes(anon_client):
     for path in [
-        "/api/dashboard/kpis", "/api/dashboard/companies", "/api/dashboard/location-diversity",
+        "/api/dashboard/kpis", "/api/dashboard/companies", "/api/dashboard/top-it-jobs", "/api/dashboard/top-it-companies",
     ]:
         r = anon_client.get(path)
         assert r.status_code == 200, f"{path} should be reachable anonymously, got {r.status_code}"
