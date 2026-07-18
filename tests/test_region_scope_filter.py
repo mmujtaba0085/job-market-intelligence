@@ -73,6 +73,35 @@ def test_region_scope_clause_applies_alias_prefix():
     assert _region_scope_clause("pk", "j.") == " AND j.country IN ('Pakistan', 'Global')"
 
 
+def test_region_scope_clause_pk_only_is_strict_pakistan():
+    """pk_only excludes 'Global' too, unlike 'pk' - used by the dashboard's
+    "See all IT jobs" link so it matches the strict country='Pakistan'
+    scope its own widget already shows, instead of letting high-volume
+    'Global' postings (many not actually Pakistan-relevant) crowd out
+    real Pakistan jobs. Confirmed live 2026-07-18."""
+    from web_viewer import _region_scope_clause
+    assert _region_scope_clause("pk_only") == " AND country = 'Pakistan'"
+
+
+def test_region_scope_clause_pk_only_applies_alias_prefix():
+    from web_viewer import _region_scope_clause
+    assert _region_scope_clause("pk_only", "j.") == " AND j.country = 'Pakistan'"
+
+
+def test_jobs_list_region_pk_only_excludes_global(region_client):
+    r = region_client.get("/jobs?region=pk_only")
+    assert r.status_code == 200
+    body = r.get_data(as_text=True)
+    assert "(2)</span>" in body  # 2 Pakistan only, the 1 Global row excluded
+
+
+def test_jobs_list_region_pk_only_active_filters_badge(region_client):
+    r = region_client.get("/jobs?region=pk_only")
+    body = r.get_data(as_text=True)
+    assert "Region: Pakistan Only" in body
+    assert "Region: All Countries" not in body
+
+
 def test_jobs_list_defaults_to_pakistan_scope(region_client):
     r = region_client.get("/jobs")
     assert r.status_code == 200

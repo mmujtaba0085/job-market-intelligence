@@ -3,7 +3,7 @@ tests/test_dashboard_geo_endpoint.py
 ──────────────────────────────────────
 Regression coverage for GET /api/dashboard/geo: every active job must land
 in exactly one bucket of the response - NULL/blank/'unknown' country values
-are grouped into a visible "Unknown" bucket and 'global' into a visible
+are grouped into a visible "Not Specified" bucket and 'global' into a visible
 "Remote / Global" bucket, instead of being silently excluded from the
 response (the old WHERE clause dropped them entirely) or truncated off the
 end by a LIMIT (the old LIMIT 15 silently dropped the long tail once there
@@ -108,10 +108,10 @@ def test_bucket_total_equals_active_job_count_no_silent_drops(geo_client):
 
 
 def test_unknown_and_global_are_visible_buckets_not_dropped(geo_client):
-    """NULL / '' / 'Unknown' / 'unknown' collapse into one visible "Unknown"
-    bucket; 'Global' / 'global' collapse into one visible "Remote / Global"
-    bucket - distinct from each other, and neither silently excluded the
-    way the old WHERE clause excluded them."""
+    """NULL / '' / 'Unknown' / 'unknown' collapse into one visible
+    "Not Specified" bucket; 'Global' / 'global' collapse into one visible
+    "Remote / Global" bucket - distinct from each other, and neither
+    silently excluded the way the old WHERE clause excluded them."""
     with geo_client.session_transaction() as sess:
         sess["user_id"] = 1
 
@@ -120,9 +120,10 @@ def test_unknown_and_global_are_visible_buckets_not_dropped(geo_client):
     geo = {row["country"]: row["count"] for row in r.get_json()}
 
     # Unknown, None, '', 'unknown' = 4 rows collapsed into one bucket.
-    assert geo.get("Unknown") == 4, f"expected Unknown=4, got buckets={geo}"
+    assert geo.get("Not Specified") == 4, f"expected 'Not Specified'=4, got buckets={geo}"
+    assert "Unknown" not in geo, "'Unknown' should have been relabeled to 'Not Specified', not left as-is"
     # Global, global = 2 rows collapsed into one bucket, labeled distinctly
-    # from Unknown so the frontend can tell "known-remote" apart from
+    # from Not Specified so the frontend can tell "known-remote" apart from
     # "we don't know where this is".
     assert geo.get("Remote / Global") == 2, f"expected 'Remote / Global'=2, got buckets={geo}"
     assert "Global" not in geo, "'Global' should have been relabeled to 'Remote / Global', not left as-is"

@@ -341,11 +341,23 @@ def _region_scope_clause(region: str, alias: str = "") -> str:
     on a remote job (e.g. country='United States') is deliberately NOT
     included - it's a signal the role is likely restricted to that
     country in practice, not genuinely open to a Pakistan-based applicant.
+    'pk_only': country = 'Pakistan' - strict, no 'Global' jobs mixed in.
+    Not reachable via the Region <select> or the jmi_region cookie
+    (_default_region() never resolves to it) - only via an explicit
+    ?region=pk_only, used by the dashboard's "See all IT jobs" link so it
+    matches the strict scope its own widget already shows (widget uses
+    country='Pakistan' directly - see dashboard_top_it_jobs()). 'pk'
+    alone let high-volume 'Global' postings (many not actually
+    Pakistan-relevant, e.g. a role titled "Interview Engineer (Turkey)")
+    dominate by volume and crowd out real Pakistan jobs - confirmed live
+    2026-07-18.
     'all' (or any unrecognized value): no restriction - every job,
     regardless of country.
     """
     if region == "pk":
         return f" AND {alias}country IN ('Pakistan', 'Global')"
+    if region == "pk_only":
+        return f" AND {alias}country = 'Pakistan'"
     return ""
 
 
@@ -980,8 +992,8 @@ def dashboard_geo():
     state codes like "MA" that used to leak into `country` - see
     src/utils/country_inference.py and scripts/backfill_us_state_country_codes.py)
     once there were more than 15 distinct values. Now every job is bucketed
-    (NULL/blank/'unknown' -> "Unknown", 'global' -> "Remote / Global", else
-    the country as stored) and no LIMIT is applied - the frontend already
+    (NULL/blank/'unknown' -> "Not Specified", 'global' -> "Remote / Global",
+    else the country as stored) and no LIMIT is applied - the frontend already
     slices to the top 10 for the doughnut chart itself (see
     static/js/dashboard.js loadGeoChart()), so nothing about the visible
     chart changes; only the underlying data completeness does.
@@ -999,7 +1011,7 @@ def dashboard_geo():
     cursor.execute(f"""
         SELECT
           CASE
-            WHEN country IS NULL OR TRIM(country) = '' OR LOWER(TRIM(country)) = 'unknown' THEN 'Unknown'
+            WHEN country IS NULL OR TRIM(country) = '' OR LOWER(TRIM(country)) = 'unknown' THEN 'Not Specified'
             WHEN LOWER(TRIM(country)) = 'global' THEN 'Remote / Global'
             ELSE country
           END AS country,
