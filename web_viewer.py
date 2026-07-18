@@ -354,6 +354,41 @@ def _default_region() -> str:
     return request.args.get("region") or request.cookies.get("jmi_region", "pk")
 
 
+def _category_scope_clause(category: str, alias: str = "") -> str:
+    """
+    SQL AND-clause fragment restricting to IT-relevant jobs by default -
+    see docs/superpowers/specs/2026-07-17-it-priority-launch-readiness-design.md
+    Part 2.
+
+    'it' (the default): field_category_id IS NULL OR field_category_id
+    LIKE 'it.%' - shows everything except jobs *confidently* tagged as a
+    real non-IT category. Deliberately NULL-inclusive rather than strict
+    'it.%'-only: a strict filter would hide the majority of jobs by
+    default, including real postings from IT-only companies the
+    classifier simply hasn't tagged yet (confirmed against real coverage
+    numbers during that spec's brainstorm). This differs from the
+    dashboard's Top IT Jobs / Top Hiring IT Companies widgets
+    (dashboard_top_it_jobs/dashboard_top_it_companies), which stay
+    strict 'it.%'-only on purpose - those are small curated rankings
+    where precision matters more than recall; this is a large,
+    self-evaluated browse list where hiding untagged-but-real postings
+    is the bigger cost.
+    'all' (or any unrecognized value): no restriction - every job,
+    regardless of category.
+    """
+    if category == "it":
+        return f" AND ({alias}field_category_id IS NULL OR {alias}field_category_id LIKE 'it.%')"
+    return ""
+
+
+def _default_category() -> str:
+    """
+    Resolves the category default with query-param > cookie > hardcoded
+    'it' priority - same shape as _default_region().
+    """
+    return request.args.get("category") or request.cookies.get("jmi_category", "it")
+
+
 def show_source_names() -> bool:
     """
     Admins always see real source names (they need them to operate the
@@ -1668,6 +1703,7 @@ def jobs_list():
     date_to        = request.args.get("date_to", "")
     current_status = request.args.get("status", "all")
     region         = _default_region()
+    category       = _default_category()
     sort_param     = request.args.get("sort", "diverse")
 
     # Filtering is a signed-in feature - the sidebar is hidden for anonymous
@@ -1716,6 +1752,8 @@ def jobs_list():
     base += _status_window_clause(current_status, "j.")
     # Region scope filter (see _region_scope_clause)
     base += _region_scope_clause(region, "j.")
+    # Category scope filter (see _category_scope_clause)
+    base += _category_scope_clause(category, "j.")
 
     if market_filter:
         base += " AND j.market_id = ?"; params.append(market_filter)
@@ -1803,6 +1841,7 @@ def jobs_list():
         current_company=company_filter,
         current_status=current_status,
         current_region=region,
+        current_category=category,
         search_query=search_query,
         skills_filter=skills_filter,
         date_from=date_from,

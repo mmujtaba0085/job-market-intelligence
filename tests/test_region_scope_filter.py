@@ -25,7 +25,7 @@ def region_client(tmp_path, monkeypatch):
             listing_status TEXT DEFAULT 'active', posted_date TEXT,
             first_seen_at TEXT DEFAULT (datetime('now')), ingested_at TEXT,
             market_id TEXT DEFAULT 'm1', location_count INTEGER DEFAULT 1,
-            normalized_title TEXT DEFAULT '', diversity_rank INTEGER
+            normalized_title TEXT DEFAULT '', diversity_rank INTEGER, field_category_id TEXT
         )
     """)
     conn.execute("CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden'")

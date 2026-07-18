@@ -23,7 +23,7 @@ def cached_app(tmp_path, monkeypatch):
             remote_type TEXT DEFAULT 'unknown', posted_date TEXT, ingested_at TEXT,
             source_name TEXT DEFAULT '', market_id TEXT, location_count INTEGER DEFAULT 1,
             listing_status TEXT, normalized_title TEXT DEFAULT '', diversity_rank INTEGER,
-            first_seen_at TEXT
+            first_seen_at TEXT, field_category_id TEXT
         );
         CREATE VIEW active_jobs AS SELECT * FROM jobs WHERE listing_status != 'hidden';
     """)
