@@ -53,9 +53,14 @@ def region_client(tmp_path, monkeypatch):
     return client
 
 
-def test_region_scope_clause_pk_restricts_to_pakistan_and_global():
+def test_region_scope_clause_pk_is_strict_pakistan():
+    """'pk' excludes 'Global' - changed from country IN ('Pakistan',
+    'Global') to strict country = 'Pakistan' by explicit request
+    2026-07-18, after live evidence showed high-volume 'Global' postings
+    (many not actually Pakistan-relevant, e.g. a role titled "Interview
+    Engineer (Turkey)") crowding out real Pakistan jobs."""
     from web_viewer import _region_scope_clause
-    assert _region_scope_clause("pk") == " AND country IN ('Pakistan', 'Global')"
+    assert _region_scope_clause("pk") == " AND country = 'Pakistan'"
 
 
 def test_region_scope_clause_all_is_unrestricted():
@@ -70,43 +75,14 @@ def test_region_scope_clause_unrecognized_value_is_unrestricted():
 
 def test_region_scope_clause_applies_alias_prefix():
     from web_viewer import _region_scope_clause
-    assert _region_scope_clause("pk", "j.") == " AND j.country IN ('Pakistan', 'Global')"
-
-
-def test_region_scope_clause_pk_only_is_strict_pakistan():
-    """pk_only excludes 'Global' too, unlike 'pk' - used by the dashboard's
-    "See all IT jobs" link so it matches the strict country='Pakistan'
-    scope its own widget already shows, instead of letting high-volume
-    'Global' postings (many not actually Pakistan-relevant) crowd out
-    real Pakistan jobs. Confirmed live 2026-07-18."""
-    from web_viewer import _region_scope_clause
-    assert _region_scope_clause("pk_only") == " AND country = 'Pakistan'"
-
-
-def test_region_scope_clause_pk_only_applies_alias_prefix():
-    from web_viewer import _region_scope_clause
-    assert _region_scope_clause("pk_only", "j.") == " AND j.country = 'Pakistan'"
-
-
-def test_jobs_list_region_pk_only_excludes_global(region_client):
-    r = region_client.get("/jobs?region=pk_only")
-    assert r.status_code == 200
-    body = r.get_data(as_text=True)
-    assert "(2)</span>" in body  # 2 Pakistan only, the 1 Global row excluded
-
-
-def test_jobs_list_region_pk_only_active_filters_badge(region_client):
-    r = region_client.get("/jobs?region=pk_only")
-    body = r.get_data(as_text=True)
-    assert "Region: Pakistan Only" in body
-    assert "Region: All Countries" not in body
+    assert _region_scope_clause("pk", "j.") == " AND j.country = 'Pakistan'"
 
 
 def test_jobs_list_defaults_to_pakistan_scope(region_client):
     r = region_client.get("/jobs")
     assert r.status_code == 200
     body = r.get_data(as_text=True)
-    assert "(3)</span>" in body  # 2 Pakistan + 1 Global
+    assert "(2)</span>" in body  # 2 Pakistan only, 'Global' excluded
 
 
 def test_jobs_list_region_all_shows_every_country(region_client):
@@ -149,7 +125,7 @@ def test_status_defaults_to_all_not_active(region_client):
     conn.close()
 
     r = region_client.get("/jobs")  # no ?status= at all
-    assert "(4)</span>" in r.get_data(as_text=True), "old Pakistan job must be included - status defaults to 'all', not 'active'"
+    assert "(3)</span>" in r.get_data(as_text=True), "old Pakistan job must be included - status defaults to 'all', not 'active'"
 
 
 def test_region_defaults_to_cookie_value_when_no_query_param(region_client):
@@ -161,12 +137,12 @@ def test_region_defaults_to_cookie_value_when_no_query_param(region_client):
 def test_explicit_query_param_overrides_cookie(region_client):
     region_client.set_cookie("jmi_region", "all")
     r = region_client.get("/jobs?region=pk")
-    assert "(3)</span>" in r.get_data(as_text=True)  # explicit ?region=pk wins over the 'all' cookie
+    assert "(2)</span>" in r.get_data(as_text=True)  # explicit ?region=pk wins over the 'all' cookie
 
 
 def test_default_is_pakistan_when_neither_cookie_nor_query_param_present(region_client):
     r = region_client.get("/jobs")
-    assert "(3)</span>" in r.get_data(as_text=True)
+    assert "(2)</span>" in r.get_data(as_text=True)
 
 
 def test_region_and_status_filters_compose_correctly_when_both_explicit(region_client):
@@ -186,4 +162,4 @@ def test_region_and_status_filters_compose_correctly_when_both_explicit(region_c
     conn.close()
 
     r = region_client.get("/jobs?status=active")  # region=pk (default), status=active (explicit)
-    assert "(3)</span>" in r.get_data(as_text=True)  # the old Pakistan job must NOT be included under status=active
+    assert "(2)</span>" in r.get_data(as_text=True)  # the old Pakistan job must NOT be included under status=active

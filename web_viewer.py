@@ -334,29 +334,19 @@ def _region_scope_clause(region: str, alias: str = "") -> str:
     default - see
     docs/superpowers/specs/2026-07-16-pakistan-first-default-experience-design.md.
 
-    'pk' (the default): country IN ('Pakistan', 'Global') - jobs physically
-    in Pakistan, plus jobs explicitly marked open to remote applicants
-    anywhere (sources like Himalayas set country='Global' specifically for
-    genuinely worldwide-open roles). A specific non-Pakistan country value
-    on a remote job (e.g. country='United States') is deliberately NOT
-    included - it's a signal the role is likely restricted to that
-    country in practice, not genuinely open to a Pakistan-based applicant.
-    'pk_only': country = 'Pakistan' - strict, no 'Global' jobs mixed in.
-    Not reachable via the Region <select> or the jmi_region cookie
-    (_default_region() never resolves to it) - only via an explicit
-    ?region=pk_only, used by the dashboard's "See all IT jobs" link so it
-    matches the strict scope its own widget already shows (widget uses
-    country='Pakistan' directly - see dashboard_top_it_jobs()). 'pk'
-    alone let high-volume 'Global' postings (many not actually
-    Pakistan-relevant, e.g. a role titled "Interview Engineer (Turkey)")
-    dominate by volume and crowd out real Pakistan jobs - confirmed live
-    2026-07-18.
+    'pk' (the default): country = 'Pakistan' - strict, no 'Global' jobs
+    mixed in. Originally included 'Global' (jobs explicitly marked open
+    to remote applicants anywhere), but high-volume 'Global' postings
+    from some sources are often not actually Pakistan-relevant (e.g. a
+    role titled "Interview Engineer (Turkey)") and dominated by volume,
+    crowding out real Pakistan jobs - confirmed live 2026-07-18, changed
+    to strict by explicit request the same day. Matches the strict scope
+    the dashboard's IT widgets already used locally (see
+    dashboard_top_it_jobs()).
     'all' (or any unrecognized value): no restriction - every job,
     regardless of country.
     """
     if region == "pk":
-        return f" AND {alias}country IN ('Pakistan', 'Global')"
-    if region == "pk_only":
         return f" AND {alias}country = 'Pakistan'"
     return ""
 

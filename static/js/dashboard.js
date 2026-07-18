@@ -357,13 +357,7 @@ function loadSourcesChart() {
 
 function loadTopITJobs() {
     const region = document.getElementById('itRegionSelector')?.value || 'pk';
-    // 'pk' -> 'pk_only': this link must match the widget's own strict
-    // country='Pakistan' scope (no 'Global' jobs mixed in) - the sitewide
-    // region=pk means Pakistan+Global and would let high-volume Global
-    // postings crowd out real Pakistan jobs on /jobs. See
-    // _region_scope_clause()'s docstring in web_viewer.py.
-    const jobsRegion = region === 'pk' ? 'pk_only' : region;
-    document.getElementById('topItJobsSeeAll').href = `/jobs?category=it&region=${encodeURIComponent(jobsRegion)}`;
+    document.getElementById('topItJobsSeeAll').href = `/jobs?category=it&region=${encodeURIComponent(region)}`;
 
     fetch(localItApi('/api/dashboard/top-it-jobs'))
         .then(response => response.json())

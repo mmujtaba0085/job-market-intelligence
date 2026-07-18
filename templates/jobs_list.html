@@ -216,8 +216,7 @@
     {% if search_query %}<span class="filter-badge">Search: {{ search_query }}</span>{% endif %}
     {% if current_market %}<span class="filter-badge">Market: {{ current_market }}</span>{% endif %}
     {% if current_status != 'all' %}<span class="filter-badge">Status: {{ current_status }}</span>{% endif %}
-    {% if current_region == 'all' %}<span class="filter-badge">Region: All Countries</span>{% endif %}
-    {% if current_region == 'pk_only' %}<span class="filter-badge">Region: Pakistan Only</span>{% endif %}
+    {% if current_region != 'pk' %}<span class="filter-badge">Region: All Countries</span>{% endif %}
     {% if current_category != 'it' %}<span class="filter-badge">Category: All Categories</span>{% endif %}
     {% if current_remote %}<span class="filter-badge">Type: {{ current_remote }}</span>{% endif %}
     {% if current_country %}<span class="filter-badge">Country: {{ current_country }}</span>{% endif %}
