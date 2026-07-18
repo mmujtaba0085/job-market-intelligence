@@ -171,6 +171,12 @@ docker exec jobmarket-web sh -c 'rm -f /app/data/cache/flask/*'
 
 **Why the cache-clear step matters:** Flask-Caching here uses `CACHE_TYPE = "FileSystemCache"` writing to `data/cache/flask/`, which lives on the bind-mounted `data/` volume - it survives `docker compose up -d web` restarts, because a restart doesn't touch anything outside the container's own filesystem. `/dashboard`, `/jobs`, and `/jobs/<id>` are each cached for 15 minutes (`@cache.cached(timeout=900, ...)`), keyed per-path+query+role. A code-only deploy (behavior change with the same HTML) is fine without this - but any change to a template (especially a shared one like `base.html`) will otherwise keep serving the pre-deploy HTML to every cached key until each entry's own 15-minute timeout happens to expire, which is silent and easy to miss in a spot-check against a URL that happens to be a fresh cache key. Confirmed live 2026-07-16 during the ticketing-feature deploy: `/dashboard` kept serving the pre-deploy footer for a while after a successful rebuild+restart, while `/jobs/<a-fresh-id>` correctly showed new content, purely because of which cache keys happened to already be warm. The cache directory is owned by root **inside** the container (not the `deploy` host user), so clear it via `docker exec`, not a host-side `rm`.
 
+**`JOBMARKET_HOME` gotcha in non-interactive SSH deploys:** `docker-compose.yml`'s `env_file: - ${JOBMARKET_HOME:-.}/.env` resolves `JOBMARKET_HOME` from the *host shell's* environment, not from inside `.env` itself - it can't be self-referential. The `deploy` user's `~/.bashrc`/`~/.profile` do not export it, so a plain `ssh host "docker compose up -d web"` (non-interactive, one-shot command) sees `JOBMARKET_HOME` unset, falls back to `.` (`/opt/jobmarket/app`), fails to find `/opt/jobmarket/app/.env` (the real file is `/opt/jobmarket/.env`, one level up), and **silently aborts the `up` without recreating the container** - `build` still succeeds and prints normally, so the only symptom is the container staying on its old image (`docker compose ps` still shows the old `CREATED`/uptime). Confirmed live 2026-07-18. Always pass it inline for one-shot SSH deploys:
+
+```bash
+ssh <host> "cd /opt/jobmarket/app && JOBMARKET_HOME=/opt/jobmarket docker compose up -d web"
+```
+
 ---
 
 ## Security checklist
