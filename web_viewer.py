@@ -354,6 +354,29 @@ def _default_region() -> str:
     return request.args.get("region") or request.cookies.get("jmi_region", "pk")
 
 
+# Some Pakistan Jobs Bank postings leak a bare location into the `company`
+# field instead of a real employer name (confirmed 2026-07-18: 11 live rows
+# with company='Pakistan'/'Karachi'/'Islamabad', each paired with a real
+# non-IT job title like "Material Engineer" - a parsing bug in that source,
+# not a classification issue). A location is never a legitimate company,
+# so it's excluded everywhere company names are ranked/displayed for the
+# IT-scoped widgets. Does NOT address the separate, harder question of
+# large non-tech institutions (banks, hospitals, universities) that
+# genuinely have real, correctly-classified IT job openings - see
+# docs/superpowers/specs/2026-07-18-companies-intelligence-it-first-design.md
+# follow-up notes.
+_LOCATION_LEAKED_AS_COMPANY = (
+    "Pakistan", "Karachi", "Lahore", "Islamabad", "Rawalpindi",
+    "Peshawar", "Quetta", "Faisalabad", "Multan", "Sialkot",
+    "Hyderabad", "Gujranwala",
+)
+
+
+def _exclude_location_as_company_clause(alias: str = "") -> str:
+    placeholders = ", ".join(f"'{c}'" for c in _LOCATION_LEAKED_AS_COMPANY)
+    return f" AND {alias}company NOT IN ({placeholders})"
+
+
 def _category_scope_clause(category: str, alias: str = "") -> str:
     """
     SQL AND-clause fragment restricting to IT-relevant jobs by default -
@@ -1116,7 +1139,7 @@ def dashboard_top_it_jobs():
     cursor.execute(f"""
         SELECT job_id, title, company, location, country, remote_type
         FROM active_jobs
-        WHERE field_category_id LIKE 'it.%'{country_clause}{_status_window_clause(status)}
+        WHERE field_category_id LIKE 'it.%'{country_clause}{_status_window_clause(status)}{_exclude_location_as_company_clause()}
         ORDER BY COALESCE(posted_date, first_seen_at) DESC
         LIMIT 7
     """)
@@ -1142,7 +1165,7 @@ def dashboard_top_it_companies():
     cursor.execute(f"""
         SELECT company, COUNT(*) as count
         FROM active_jobs
-        WHERE company IS NOT NULL AND company != '' AND field_category_id LIKE 'it.%'{country_clause}{_status_window_clause(status)}
+        WHERE company IS NOT NULL AND company != '' AND field_category_id LIKE 'it.%'{country_clause}{_status_window_clause(status)}{_exclude_location_as_company_clause()}
         GROUP BY company
         ORDER BY count DESC
         LIMIT 10
@@ -1425,7 +1448,7 @@ def companies_list_it():
                 SUM(CASE WHEN LOWER(j.remote_type) = 'remote' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as remote_pct
             FROM active_jobs j
             LEFT JOIN skills s ON j.job_id = s.job_id
-            WHERE j.company IS NOT NULL AND j.company != '' AND j.field_category_id LIKE 'it.%'{country_clause}
+            WHERE j.company IS NOT NULL AND j.company != '' AND j.field_category_id LIKE 'it.%'{country_clause}{_exclude_location_as_company_clause("j.")}
             GROUP BY j.company
             HAVING job_count >= 2
             ORDER BY job_count DESC

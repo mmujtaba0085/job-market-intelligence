@@ -37,6 +37,11 @@ def it_widgets_client(tmp_path, monkeypatch):
         conn.execute("INSERT INTO jobs (title, company, country, field_category_id, posted_date) VALUES ('PK IT Job 2', 'Devsinc', 'Pakistan', 'it.data', ?)", (today,))
         conn.execute("INSERT INTO jobs (title, company, country, field_category_id, posted_date) VALUES ('US IT Job', 'NVIDIA', 'United States', 'it.software', ?)", (today,))
         conn.execute("INSERT INTO jobs (title, company, country, field_category_id, posted_date) VALUES ('PK Nurse Job', 'Shaukat Khanum', 'Pakistan', 'healthcare.clinical', ?)", (today,))
+        # A Pakistan Jobs Bank parsing bug leaks a bare location into the
+        # company field instead of a real employer name - see
+        # _LOCATION_LEAKED_AS_COMPANY in web_viewer.py.
+        conn.execute("INSERT INTO jobs (title, company, country, field_category_id, posted_date) VALUES ('Mislabeled Job 1', 'Pakistan', 'Pakistan', 'it.software', ?)", (today,))
+        conn.execute("INSERT INTO jobs (title, company, country, field_category_id, posted_date) VALUES ('Mislabeled Job 2', 'Pakistan', 'Pakistan', 'it.data', ?)", (today,))
     conn.close()
 
     import web_viewer
@@ -115,3 +120,16 @@ def test_top_it_jobs_respects_status_window(it_widgets_client):
 def test_location_diversity_route_no_longer_exists(it_widgets_client):
     r = it_widgets_client.get("/api/dashboard/location-diversity")
     assert r.status_code == 404
+
+
+def test_top_it_jobs_excludes_location_leaked_as_company(it_widgets_client):
+    r = it_widgets_client.get("/api/dashboard/top-it-jobs")
+    titles = [j["title"] for j in r.get_json()]
+    assert "Mislabeled Job 1" not in titles
+    assert "Mislabeled Job 2" not in titles
+
+
+def test_top_it_companies_excludes_location_leaked_as_company(it_widgets_client):
+    r = it_widgets_client.get("/api/dashboard/top-it-companies")
+    companies = [c["company"] for c in r.get_json()]
+    assert "Pakistan" not in companies

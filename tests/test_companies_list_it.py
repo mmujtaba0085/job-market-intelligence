@@ -40,6 +40,11 @@ def companies_it_client(tmp_path, monkeypatch):
         conn.execute("INSERT INTO jobs (company, country, field_category_id) VALUES ('Shaukat Khanum Hospital', 'Pakistan', 'it.software')")
         for _ in range(5):
             conn.execute("INSERT INTO jobs (company, country, field_category_id) VALUES ('Shaukat Khanum Hospital', 'Pakistan', 'healthcare.clinical')")
+        # A Pakistan Jobs Bank parsing bug leaks a bare location into the
+        # company field instead of a real employer name - see
+        # _LOCATION_LEAKED_AS_COMPANY in web_viewer.py.
+        conn.execute("INSERT INTO jobs (company, country, field_category_id) VALUES ('Pakistan', 'Pakistan', 'it.software')")
+        conn.execute("INSERT INTO jobs (company, country, field_category_id) VALUES ('Pakistan', 'Pakistan', 'it.data')")
     conn.close()
 
     import web_viewer
@@ -153,3 +158,16 @@ def test_existing_list_endpoint_is_unaffected(companies_it_client):
     assert "Devsinc" in names
     assert "NVIDIA" in names
     assert "Shaukat Khanum Hospital" in names  # 6 total jobs, clears the >= 2 floor on its own
+
+
+def test_list_it_excludes_location_leaked_as_company(companies_it_client):
+    """The IT-scoped route excludes company='Pakistan' (a parsing bug),
+    but the untouched /api/companies/list still shows it - confirming the
+    fix stayed scoped to the new IT-first routes."""
+    r = companies_it_client.get("/api/companies/list-it")
+    data = r.get_json()
+    all_names = {c["company"] for c in data["pakistan"]} | {c["company"] for c in data["global"]}
+    assert "Pakistan" not in all_names
+
+    r_unaffected = companies_it_client.get("/api/companies/list")
+    assert "Pakistan" in {c["company"] for c in r_unaffected.get_json()}
