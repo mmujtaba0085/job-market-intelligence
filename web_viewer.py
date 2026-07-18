@@ -25,7 +25,12 @@ import requests
 import sqlite3
 from flask import Flask, g, render_template, request, jsonify, make_response
 
-from config.settings import FLASK_SECRET_KEY, DB_PATH as SETTINGS_DB_PATH
+from config.settings import (
+    FLASK_SECRET_KEY,
+    DB_PATH as SETTINGS_DB_PATH,
+    GROWTH_THRESHOLD,
+    DECLINING_THRESHOLD,
+)
 
 # Auth system
 from src.auth.models import init_auth_db
@@ -1040,11 +1045,24 @@ def dashboard_sources():
 
 @app.route("/api/dashboard/emerging")
 def dashboard_emerging():
-    """Get emerging skills, aggregated across all markets."""
+    """
+    Get emerging skills, aggregated across all markets.
+
+    The emerging/declining classification is recomputed here from the
+    same blended SUM(frequency)/AVG(growth_percentage) shown in the
+    response, rather than trusting any individual market's stored
+    emerging_flag/declining_flag (HAVING MAX(flag)=1) - a skill that
+    declined sharply in one market but grew in another could otherwise
+    show a positive blended growth% while still being pulled into the
+    declining list purely because one market's row had the flag set.
+    Confirmed live 2026-07-18: "amazon web services" showed growth=+9.74
+    in the declining list (ai_ml_global +78.57%, swe_backend_global
+    -59.09%, MAX(declining_flag)=1 from the second market alone).
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT skill_name, category,
                SUM(frequency) as frequency,
                AVG(growth_percentage) as growth_percentage,
@@ -1053,8 +1071,8 @@ def dashboard_emerging():
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
           AND category != 'soft_skills'
         GROUP BY skill_name, category
-        HAVING MAX(emerging_flag) = 1
-           AND SUM(frequency) >= 15
+        HAVING SUM(frequency) >= 15
+           AND AVG(growth_percentage) >= {GROWTH_THRESHOLD}
         ORDER BY MAX(mover_score) DESC
         LIMIT 10
     """)
@@ -1068,11 +1086,15 @@ def dashboard_emerging():
 
 @app.route("/api/dashboard/declining")
 def dashboard_declining():
-    """Get declining skills, aggregated across all markets."""
+    """Get declining skills, aggregated across all markets.
+
+    See dashboard_emerging()'s docstring - classification is recomputed
+    from the blended AVG(growth_percentage) shown in the response, not
+    from any individual market's stored declining_flag."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    cursor.execute("""
+    cursor.execute(f"""
         SELECT skill_name, category,
                SUM(frequency) as frequency,
                AVG(growth_percentage) as growth_percentage,
@@ -1081,8 +1103,8 @@ def dashboard_declining():
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
           AND category != 'soft_skills'
         GROUP BY skill_name, category
-        HAVING MAX(declining_flag) = 1
-           AND SUM(frequency) >= 15
+        HAVING SUM(frequency) >= 15
+           AND AVG(growth_percentage) <= {DECLINING_THRESHOLD}
         ORDER BY MIN(mover_score) ASC
         LIMIT 10
     """)
@@ -2461,8 +2483,13 @@ def metrics_overview():
     """)
     weeks = cursor.fetchall()
     
-    # Get emerging skills (latest week, aggregated across markets)
-    cursor.execute("""
+    # Get emerging skills (latest week, aggregated across markets).
+    # Classification is recomputed from the blended AVG(growth_percentage)
+    # itself, not from any individual market's stored emerging_flag - see
+    # dashboard_emerging()'s docstring for why (a per-market flag can be
+    # set even when the blended growth% shown here is on the other side
+    # of the threshold).
+    cursor.execute(f"""
         SELECT skill_name, category,
                SUM(frequency) as frequency,
                AVG(growth_percentage) as growth_percentage,
@@ -2471,15 +2498,17 @@ def metrics_overview():
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
           AND category != 'soft_skills'
         GROUP BY skill_name, category
-        HAVING MAX(emerging_flag) = 1
-           AND SUM(frequency) >= 15
+        HAVING SUM(frequency) >= 15
+           AND AVG(growth_percentage) >= {GROWTH_THRESHOLD}
         ORDER BY MAX(mover_score) DESC
         LIMIT 20
     """)
     emerging = cursor.fetchall()
 
-    # Get declining skills (latest week, aggregated across markets)
-    cursor.execute("""
+    # Get declining skills (latest week, aggregated across markets).
+    # See the emerging query above for why this recomputes the
+    # classification instead of trusting MAX(declining_flag).
+    cursor.execute(f"""
         SELECT skill_name, category,
                SUM(frequency) as frequency,
                AVG(growth_percentage) as growth_percentage,
@@ -2488,8 +2517,8 @@ def metrics_overview():
         WHERE week_start_date = (SELECT MAX(week_start_date) FROM weekly_metrics)
           AND category != 'soft_skills'
         GROUP BY skill_name, category
-        HAVING MAX(declining_flag) = 1
-           AND SUM(frequency) >= 15
+        HAVING SUM(frequency) >= 15
+           AND AVG(growth_percentage) <= {DECLINING_THRESHOLD}
         ORDER BY MIN(mover_score) ASC
         LIMIT 20
     """)
