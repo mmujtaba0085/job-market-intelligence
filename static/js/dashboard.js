@@ -61,7 +61,6 @@ function loadDashboard() {
     loadTopSkillsChart();
     loadGeoChart();
     loadSourcesChart();
-    loadTopCompanies();
     loadTopITJobs();
     loadTopITCompanies();
 }
@@ -353,48 +352,6 @@ function loadSourcesChart() {
         })
         .catch(error => {
             console.error('Error loading sources chart:', error);
-        });
-}
-
-// Load Top Companies
-function loadTopCompanies() {
-    fetch(dashboardApi('/api/dashboard/companies'))
-        .then(response => response.json())
-        .then(data => {
-            const tbody = document.querySelector('#companiesTable tbody');
-            
-            if (data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary); padding: 2rem;">Nothing here yet — check back soon.</td></tr>';
-                return;
-            }
-            
-            const authed = window.GW_AUTHED;
-            const html = data.map((company, index) => `
-                <tr${authed ? '' : ' class="gw-row-gate" onclick="gwShowGate()"'}>
-                    <td><strong>#${index + 1}</strong></td>
-                    <td>${company.company}</td>
-                    <td><strong>${company.count}</strong> jobs</td>
-                    <td>
-                        ${authed ? `
-                        <a href="/jobs?company=${encodeURIComponent(company.company)}" 
-                           class="btn" 
-                           style="padding: 0.25rem 0.75rem; font-size: 0.75rem; background: var(--accent); color: white; text-decoration: none; border-radius: 6px;">
-                            View Jobs
-                        </a>` : `
-                        <button type="button" onclick="event.stopPropagation();gwShowGate()"
-                           class="btn"
-                           style="padding: 0.25rem 0.75rem; font-size: 0.75rem; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-family: inherit;">
-                            View Jobs
-                        </button>`}
-                    </td>
-                </tr>
-            `).join('');
-            
-            tbody.innerHTML = html;
-        })
-        .catch(error => {
-            console.error('Error loading companies:', error);
-            document.querySelector('#companiesTable tbody').innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--danger); padding: 2rem;">Something went wrong loading this — try refreshing.</td></tr>';
         });
 }
 
