@@ -1403,6 +1403,45 @@ def companies_list():
     return jsonify(companies)
 
 
+@app.route("/api/companies/list-it")
+@cache.cached(timeout=900, key_prefix=_role_aware_cache_key, response_hit_indication=True)
+def companies_list_it():
+    """Two ranked IT-company lists (Pakistan, worldwide) for the
+    Companies Intelligence page's default mode - see
+    docs/superpowers/specs/2026-07-18-companies-intelligence-it-first-design.md.
+    Strict field_category_id LIKE 'it.%' throughout, matching the
+    dashboard's Top Hiring IT Companies widget - a curated ranking, not
+    a broad browse list, so precision over recall (no NULL-inclusion)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    def _fetch(country_clause):
+        cursor.execute(f"""
+            SELECT
+                j.company,
+                COUNT(DISTINCT j.job_id) as job_count,
+                COUNT(DISTINCT s.normalized_skill) as skill_diversity,
+                COUNT(DISTINCT j.country) as location_count,
+                SUM(CASE WHEN LOWER(j.remote_type) = 'remote' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as remote_pct
+            FROM active_jobs j
+            LEFT JOIN skills s ON j.job_id = s.job_id
+            WHERE j.company IS NOT NULL AND j.company != '' AND j.field_category_id LIKE 'it.%'{country_clause}
+            GROUP BY j.company
+            HAVING job_count >= 2
+            ORDER BY job_count DESC
+            LIMIT 100
+        """)
+        return [{"company": row["company"], "job_count": row["job_count"],
+                 "skill_diversity": row["skill_diversity"], "location_count": row["location_count"],
+                 "remote_pct": round(row["remote_pct"], 1)}
+                for row in cursor.fetchall()]
+
+    pakistan = _fetch(" AND j.country = 'Pakistan'")
+    global_ = _fetch("")
+    conn.close()
+    return jsonify({"pakistan": pakistan, "global": global_})
+
+
 @app.route("/api/companies/<company>/details")
 def company_details(company):
     """Get detailed company information."""
