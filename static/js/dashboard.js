@@ -61,8 +61,6 @@ function loadDashboard() {
     loadTopSkillsChart();
     loadGeoChart();
     loadSourcesChart();
-    loadEmergingSkills();
-    loadDecliningSkills();
     loadTopCompanies();
     loadTopITJobs();
     loadTopITCompanies();
@@ -355,92 +353,6 @@ function loadSourcesChart() {
         })
         .catch(error => {
             console.error('Error loading sources chart:', error);
-        });
-}
-
-// Load Emerging Skills
-function loadEmergingSkills() {
-    fetch(dashboardApi('/api/dashboard/emerging'))
-        .then(response => response.json())
-        .then(data => {
-            const container = document.getElementById('emergingList');
-
-            if (!Array.isArray(data) || data.length === 0) {
-                container.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 2rem;">Nothing trending up right now — check back soon.</p>';
-                return;
-            }
-            
-            const html = `
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Skill</th>
-                            <th>Category</th>
-                            <th>Mentions</th>
-                            <th>Growth</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${data.map(skill => `
-                            <tr>
-                                <td><strong>${skill.skill}</strong></td>
-                                <td><span style="font-size: 0.75rem; color: var(--text-secondary);">${skill.category || 'N/A'}</span></td>
-                                <td>${skill.frequency}</td>
-                                <td><span class="badge-emerging">+${skill.growth.toFixed(1)}%</span></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
-            
-            container.innerHTML = html;
-        })
-        .catch(error => {
-            console.error('Error loading emerging skills:', error);
-            document.getElementById('emergingList').innerHTML = '<p style="color: var(--danger); text-align: center; padding: 2rem;">Something went wrong loading this — try refreshing.</p>';
-        });
-}
-
-// Load Declining Skills
-function loadDecliningSkills() {
-    fetch(dashboardApi('/api/dashboard/declining'))
-        .then(response => response.json())
-        .then(data => {
-            const container = document.getElementById('decliningList');
-
-            if (!Array.isArray(data) || data.length === 0) {
-                container.innerHTML = '<p style="color: var(--text-secondary); text-align: center; padding: 2rem;">Nothing trending down right now — check back soon.</p>';
-                return;
-            }
-            
-            const html = `
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Skill</th>
-                            <th>Category</th>
-                            <th>Mentions</th>
-                            <th>Decline</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${data.map(skill => `
-                            <tr>
-                                <td><strong>${skill.skill}</strong></td>
-                                <td><span style="font-size: 0.75rem; color: var(--text-secondary);">${skill.category || 'N/A'}</span></td>
-                                <td>${skill.frequency}</td>
-                                <td><span class="badge-declining">${skill.growth.toFixed(1)}%</span></td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-            `;
-            
-            container.innerHTML = html;
-        })
-        .catch(error => {
-            console.error('Error loading declining skills:', error);
-            document.getElementById('decliningList').innerHTML = '<p style="color: var(--danger); text-align: center; padding: 2rem;">Something went wrong loading this — try refreshing.</p>';
         });
 }
 

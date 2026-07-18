@@ -126,23 +126,6 @@
     }
     .data-table tr:hover { background: var(--bg-elevated); }
 
-    .badge-emerging {
-        background: var(--success-bg);
-        color: var(--success);
-        padding: 0.2rem 0.55rem;
-        border-radius: 6px;
-        font-size: 0.72rem;
-        font-weight: 700;
-    }
-    .badge-declining {
-        background: var(--danger-bg);
-        color: var(--danger);
-        padding: 0.2rem 0.55rem;
-        border-radius: 6px;
-        font-size: 0.72rem;
-        font-weight: 700;
-    }
-
     .loading-spinner {
         display: inline-block;
         width: 30px;
@@ -260,28 +243,6 @@
         </div>
         <div class="chart-container {% if not g.current_user %}gw-locked{% endif %}">
             <canvas id="sourcesChart"></canvas>
-            {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
-        </div>
-    </div>
-
-    <div class="widget">
-        <div class="widget-header">
-            <h3 class="widget-title"><span class="icon-tile" style="color:var(--success);">{{ icons.trend('up', 17) }}</span> Emerging skills</h3>
-            <span class="widget-subtitle">Top 10 trending up</span>
-        </div>
-        <div class="{% if not g.current_user %}gw-locked{% endif %}">
-            <div id="emergingList" class="loading"><div class="loading-spinner"></div></div>
-            {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
-        </div>
-    </div>
-
-    <div class="widget">
-        <div class="widget-header">
-            <h3 class="widget-title"><span class="icon-tile" style="color:var(--danger);">{{ icons.trend('down', 17) }}</span> Declining skills</h3>
-            <span class="widget-subtitle">Top 10 trending down</span>
-        </div>
-        <div class="{% if not g.current_user %}gw-locked{% endif %}">
-            <div id="decliningList" class="loading"><div class="loading-spinner"></div></div>
             {% if not g.current_user %}{{ gating.lockedBadge() }}{% endif %}
         </div>
     </div>
