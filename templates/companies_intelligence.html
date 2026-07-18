@@ -383,7 +383,7 @@ function openCompanyPanel(cardEl) {
             const max = skills[0].count;
             document.getElementById('coPanelSkills').innerHTML = skills.map(s => `
                 <div class="skill-row">
-                    <span class="skill-name">${s.normalized_skill}</span>
+                    <span class="skill-name">${s.skill}</span>
                     <div class="skill-bar-track"><div class="skill-bar-fill" style="width:${Math.round(s.count / max * 100)}%"></div></div>
                     <span class="skill-count">${s.count}</span>
                 </div>`).join('');
