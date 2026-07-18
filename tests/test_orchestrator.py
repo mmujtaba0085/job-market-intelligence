@@ -1,10 +1,12 @@
 """
 tests/test_orchestrator.py
 ────────────────────────────
-Tests for the diversity-rank recompute hook in src/orchestrator.py's main().
+Tests for the diversity-rank recompute hook and last-completed-week
+guard in src/orchestrator.py's main().
 """
 
 import argparse
+from datetime import date, timedelta
 
 import pytest
 
@@ -13,6 +15,59 @@ import src.storage.db as db
 
 def _args(mode=None, backfill=False):
     return argparse.Namespace(mode=mode, backfill=backfill, start=None, end=None, html=False, max_runtime=None, run_id=None)
+
+
+class TestLastCompletedWeekStart:
+    def test_returns_the_week_before_the_containing_week(self):
+        from src.orchestrator import _iso_week_start, _last_completed_week_start
+        # Wednesday, mid-week - its ISO week hasn't completed yet.
+        wednesday = date(2026, 7, 15)
+        assert _last_completed_week_start(wednesday) == _iso_week_start(wednesday) - timedelta(weeks=1)
+
+    def test_matches_run_backfills_upper_bound_semantics(self):
+        """run_backfill() already excludes the in-progress week via
+        `current < today_week`; _last_completed_week_start() must resolve
+        to exactly the last value that guard would have allowed through."""
+        from src.orchestrator import _iso_week_start, _last_completed_week_start
+        today = date(2026, 7, 18)  # Saturday, mid-week
+        today_week = _iso_week_start(today)
+        assert _last_completed_week_start(today) < today_week
+        assert _last_completed_week_start(today) == today_week - timedelta(weeks=1)
+
+    def test_monday_still_resolves_to_the_prior_full_week(self):
+        """Even on the Monday a new week starts (0 days elapsed), the
+        result must be the fully-completed week before it - never the
+        week that just started."""
+        from src.orchestrator import _iso_week_start, _last_completed_week_start
+        monday = date(2026, 7, 13)
+        assert _last_completed_week_start(monday) == _iso_week_start(monday) - timedelta(weeks=1)
+
+
+class TestMainUsesLastCompletedWeek:
+    def test_run_receives_last_completed_week_not_current_week(self, monkeypatch):
+        """main() must pass _last_completed_week_start(today)'s value to
+        _run() - not _iso_week_start(today) (the in-progress week) -
+        confirmed live 2026-07-18 that using the in-progress week makes
+        compute_weekly_metrics() produce spurious near-universal
+        "decline" readings (see _last_completed_week_start's docstring)."""
+        import src.orchestrator as orchestrator
+        from src.orchestrator import _iso_week_start, _last_completed_week_start
+
+        monkeypatch.setattr(orchestrator, "_parse_args", lambda: _args(mode="weekly"))
+        monkeypatch.setattr(orchestrator, "run_migrations", lambda: None)
+        monkeypatch.setattr(orchestrator, "_setup_logging", lambda run_id="", week="": None)
+        monkeypatch.setattr("src.pipeline_monitor.start_run", lambda mode, trigger="schedule": "test-run-id")
+        monkeypatch.setattr("src.pipeline_monitor.finish_run", lambda run_id, **kwargs: None)
+        monkeypatch.setattr(orchestrator, "recompute_diversity_ranks", lambda: None)
+
+        received = {}
+        monkeypatch.setattr(orchestrator, "_run", lambda args, week_start: received.__setitem__("week_start", week_start) or {})
+
+        orchestrator.main()
+
+        today = date.today()
+        assert received["week_start"] == _last_completed_week_start(today)
+        assert received["week_start"] != _iso_week_start(today)
 
 
 class TestShouldRecomputeDiversity:

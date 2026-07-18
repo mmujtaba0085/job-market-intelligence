@@ -556,6 +556,26 @@ def _iso_week_start(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
+def _last_completed_week_start(d: date) -> date:
+    """
+    Return the Monday of the most recent FULLY COMPLETED ISO week as of
+    date d - the week before the one containing d.
+
+    The live "weekly"/"report-only" pipeline entry point (main()) uses
+    this instead of _iso_week_start(date.today()) directly, so
+    compute_weekly_metrics() never runs against a week that's still in
+    progress. A partial week's frequency reads low against a complete
+    comparison week EMERGING_LOOKBACK_WEEKS back, which produces a
+    spurious near-universal "decline" across almost every skill -
+    confirmed live 2026-07-18 (Python/AWS/SQL/JavaScript/DevOps/
+    Kubernetes all showing 60-70% "decline" purely because the
+    in-progress week had ~5.4k jobs so far vs ~12-15k in each complete
+    recent week). Mirrors the guard run_backfill() already applies via
+    `current < today_week`.
+    """
+    return _iso_week_start(d) - timedelta(weeks=1)
+
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Job Market Intelligence Orchestrator")
     group = parser.add_mutually_exclusive_group(required=True)
@@ -600,7 +620,9 @@ def main() -> None:
     # Ensure DB + tables exist
     run_migrations()
 
-    week_start = _iso_week_start(date.today())
+    # Last completed week, not the in-progress one - see
+    # _last_completed_week_start()'s docstring for why.
+    week_start = _last_completed_week_start(date.today())
     week_str = f"{week_start.year}-{week_start.isocalendar()[1]:02d}"
 
     # Determine run_id before logging so the log file is named per-run
