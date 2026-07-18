@@ -87,6 +87,9 @@ function loadKPIs() {
     fetch(dashboardApi('/api/dashboard/kpis'))
         .then(response => response.json())
         .then(data => {
+            document.getElementById('kpiTotalJobs').textContent = fmtKpi(data.total_jobs);
+            setTrend(document.getElementById('kpiTotalJobsTrend'), data.jobs_trend);
+
             document.getElementById('kpiSkills').textContent = fmtKpi(data.total_skills);
             setTrend(document.getElementById('kpiSkillsTrend'), data.skills_trend);
 
