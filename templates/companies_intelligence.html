@@ -151,7 +151,7 @@
 <div class="page-top-row">
     <div>
         <div class="page-title">Companies</div>
-        <div class="page-sub">Every employer we've aggregated, blended across all connected sources</div>
+        <div class="page-sub" id="coSubtitle">Companies hiring for IT roles, Pakistan first.</div>
     </div>
 </div>
 
@@ -160,6 +160,10 @@
         {{ icons.search(14) }}
         <input type="text" id="coSearchInput" placeholder="Search companies…">
     </div>
+    <select id="coCategorySelect" class="co-sort">
+        <option value="it">IT Jobs</option>
+        <option value="all">All Categories</option>
+    </select>
     <select id="coSortSelect" class="co-sort">
         <option value="jobs">Sort: Most jobs</option>
         <option value="skills">Sort: Most skills</option>
@@ -181,7 +185,17 @@
     <a href="#" id="coPanelJobsLink" class="co-view-jobs">{{ icons.briefcase(14) }} View all jobs at this company →</a>
 </div>
 
-<div class="co-grid" id="coGrid">
+<div id="coItSections">
+    <h3 class="card-title" style="margin-bottom:12px; font-size:15px;">IT Companies in Pakistan</h3>
+    <div class="co-grid" id="coGridPakistan">
+        <div class="co-empty"><div class="loading-spinner"></div></div>
+    </div>
+    <h3 class="card-title" style="margin: 1.5rem 0 12px; font-size:15px;">IT Companies Worldwide</h3>
+    <div class="co-grid" id="coGridGlobal">
+        <div class="co-empty"><div class="loading-spinner"></div></div>
+    </div>
+</div>
+<div class="co-grid" id="coGrid" style="display:none;">
     <div class="co-empty"><div class="loading-spinner"></div></div>
 </div>
 {{ gating.bar() }}
@@ -190,8 +204,11 @@
 {% block extra_scripts %}
 <script>
 let allCompanies = [];
+let pakistanCompanies = [];
+let globalCompanies = [];
 let currentSort = 'jobs';
 let currentSearch = '';
+let currentCategory = 'it';
 
 function initials(name) {
     const words = name.replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
@@ -200,17 +217,15 @@ function initials(name) {
     return (words[0][0] + words[1][0]).toUpperCase();
 }
 
+function getInitialCategory() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('category') === 'all' ? 'all' : 'it';
+}
+
 document.addEventListener('DOMContentLoaded', function () {
-    fetch('/api/companies/list')
-        .then(r => r.json())
-        .then(data => {
-            allCompanies = data;
-            applyView();
-        })
-        .catch(() => {
-            document.getElementById('coGrid').innerHTML =
-                '<div class="co-empty">Something went wrong loading companies — try refreshing.</div>';
-        });
+    currentCategory = getInitialCategory();
+    document.getElementById('coCategorySelect').value = currentCategory;
+    applyCategoryMode();
 
     document.getElementById('coSearchInput').addEventListener('input', function (e) {
         currentSearch = e.target.value.trim().toLowerCase();
@@ -220,17 +235,74 @@ document.addEventListener('DOMContentLoaded', function () {
         currentSort = e.target.value;
         applyView();
     });
+    document.getElementById('coCategorySelect').addEventListener('change', function (e) {
+        currentCategory = e.target.value;
+        applyCategoryMode();
+    });
 });
 
-function applyView() {
-    let list = allCompanies.filter(c => c.company.toLowerCase().includes(currentSearch));
-    const sortKey = { jobs: 'job_count', skills: 'skill_diversity', remote: 'remote_pct', countries: 'location_count' }[currentSort];
-    list = list.slice().sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
-    renderGrid(list);
+function applyCategoryMode() {
+    const itSections = document.getElementById('coItSections');
+    const allGrid = document.getElementById('coGrid');
+    const subtitle = document.getElementById('coSubtitle');
+
+    if (currentCategory === 'it') {
+        itSections.style.display = '';
+        allGrid.style.display = 'none';
+        subtitle.textContent = 'Companies hiring for IT roles, Pakistan first.';
+        if (pakistanCompanies.length === 0 && globalCompanies.length === 0) {
+            fetch('/api/companies/list-it')
+                .then(r => r.json())
+                .then(data => {
+                    pakistanCompanies = data.pakistan;
+                    globalCompanies = data.global;
+                    applyView();
+                })
+                .catch(() => {
+                    document.getElementById('coGridPakistan').innerHTML =
+                        '<div class="co-empty">Something went wrong loading companies — try refreshing.</div>';
+                });
+        } else {
+            applyView();
+        }
+    } else {
+        itSections.style.display = 'none';
+        allGrid.style.display = '';
+        subtitle.textContent = "Every employer we've aggregated, blended across all connected sources";
+        if (allCompanies.length === 0) {
+            fetch('/api/companies/list')
+                .then(r => r.json())
+                .then(data => {
+                    allCompanies = data;
+                    applyView();
+                })
+                .catch(() => {
+                    document.getElementById('coGrid').innerHTML =
+                        '<div class="co-empty">Something went wrong loading companies — try refreshing.</div>';
+                });
+        } else {
+            applyView();
+        }
+    }
 }
 
-function renderGrid(list) {
-    const grid = document.getElementById('coGrid');
+function filterAndSort(list) {
+    let filtered = list.filter(c => c.company.toLowerCase().includes(currentSearch));
+    const sortKey = { jobs: 'job_count', skills: 'skill_diversity', remote: 'remote_pct', countries: 'location_count' }[currentSort];
+    return filtered.slice().sort((a, b) => (b[sortKey] || 0) - (a[sortKey] || 0));
+}
+
+function applyView() {
+    if (currentCategory === 'it') {
+        renderGrid(filterAndSort(pakistanCompanies), 'coGridPakistan');
+        renderGrid(filterAndSort(globalCompanies), 'coGridGlobal');
+    } else {
+        renderGrid(filterAndSort(allCompanies), 'coGrid');
+    }
+}
+
+function renderGrid(list, targetId) {
+    const grid = document.getElementById(targetId);
     if (list.length === 0) {
         grid.innerHTML = '<div class="co-empty">No companies match "' + currentSearch + '".</div>';
         return;
@@ -266,7 +338,12 @@ function openCompanyPanel(cardEl) {
 
     const encoded = cardEl.dataset.company;
     const company = decodeURIComponent(encoded);
-    const data = allCompanies.find(c => c.company === company);
+    // A company can appear in both pakistanCompanies and globalCompanies
+    // (global is a superset) - check Pakistan first since that's the
+    // more specific/relevant match when both exist.
+    const data = (currentCategory === 'it')
+        ? (pakistanCompanies.find(c => c.company === company) || globalCompanies.find(c => c.company === company))
+        : allCompanies.find(c => c.company === company);
     if (!data) return;
 
     const panel = document.getElementById('coPanel');
