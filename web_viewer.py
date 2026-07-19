@@ -3905,19 +3905,21 @@ def admin_tickets_dismiss(ticket_id):
 
 # ── Auto-scheduler background thread ─────────────────────────────────────────
 
-def _scheduler_tick_once(now) -> None:
-    """One iteration of the auto-scheduler's work, extracted from
-    _auto_scheduler_loop() so it's directly callable/testable without the
-    surrounding time.sleep(60)/while True loop. `now` is passed in (not
-    read internally) so tests can control it precisely.
-
-    Classification tick and the rotation check each get their own
-    try/except - a persistent failure in one (e.g. a bad classification
-    row) must not silently block the other from ever running again. Both
-    used to share one try/except with the ingest/crawl scheduler section
-    above, so a classification exception on every tick would skip the
-    rotation check forever, starving it."""
-    from datetime import timedelta, timezone as _tz
+def _run_ingest_crawl_scheduler_tick(now) -> None:
+    """The actual ingest/crawl due-check-and-launch, called only through
+    the cross-process file lock in _scheduler_tick_once() below - without
+    it, gunicorn's N independently-started scheduler threads (one per
+    worker process - see this module's `_scheduler_thread = Thread(...)`)
+    can each independently see "nothing running yet" and all launch the
+    same mode within moments of each other. Confirmed live 2026-07-18:
+    ingest-only firing roughly every 6h instead of the configured 12h,
+    with near-simultaneous pairs (e.g. one run inserting 5,426 new jobs,
+    a second starting 5 minutes later inserting 4, having refetched
+    almost the same already-deduped batch). Same class of race already
+    fixed once for classification scheduling (see
+    src.classification.scheduling.run_scheduler_tick) - this is the
+    other half of that fix, never applied here."""
+    from datetime import timezone as _tz
     from src.pipeline_monitor import compute_next_run, get_config, get_running_runs, launch_pipeline
 
     _log = logging.getLogger("auto_scheduler")
@@ -3935,6 +3937,38 @@ def _scheduler_tick_once(now) -> None:
             if not already:
                 launch_pipeline(mode, trigger="schedule")
                 _log.info("Auto-launched %s (was due %s)", mode, nxt_dt.isoformat())
+
+
+def _scheduler_tick_once(now) -> None:
+    """One iteration of the auto-scheduler's work, extracted from
+    _auto_scheduler_loop() so it's directly callable/testable without the
+    surrounding time.sleep(60)/while True loop. `now` is passed in (not
+    read internally) so tests can control it precisely.
+
+    Classification tick and the rotation check each get their own
+    try/except - a persistent failure in one (e.g. a bad classification
+    row) must not silently block the other from ever running again. Both
+    used to share one try/except with the ingest/crawl scheduler section
+    above, so a classification exception on every tick would skip the
+    rotation check forever, starving it."""
+    from datetime import timedelta, timezone as _tz
+    from src.storage import db
+
+    _log = logging.getLogger("auto_scheduler")
+
+    try:
+        if db.fcntl is None:
+            _run_ingest_crawl_scheduler_tick(now)
+        else:
+            db._INGEST_SCHEDULER_LOCK_PATH.touch(exist_ok=True)
+            with open(db._INGEST_SCHEDULER_LOCK_PATH, "r+") as lock_file:
+                db.fcntl.flock(lock_file, db.fcntl.LOCK_EX)
+                try:
+                    _run_ingest_crawl_scheduler_tick(now)
+                finally:
+                    db.fcntl.flock(lock_file, db.fcntl.LOCK_UN)
+    except Exception as exc:
+        _log.error("Ingest/crawl scheduler tick failed: %s", exc)
 
     try:
         from src.classification.scheduling import run_scheduler_tick

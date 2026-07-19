@@ -59,6 +59,7 @@ _BUFFER_DB_PATH = _DATA_DIR / "buffer.sqlite"
 _POINTER_PATH = _DATA_DIR / "serving_pointer.txt"
 _ROTATION_LOCK_PATH = _DATA_DIR / ".rotation.lock"
 _CLASSIFICATION_SCHEDULER_LOCK_PATH = _DATA_DIR / ".classification_scheduler.lock"
+_INGEST_SCHEDULER_LOCK_PATH = _DATA_DIR / ".ingest_scheduler.lock"
 
 # Which logical target get_connection() resolves to. Defaults to "serving" -
 # only orchestrator.py's ingest-only path (use_buffer_connection) and
